@@ -1,6 +1,6 @@
 # SimChat — LMBrewer 开源底层框架
 
-> 状态：**Phase 0-3 + P2.4 全部交付**（2026-10-27）。
+> 状态：**Phase 0-5 全部交付**（2026-10-28）。
 > 定位：SimChat 是 **LMBrewer 的开源底层框架**——它本身具备接入 LLM API 进行对话的完整能力（`runtime/providers.py` + `core.py` + `store.py`），同时提供 MOD SDK + 加载器 + 清单规范 + 沙箱运行时，让社区和团队以模块方式扩展认知能力。
 > 愿景：四类 MOD 对应通用智能的四个积木——`skill`=工具调用（感知与行动）、`automation`=自我编排（自主规划）、`agent-config`=人格与对齐（行为约束）、`binary`=专有内核（推理/记忆/安全）。SimChat 是模块化 AGI 的开源基座。
 
@@ -35,13 +35,21 @@ simchat/
 ├── sdk/python/simchat_mod/    # MOD SDK（ABI：lmbrew-mod/1）
 │   ├── __init__.py               # ModApi + ModeSpec + ToolSpec + @hook + register_tool()（177 行）
 │   └── skill_base.py             # skill MOD 基类 BaseSkill（47 行）
-└── fixtures/                  # Agent SSE 回归基线（Phase 0 冻结）
-    ├── agent-happy.json
-    ├── agent-approval-approve.json
-    ├── agent-approval-reject.json
-    ├── agent-aborted.json
-    ├── agent-max-turns.json
-    └── record_agent_sse.py
+├── fixtures/                  # Agent SSE 回归基线（Phase 0 冻结）
+│   ├── agent-happy.json
+│   ├── agent-approval-approve.json
+│   ├── agent-approval-reject.json
+│   ├── agent-aborted.json
+│   ├── agent-max-turns.json
+│   └── record_agent_sse.py
+├── cli/                       # MOD CLI（init / pack / verify / publish / gen-key）
+├── automation/                # Automation DAG 引擎（scheduler / executor / approval / quota / audit）
+├── registry/                  # 静态 MOD 索引（index.json）
+├── web/                       # Web UI（Flask：聊天 + 设置页）
+├── harmony-webview/           # 鸿蒙 ArkUI WebView 壳
+├── examples/                  # 示例 MOD（skill-hello / automation-daily-digest）
+├── docs/                      # 设计文档
+└── mods/                      # 一等方 MOD（8 个，4 类全覆盖）
 ```
 
 ## 架构
@@ -99,8 +107,8 @@ from simchat_mod import ModApi, ModeSpec, ToolSpec, BaseSkill, hook
 | Phase 1 第一个 MOD（Galax） | ✅ | `c58ec00` | GalaxPipeline 抽成 `mods/barry.galax/` |
 | Phase 2 本体独立对话 + Loader 底座 | ✅ | `494c5e9`–`e03e310` | runtime/ 3 模块 + loader/ 9 模块 + P2.4 skill MOD 全链路 |
 | Phase 3 蓝图化 | ✅ | `7f29360`–`b4ec484` | lmbrew.py 降至 **303 行**，4 蓝图接管全部路由 |
-| Phase 4 CLI + 索引 | 规划中 | — | `simchat mod install/pack/publish` + 静态索引 |
-| Phase 5 Automation DAG | 规划中 | — | JSON DAG 调度器，节点只能调已注册 skill |
+| Phase 4 CLI + 索引 | ✅ | — | `simchat mod init/pack/verify/publish/gen-key` + `registry/index.json` 静态索引 |
+| Phase 5 Automation DAG | ✅ | — | `automation/` DAG 引擎（scheduler/executor/approval/quota/audit）+ `mods/automation.daily-digest` |
 | Phase 6 仓库/品牌/社区 | 规划中 | — | 官方仓库/商店前端/付费框架 |
 
 ## 冒烟测试（P2.4 交付时）
@@ -120,7 +128,7 @@ P2.4 skill MOD 迁移的完整链路验证，11/11 PASS：
 
 ## 本目录不包含（故意的）
 
-- 任何私有实现（JRVS / Hippo / Galax 内核 / 人设 / 音色）
+- 任何私有实现（JRVS / Hippo / 人设 / 音色；Galax 检索管线已开源为 `mods/barry.galax/`）
 - 任何密钥、授权素材、用户数据
-- 商店前端（Phase 4 之后）
+- 商店前端（Phase 6 范围）
 - `__pycache__/`（已 gitignored）
