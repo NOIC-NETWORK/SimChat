@@ -29,6 +29,13 @@
     lockConfig: document.getElementById("lock-config"),
     input: document.getElementById("input"),
     send: document.getElementById("send"),
+    attachBtn: document.getElementById("attach-btn"),
+    attachInput: document.getElementById("attach-input"),
+    attachChips: document.getElementById("attach-chips"),
+    modelSelect: document.getElementById("model-select"),
+    approvalMode: document.getElementById("approval-mode"),
+    orbiterMode: document.getElementById("orbiter-mode"),
+    ttsMode: document.getElementById("tts-mode"),
     agentToggle: document.getElementById("agent-toggle"),
     agentToggleLabel: document.getElementById("agent-toggle-label"),
     openIde: document.getElementById("open-ide"),
@@ -82,6 +89,8 @@
     configured: null,
     resolved: null,
     drafts: {},
+    model: null,          // composer 模型选择；null = 跟随服务商默认
+    attachments: [],      // 待发送的文本附件 {name, content}
 
     // 设置页状态
     settings: null,
@@ -302,17 +311,20 @@
       title.textContent = session.title || "新对话";
       item.appendChild(title);
 
-      const remove = document.createElement("button");
-      remove.className = "session-delete";
-      remove.type = "button";
-      remove.title = "删除会话";
-      remove.setAttribute("aria-label", "删除会话");
-      remove.innerHTML = TRASH_ICON;
-      remove.addEventListener("click", (event) => {
-        event.stopPropagation();
-        removeSession(session.id);
-      });
-      item.appendChild(remove);
+      // 空会话（一条消息都还没有）不提供删除——删除它没有意义，且容易误点
+      if ((session.message_count || 0) > 0) {
+        const remove = document.createElement("button");
+        remove.className = "session-delete";
+        remove.type = "button";
+        remove.title = "删除会话";
+        remove.setAttribute("aria-label", "删除会话");
+        remove.innerHTML = TRASH_ICON;
+        remove.addEventListener("click", (event) => {
+          event.stopPropagation();
+          removeSession(session.id);
+        });
+        item.appendChild(remove);
+      }
 
       item.addEventListener("click", () => openSession(session.id));
       el.sessionList.appendChild(item);
@@ -347,6 +359,9 @@
       const history = session.messages || [];
       for (const message of history) addMessage(message.role, message.content, true);
 
+      // enterMode 有早退守卫（mode 相同时直接 return），welcome 显隐必须在这里同步
+      showWelcome(history.length === 0);
+
       // 只有解锁（配好服务商）才进 chat 模式；否则保持 setup 不被覆盖
       if (!state.locked) enterMode("chat");
 
@@ -365,6 +380,8 @@
     state.stickToBottom = true;
     el.messages.innerHTML = "";
     recalcSessionTokens();
+    // 同上：enterMode 可能早退，welcome 显隐在此同步
+    showWelcome(true);
     document
       .querySelectorAll(".session-item.active")
       .forEach((node) => node.classList.remove("active"));
@@ -464,6 +481,7 @@
     }
 
     setLocked(!data.available, keepSetup);
+    updateModelSelect();
 
     if (state.mode === "setup") {
       renderProviderTabs();
@@ -471,6 +489,147 @@
       renderProviderForm();
       renderPresets();
     }
+  }
+
+  // ---------------- Composer 工具条：模型选择 / 附件 / 预留控件 ----------------
+
+  /* 模型下拉跟随「实际生效的服务商」（auto 时取 resolved）：
+     ollama 列出已安装模型，openai_compat 列已配置的 model_name，
+     auto 且 resolved 不可用时给提示项。选择写入 state.model，随 /api/chat 发送。 */
+  function updateModelSelect() {
+    const select = el.modelSelect;
+    if (!select) return;
+    const providers = state.providers || [];
+    const real =
+      providers.find((p) => p.id === state.resolved) ||
+      providers.find((p) => p.available) ||
+      null;
+    select.innerHTML = "";
+    state.model = null;
+
+    if (!real) {
+      select.disabled = true;
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "无可用模型";
+      select.appendChild(opt);
+      return;
+    }
+
+    select.disabled = false;
+    const values = real.values || {};
+    const models =
+      (real.models && real.models.length ? real.models : null) ||
+      (values.model ? [values.model] : null) ||
+      (values.model_name ? [values.model_name] : []);
+    const current = values.model || values.model_name || models[0] || "";
+    state.model = current || null;
+
+    for (const name of models) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    }
+    if (current) select.value = current;
+    select.title = "选择模型（" + real.label + "）";
+  }
+
+  function setAgentOnlyVisible(visible) {
+    document.querySelectorAll(".agent-only").forEach((node) => {
+      node.classList.toggle("hidden", !visible);
+    });
+  }
+
+  /* 预留开关控件：审批 / Orbiter / TTS。只做 UI 状态，不接后端。 */
+  function bindReservedToggle(btn) {
+    btn?.addEventListener("click", () => btn.classList.toggle("on"));
+  }
+
+  const ATTACH_MAX_BYTES = 256 * 1024;
+
+  function renderAttachChips() {
+    if (!el.attachChips) return;
+    el.attachChips.innerHTML = "";
+    el.attachChips.classList.toggle("hidden", state.attachments.length === 0);
+    state.attachments.forEach((att, index) => {
+      const chip = document.createElement("span");
+      chip.className = "attach-chip";
+      chip.title = att.name + "（" + att.content.length + " 字符）";
+
+      const name = document.createElement("span");
+      name.className = "attach-chip-name";
+      name.textContent = att.name;
+      chip.appendChild(name);
+
+      const remove = document.createElement("button");
+      remove.className = "attach-chip-x";
+      remove.type = "button";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", "移除附件 " + att.name);
+      remove.addEventListener("click", () => {
+        state.attachments.splice(index, 1);
+        renderAttachChips();
+        updateSendState();
+      });
+      chip.appendChild(remove);
+
+      el.attachChips.appendChild(chip);
+    });
+  }
+
+  const ATTACH_TEXT_EXT =
+    /\.(txt|md|markdown|json|jsonl|js|ts|jsx|tsx|py|java|c|h|cpp|hpp|cs|go|rs|rb|php|html?|css|scss|less|xml|ya?ml|toml|ini|cfg|conf|log|csv|sql|sh|bat|ps1|vue|svelte)$/i;
+
+  function attachFile(file) {
+    if (!file) return;
+    if (file.size > ATTACH_MAX_BYTES) {
+      window.alert("文件过大（" + Math.ceil(file.size / 1024) + " KB），目前仅支持 256 KB 以内的文本文件。");
+      return;
+    }
+    if (!ATTACH_TEXT_EXT.test(file.name) && !(file.type || "").startsWith("text/")) {
+      window.alert("目前仅支持文本类文件（代码 / 文档 / 数据），二进制文件暂不支持。");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      state.attachments.push({ name: file.name, content: String(reader.result || "") });
+      renderAttachChips();
+      updateSendState();
+      el.input.focus();
+    };
+    reader.onerror = () => window.alert("读取文件失败：" + file.name);
+    reader.readAsText(file);
+  }
+
+  /* 发送前把附件内容拼进消息正文，发送后清空 */
+  function composeMessageWithAttachments(text) {
+    if (!state.attachments.length) return text;
+    const parts = state.attachments.map(
+      (att) => "【附件 " + att.name + "】\n" + att.content
+    );
+    parts.push(text);
+    return parts.join("\n\n");
+  }
+
+  function clearAttachments() {
+    state.attachments = [];
+    renderAttachChips();
+  }
+
+  // ---------------- 预留接口：Agent 切换 / IDE 跳转 ----------------
+
+  function toggleAgentMode() {
+    const track = el.agentToggle;
+    const isAgent = track.dataset.mode === "agent";
+    const next = isAgent ? "chat" : "agent";
+    track.dataset.mode = next;
+    track.setAttribute("aria-pressed", String(next === "agent"));
+    if (el.agentToggleLabel) {
+      el.agentToggleLabel.textContent = next === "agent" ? "Agent" : "对话";
+    }
+    // 审批 / Orbiter 等控件仅在 Agent 模式显示（功能本身仍为预留）
+    setAgentOnlyVisible(next === "agent");
   }
 
   function renderProviderTabs() {
@@ -618,6 +777,24 @@
   // mode ∈ { "chat" | "setup" | "console" }
   // 所有 visibility 只由这一处控制，杜绝 showSetup/openConsole 互相踩脚。
 
+  // 关闭动画：先挂 .is-closing 播退场动画（CSS 里 .is-closing 保持显示），
+  // 播完才摘类真正隐藏；setTimeout 兜底，防止 animationend 丢失导致面板卡住。
+  function closeWithAnim(layer) {
+    if (!layer.classList.contains("is-open")) return;
+    layer.classList.remove("is-open");
+    layer.classList.add("is-closing");
+    const card = layer.querySelector(".setup-card") || layer;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      layer.classList.remove("is-closing");
+      card.removeEventListener("animationend", finish);
+    };
+    card.addEventListener("animationend", finish);
+    setTimeout(finish, 320);
+  }
+
   function enterMode(next) {
     if (state.mode === next) return;
     const prev = state.mode;
@@ -626,8 +803,8 @@
 
     // 蒙版层：只用 .is-open 类控制显隐（CSS 里 display:none 默认，display:flex 需 .is-open）
     // 绝不碰 [hidden] 属性或 .hidden 类——之前就是被 CSS 的 display:flex 覆盖导致永远显示。
-    el.setup.classList.remove("is-open");
-    el.settingsConsole.classList.remove("is-open");
+    closeWithAnim(el.setup);
+    closeWithAnim(el.settingsConsole);
 
     if (next === "chat") {
       // 主界面全开
@@ -959,7 +1136,10 @@
   }
 
   function updateSendState() {
-    el.send.disabled = state.streaming || state.locked || !el.input.value.trim();
+    el.send.disabled =
+      state.streaming ||
+      state.locked ||
+      (!el.input.value.trim() && state.attachments.length === 0);
   }
 
   function setStreaming(streaming) {
@@ -983,7 +1163,15 @@
     state.stickToBottom = true;
     showWelcome(false);
 
-    addMessage("user", text);
+    // 附件：气泡里只显示文件名，完整内容随请求发给后端
+    const attachNames = state.attachments.map((att) => att.name);
+    const payloadText = composeMessageWithAttachments(text);
+    const displayText = attachNames.length
+      ? "📎 " + attachNames.join("、") + (text ? "\n\n" + text : "")
+      : text;
+    clearAttachments();
+
+    addMessage("user", displayText);
     const row = addMessage("assistant", "");
     const contentEl = row._body;
     const raw = row._raw;
@@ -1002,8 +1190,9 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: text,
+          message: payloadText,
           session_id: state.sessionId,
+          model: state.model || undefined,
           regenerate: !!options.regenerate,
         }),
       });
@@ -1124,24 +1313,7 @@
     el.input.focus();
   }
 
-  // ---------------- 预留接口：Agent 切换 / IDE 跳转 ----------------
-
-  function toggleAgentMode() {
-    const track = el.agentToggle;
-    const isAgent = track.dataset.mode === "agent";
-    const next = isAgent ? "chat" : "agent";
-    track.dataset.mode = next;
-    track.setAttribute("aria-pressed", String(next === "agent"));
-    if (el.agentToggleLabel) {
-      el.agentToggleLabel.textContent = next === "agent" ? "Agent" : "对话";
-    }
-    if (next === "agent") {
-      // TODO: 接入 Agent 模式（MOD 加载 + 工具调用）
-      console.warn("[SimChat] Agent 模式尚未实现，当前停留在对话模式。");
-      // 切回（避免用户进入不可用态）
-      setTimeout(() => toggleAgentMode(), 100);
-    }
-  }
+  // ---------------- 预留接口：IDE 跳转 ----------------
 
   function openIde() {
     // TODO: 接入 IDE 跳转（Trae / VS Code / WebDAV 之一）
@@ -1345,6 +1517,19 @@
   el.agentToggle?.addEventListener("keydown", (e) => {
     if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleAgentMode(); }
   });
+
+  // Composer 工具条：附件上传 / 模型选择 / 预留开关
+  el.attachBtn?.addEventListener("click", () => el.attachInput?.click());
+  el.attachInput?.addEventListener("change", () => {
+    attachFile(el.attachInput.files && el.attachInput.files[0]);
+    el.attachInput.value = "";
+  });
+  el.modelSelect?.addEventListener("change", () => {
+    state.model = el.modelSelect.value || null;
+  });
+  bindReservedToggle(el.approvalMode);
+  bindReservedToggle(el.orbiterMode);
+  bindReservedToggle(el.ttsMode);
   el.openIde?.addEventListener("click", openIde);
   el.setupBack.addEventListener("click", hideSetup);
   el.providerForm.addEventListener("submit", (event) => {

@@ -216,6 +216,20 @@
 }
 .settings-console.is-open {
   display: flex;
+  animation: console-in 0.2s ease-out;
+}
+/* 关闭动画：JS 挂 .is-closing 播退场，播完摘类 */
+.settings-console.is-closing {
+  display: flex;
+  animation: console-out 0.18s ease forwards;
+}
+@keyframes console-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes console-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(10px); }
 }
 
 .console-header {

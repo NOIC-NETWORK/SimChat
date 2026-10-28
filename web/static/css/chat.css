@@ -721,13 +721,13 @@ button.open-ide {
 
 .composer {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  max-width: 760px;
+  flex-direction: column;
+  gap: 6px;
+  max-width: none;
   margin: 0 auto;
-  padding: 9px 9px 9px 16px;
+  padding: 10px 12px;
   border: 1px solid var(--composer-border);
-  border-radius: 26px;
+  border-radius: 16px;
   background: var(--composer-bg);
   box-shadow: var(--shadow);
   transition: border-color 0.15s ease;
@@ -738,10 +738,10 @@ button.open-ide {
 }
 
 #input {
-  flex: 1;
+  width: 100%;
   min-height: 24px;
   max-height: 200px;
-  padding: 4px 0;
+  padding: 4px 4px 0;
   border: none;
   outline: none;
   resize: none;
@@ -751,6 +751,146 @@ button.open-ide {
 
 #input::placeholder {
   color: var(--text-muted);
+}
+
+/* 输入框底部控制条：附件 / 模型选择 / 预留控件 / 发送 */
+
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.composer-spacer {
+  flex: 1;
+}
+
+.composer-btn {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.composer-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.composer-btn.on {
+  background: var(--active);
+  color: var(--accent);
+}
+
+.composer-chip {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.composer-chip:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.composer-chip.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: transparent;
+}
+
+.model-select-wrap {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.model-select {
+  max-width: 220px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  outline: none;
+  text-overflow: ellipsis;
+}
+
+.model-select:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.model-select:focus {
+  border-color: var(--composer-border);
+  color: var(--text);
+}
+
+.attach-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  height: 26px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bubble);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.attach-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.attach-chip-x {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.attach-chip-x:hover {
+  background: rgba(128, 128, 128, 0.18);
+  color: var(--danger);
 }
 
 .send-button {
@@ -785,8 +925,7 @@ button.open-ide {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-  max-width: 760px;
-  margin: 6px auto 0;
+  margin: 6px 0 0;
   padding: 0 6px;
   color: var(--text-muted);
   font-size: 11.5px;
@@ -800,8 +939,7 @@ button.open-ide {
 }
 
 .disclaimer {
-  max-width: 760px;
-  margin: 8px auto 0;
+  margin: 8px 0 0;
   color: var(--text-muted);
   font-size: 11.5px;
   text-align: center;
@@ -829,14 +967,14 @@ button.open-ide {
   background: rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(2px);
 }
-/* 右侧抽屉面板本体 */
+/* 右侧抽屉面板本体——至少占聊天区一半宽 */
 .setup-card {
   position: absolute;
   top: 0;
   right: 0;
   z-index: 1;
   height: 100vh;
-  width: 480px;
+  width: max(480px, 50vw);
   max-width: 90vw;
   padding: 24px 28px 32px;
   background: var(--sidebar-bg);
@@ -850,6 +988,32 @@ button.open-ide {
 @keyframes slide-in-right {
   from { transform: translateX(24px); opacity: 0.7; }
   to   { transform: translateX(0);    opacity: 1; }
+}
+/* 打开：遮罩淡入 */
+.setup.is-open::before {
+  animation: setup-fade-in 0.22s ease-out;
+}
+/* 关闭：保持 display，播完退场动画再由 JS 摘类隐藏 */
+.setup.is-closing {
+  display: block;
+}
+.setup.is-closing::before {
+  animation: setup-fade-out 0.2s ease forwards;
+}
+.setup.is-closing .setup-card {
+  animation: slide-out-right 0.2s ease forwards;
+}
+@keyframes setup-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes setup-fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes slide-out-right {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(32px); opacity: 0; }
 }
 
 .setup-back {

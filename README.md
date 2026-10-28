@@ -1,5 +1,102 @@
 # SimChat — LMBrewer 开源底层框架
 
+# Everything, Harnessed.
+
+![logo](/web/static/sprites/logos/simChat-2.png)
+
+SimChat的吉祥物：Televi（电视君）。Televi的造型来自UHF时代的CRT电视，也是TeleVideo Enterprise的吉祥物，象征着媒介革命。
+
+# 君子坦代码，小人藏资源
+
+## 巴里君GitHub号
+
+[NOIC-NETWORK](https://github.com/NOIC-NETWORK)
+
+## TeleVideo官方网站
+
+[TeleVideo Enterprise](https://www.tvehub.com/ai)
+
+## Ollama Hub
+
+[Ollama](https://ollama.com/TeleVideo-AI)
+
+## 巴里君国内唯一联系方式
+
+[发送邮件](mailto:1066344121@qq.com)
+
+# 为什么我们选择开源
+
+如果你是第一次点进这个仓库，只需要记住一句话：**模型会越来越便宜、越来越同质化，真正值钱的是驾驭它的那一层。** 这一层，我们叫 Harness。SimChat 不是一个聊天框，而是一套开源的 Harness——让任何模型真正干活的底座。
+
+## Model + Agent = Harness
+
+这是 SimChat 的第一性原理。
+
+一个裸模型只会"接话"。给它工具（Agent）、记忆（会话）、权限（谁能做什么）、扩展（MOD），它才开始像一个系统。DeepSeek Harness 只是二创，LangChain 才是这个思路的原版；Claude Code 也表达过类似的意思（他们用的是 ReAct 算法），只是没有把公式写出来。
+
+我们把这个公式写出来了，并且把它做成了你能摸到的代码：
+
+- **Model**：任意模型——本地 Ollama，或任何 OpenAI 兼容 API。模型是可替换的引擎，不是护城河。
+- **Agent**：工具调用、自我编排、人格约束——它们不是 prompt 技巧，而是有 ABI 契约（`lmbrew-mod/1`）的 MOD。
+- **Harness**：承载以上一切的宿主——加载器、沙箱、权限模型、事件契约。这是 SimChat 的本体，也是这个仓库开源的东西。
+
+模型每三个月洗牌一次，Harness 不会。所以我们开源的是 Harness。
+
+## 《我的世界》带来的启示：MOD 的重要性
+
+给你规则和方块，你给我世界。
+
+Minecraft 长盛不衰，不是因为 Mojang 更新勤快，而是因为它把"造世界"的权力交给了 MOD 社区。SimChat 照搬了这条哲学：**本体只做规则，玩法全部由 MOD 定义。**
+
+四类 MOD，对应通用智能的四块积木：
+
+| MOD 类型 | 它是什么 | 类比 |
+|---|---|---|
+| `skill` | 工具调用：读文件、搜网页、截图识别 | 感知与行动 |
+| `automation` | 自我编排：DAG 工作流、定时任务 | 自主规划 |
+| `agent-config` | 人格与对齐：人设、主题、行为约束 | 性格 |
+| `binary` | 专有内核：检索管线、推理/记忆/安全模块 | 器官 |
+
+本体只暴露 10 个扩展点（hook），schema 冻结——就像 Minecraft 的方块规则：规则越稳定，世界越能野蛮生长。`mods/` 目录下已经躺着 8 个一等方 MOD 当样板，`simchat mod init` 一分钟就能起一个你自己的。
+
+## Ubisoft 教会了我们什么：引擎代码复用
+
+比如《看门狗》《Far Cry 5》里的驾驶引导系统，很明显是同一个控件。Ubisoft 被嘲笑是"罐头厂"，但没人能否认它的产能：**引擎复用，内容年货化。**
+
+AI 应用行业现在是反过来的——每个团队都在重造自己的 Agent 框架、自己的工具注册表、自己的沙箱。我们放弃了重复造轮子：SimChat 把 Harness 做成稳定引擎，让 AI 应用变成年货——在同一套底座上快速换皮、快速迭代、快速返利。
+
+## 深度接入 GitHub 生态
+
+人民的力量是伟大的，请给网络平权投票。
+
+MOD 的分发不走应用商店，走 Git：`simchat mod publish` 发布的是静态索引（`registry/index.json`），任何人都能搭自己的仓库。没有审核费，没有抽成，没有人能下架你。你的 MOD 值得一个 star，而不是一份入驻协议。
+
+## 生成式人工智能产业是个泡沫
+
+达里欧·阿莫迪和埃隆·马斯克都说过类似的话。
+
+泡沫的意思不是"AI 没用"，而是"押注某个模型会赢"没用。所以我们要自主研发底层逻辑：不绑死任何模型，不依赖任何厂商的良心，把会话、工具、权限、扩展这些真正长寿的层，攥在自己（和社区）手里。
+
+## 我只是个卑微的双非本科生
+
+每天顶着所谓的"卓越工程师班"的剥削，在开发之余还被骂"不务正业"。
+
+我们确实生活在阴沟里，我们确实在仰望星空。但是那星空是社交媒体制造的幻觉（"人均 985"，巴拉巴拉的）。我这个人很聪明，就是不会考试，所以我在国内占不到任何便宜。
+
+所以我打算打破这个玻璃天花板。这个项目希望能带我去硅谷。
+
+## 认同我？Star 我，然后下载
+
+如果上面的任何一句话说中了你，这个仓库就是为你写的：
+
+```bash
+git clone https://github.com/NOIC-NETWORK/SimChat.git
+cd SimChat
+python -m web   # 打开浏览器，接入你的第一个模型
+```
+
+点右上角那个 ⭐ **Star**——它花不了你一秒，但能让一个双非本科生的 Harness 多被一个人看到。然后跑起来，写你的第一个 MOD，把世界造出来。
+
 > 状态：**Phase 0-5 全部交付**（2026-10-28）。
 > 定位：SimChat 是 **LMBrewer 的开源底层框架**——它本身具备接入 LLM API 进行对话的完整能力（`runtime/providers.py` + `core.py` + `store.py`），同时提供 MOD SDK + 加载器 + 清单规范 + 沙箱运行时，让社区和团队以模块方式扩展认知能力。
 > 愿景：四类 MOD 对应通用智能的四个积木——`skill`=工具调用（感知与行动）、`automation`=自我编排（自主规划）、`agent-config`=人格与对齐（行为约束）、`binary`=专有内核（推理/记忆/安全）。SimChat 是模块化 AGI 的开源基座。
