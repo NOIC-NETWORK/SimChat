@@ -1,0 +1,24 @@
+{
+  "id": "noic.skill-screenshot-recognition",
+  "type": "skill",
+  "name": "ScreenshotRecognition 截图识别技能",
+  "description": "屏幕截图、图片上传识别，基于视觉模型进行文字识别和内容分析",
+  "version": "1.0.0",
+  "abi": "lmbrew-mod/1",
+  "entry": "screenshotRecognition:register",
+  "hooks": [
+    "agent.tool"
+  ],
+  "capabilities": {
+    "fs": {
+      "read": [
+        "workspace"
+      ]
+    }
+  },
+  "requires": {
+    "lmbrew": ">=2.0,<3",
+    "python": ">=3.9"
+  },
+  "license": "proprietary"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "agent-config-minimal",
+  "type": "agent-config",
+  "name": "Kirara Agent Config (Minimal)",
+  "description": "P3 收尾样例 MOD：提供 1 个女仆人设 + 1 套简约主题 CSS。manifest 合法通过 loader schema 校验，config 内联 persona/system_prompt_file/theme 三个字段。",
+  "version": "0.2.0",
+  "abi": "lmbrew-mod/1",
+  "license": "MIT",
+  "config": {
+    "persona": "maid",
+    "system_prompt_file": "prompts/maid.txt",
+    "theme": "theme.css",
+    "params": {
+      "think_mode": "medium"
+    }
+  }
+}

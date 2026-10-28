@@ -60,8 +60,8 @@
 
 当前代码里权限是“全有或全无”：
 
-- 工具直接 `import` 进 `TOOL_REGISTRY`，没有声明面（[tools.py L605-L625](file:///e:/LMBrewer/kirara/services/agent/tools.py#L605-L625)）。
-- shell 只有全局开关 `_shell_config`（[tools.py L56-L67](file:///e:/LMBrewer/kirara/services/agent/tools.py#L56-L67)），按进程生效，不区分调用方。
+- 工具直接 `import` 进 `TOOL_REGISTRY`，没有声明面（`tools.py L605-L625`）。
+- shell 只有全局开关 `_shell_config`（`tools.py L56-L67`），按进程生效，不区分调用方。
 - 文件沙箱只锚定 `workdir`，无法表达“只读某个子目录”或“MOD 私有数据区”。
 
 Phase 2 的加载器必须把上述三点改为**按 MOD 注入的 capability 上下文**，而不是全局变量。

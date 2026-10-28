@@ -1,0 +1,18 @@
+{
+  "id": "noic.skill-realitycheck",
+  "type": "skill",
+  "name": "RealityCheck 现实审视技能",
+  "description": "检测模型回复中的偏见/不适内容，命中则触发气泡并切对话",
+  "version": "1.0.0",
+  "abi": "lmbrew-mod/1",
+  "entry": "realityCheck:register",
+  "hooks": [
+    "agent.tool"
+  ],
+  "capabilities": {},
+  "requires": {
+    "lmbrew": ">=2.0,<3",
+    "python": ">=3.9"
+  },
+  "license": "proprietary"
+}

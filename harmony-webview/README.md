@@ -22,11 +22,11 @@ ArkUI 的 `Web` 组件加载 Linux 子系统里的 SimChat 后端。用户可以
 ### 1. 准备后端（融合开发引擎里）
 
 ```bash
-# 启动融合开发引擎后，cd 到共享目录
-cd /mnt/linux_share/<你的LMBrewer目录>
+# 启动融合开发引擎后，cd 到共享目录（simchat 仓库目录的父目录）
+cd /mnt/linux_share
 
-# 安装依赖 + 启动 SimChat
-pip install -r simchat/scripts/requirements-simchat.txt
+# 安装依赖 + 启动 SimChat（仓库克隆目录需命名为 simchat）
+pip install flask cryptography requests
 python -m simchat.web &
 
 # 看看 Linux 子系统的内网 IP（鸿蒙端访问用这个）

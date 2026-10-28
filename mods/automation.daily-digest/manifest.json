@@ -1,0 +1,21 @@
+{
+  "id": "automation.daily-digest",
+  "type": "automation",
+  "name": "每日工作区摘要",
+  "description": "每周工作日 09:00 自动扫描工作区、生成 LLM 摘要、写入 digest.md（需审批）。Phase 5 内置示例。",
+  "version": "0.1.0",
+  "abi": "lmbrew-mod/1",
+  "entry": "flow.json",
+  "hooks": ["agent.completed"],
+  "capabilities": {
+    "schedule": true
+  },
+  "requires": {
+    "lmbrew": ">=2.1,<3",
+    "python": ">=3.9"
+  },
+  "license": "MIT",
+  "automation": {
+    "flow_file": "flow.json"
+  }
+}

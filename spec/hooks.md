@@ -57,7 +57,7 @@ ModeSpec = {
 }
 ```
 
-- 入口形态：前端按 `list_modes()` 渲染，取代当前硬编码的 `normal/galax/quasar` 映射（[rigard.js L351-L353](file:///e:/LMBrewer/rigard/js/rigard.js#L351-L353)）。
+- 入口形态：前端按 `list_modes()` 渲染，取代当前硬编码的 `normal/galax/quasar` 映射（`rigard.js L351-L353`）。
 - 后端调用签名固定：`query(message: str, session_id: str | None, history: list) -> dict`。
 - 未安装对应 MOD 时，本体不得展示该模式按钮。
 
@@ -75,7 +75,7 @@ ToolSpec = {
 
 - `ctx` 只注入 `workdir` / `abort_event` / capability 句柄，不注入 kernel。
 - 注册后会自动进入 `build_tool_protocol_section()`，模型可见。
-- 与现有实现对齐：[BaseTool](file:///e:/LMBrewer/kirara/services/agent/tools.py#L117-L136) 的 `meta()` 字段即为 `ToolSpec` 的公开子集。
+- 与现有实现对齐：`BaseTool` 的 `meta()` 字段即为 `ToolSpec` 的公开子集。
 - **禁止** MOD 覆盖内置工具的 `name`；冲突直接拒绝加载。
 
 ### 2.3 `agent.context`
@@ -94,7 +94,7 @@ def build_prompt(message: str, history: list, session_id: str | None) -> str: ..
 def system_prompt(persona: str | None) -> str | None: ...
 ```
 
-- 现有实现：`resolve_persona_system()` + `build_system_prompt_with_skills()`（[lmbrew.py L1084-L1129](file:///e:/LMBrewer/lmbrew.py#L1084-L1129)）。
+- 现有实现：`resolve_persona_system()` + `build_system_prompt_with_skills()`（`lmbrew.py L1084-L1129`）。
 - 返回 `None` 表示使用本体默认；返回空串视为无效。
 - 技能 prompt 注入（`trigger=prompt` 模式）属于该 hook 的实现细节，本体不感知。
 
@@ -127,7 +127,7 @@ api.emit_event(name: str, payload: dict)   # name 必须以 "mod.<mod_id>." 开�
 ```
 
 - 本体包装为 `{"event": "mod.barry.galax.reality_check", "data": {...}}` 后进 SSE。
-- 前端对未知事件必须静默忽略（现状 `default: break;`，[kiraraGenCore.js L2591-L2592](file:///e:/LMBrewer/kirara/js/kiraraGenCore.js#L2591-L2592)）。
+- 前端对未知事件必须静默忽略（现状 `default: break;`，`kiraraGenCore.js L2591-L2592`）。
 - 核心事件名（`run_started` 等 13 个）为保留字，MOD 不得占用。
 
 ### 2.8 `ui.slot`
@@ -182,9 +182,9 @@ api.register_action("agent.run", handler)
 
 | 现状 | 位置 |
 |---|---|
-| 工具注册表 | [tools.py L605-L625](file:///e:/LMBrewer/kirara/services/agent/tools.py#L605-L625) |
-| 模式开关映射 | [rigard.js L351-L353](file:///e:/LMBrewer/rigard/js/rigard.js#L351-L353) |
-| 人设/技能拼装 | [lmbrew.py L1084-L1129](file:///e:/LMBrewer/lmbrew.py#L1084-L1129) |
-| 安全检测 | [loop.py L309-L315](file:///e:/LMBrewer/kirara/services/agent/loop.py#L309-L315) |
-| 记忆写入 | [loop.py L241-L257](file:///e:/LMBrewer/kirara/services/agent/loop.py#L241-L257) |
-| 工作流事件 | [jrvs.py L3260-L3274](file:///e:/LMBrewer/kirara/services/jrvs.py#L3260-L3274) |
+| 工具注册表 | `tools.py L605-L625` |
+| 模式开关映射 | `rigard.js L351-L353` |
+| 人设/技能拼装 | `lmbrew.py L1084-L1129` |
+| 安全检测 | `loop.py L309-L315` |
+| 记忆写入 | `loop.py L241-L257` |
+| 工作流事件 | `jrvs.py L3260-L3274` |

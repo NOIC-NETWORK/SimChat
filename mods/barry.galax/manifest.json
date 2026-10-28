@@ -1,0 +1,28 @@
+{
+  "$schema": "../../simchat/spec/mod-manifest.schema.json",
+  "id": "barry.galax",
+  "type": "binary",
+  "name": "Galax 联合推理检索",
+  "description": "四阶段证据加权检索-推理管线：召回 → 假设 → 证据 → 结论。以 ⚡ 模式接入聊天输入框。",
+  "version": "1.4.0",
+  "abi": "lmbrew-mod/1",
+  "entry": "galax.pipeline:register",
+  "hooks": [
+    "chat.mode"
+  ],
+  "capabilities": {
+    "net": {
+      "domains": [
+        "bing.com",
+        "sogou.com"
+      ]
+    }
+  },
+  "requires": {
+    "lmbrew": ">=2.0,<3",
+    "python": ">=3.9"
+  },
+  "license": "proprietary",
+  "signature": "ed25519:HkLthRxrfARqIDRaM2NN5bwl5qb9m50jxJ8zphTC-cCBLQ2YQUEn0FSNK4_yf6-dgkRncGjIoZNW-PlCkn16AQ",
+  "integrity": "sha256:ef0e863534056676eb1760c4d37c732763aa2cd7172ed17f07d83fc7624773fc"
+}

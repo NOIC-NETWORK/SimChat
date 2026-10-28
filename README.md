@@ -68,19 +68,18 @@ SimChat 把"平台"拆成三层，每一层只做一件事：
 
 ## 当前 MOD
 
-`mods/` 下已落 7 个 MOD（4 类中的 3 类）：
+`mods/` 下已落 8 个 MOD（4 类全覆盖）：
 
 | MOD | 类型 | hooks | 交付 |
 |---|---|---|---|
 | `barry.galax` | binary | `chat.mode` | Phase 1 — Rigard 的证据加权检索管线抽成 MOD |
 | `agent-config-minimal` | agent-config | — | Phase 3 — 女仆人设 + 简约主题 CSS |
+| `automation.daily-digest` | automation | — | Phase 5 — 每日摘要 DAG 流示例 |
 | `noic.skill-readfile` | skill | `agent.tool` | Phase 2.4 — 原 Kirara/Rigard 硬编码 skill 迁出 |
 | `noic.skill-websearch` | skill | `agent.tool` | Phase 2.4 |
 | `noic.skill-screenshot-recognition` | skill | `agent.tool` | Phase 2.4 |
 | `noic.skill-areyoutrouble` | skill | `agent.tool` | Phase 2.4 |
 | `noic.skill-realitycheck` | skill | `agent.tool` | Phase 2.4 |
-
-`automation` 类型尚无 MOD，属 Phase 5 范围。
 
 ## ABI
 

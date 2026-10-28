@@ -1,0 +1,24 @@
+{
+  "id": "noic.skill-websearch",
+  "type": "skill",
+  "name": "WebSearch 网络搜索技能",
+  "description": "支持关键词搜索（必应/搜狗）、网页内容抓取和信息提取",
+  "version": "1.0.0",
+  "abi": "lmbrew-mod/1",
+  "entry": "webSearch:register",
+  "hooks": [
+    "agent.tool"
+  ],
+  "capabilities": {
+    "net": {
+      "domains": [
+        "*"
+      ]
+    }
+  },
+  "requires": {
+    "lmbrew": ">=2.0,<3",
+    "python": ">=3.9"
+  },
+  "license": "proprietary"
+}

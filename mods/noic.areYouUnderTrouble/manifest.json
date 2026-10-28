@@ -1,0 +1,18 @@
+{
+  "id": "noic.skill-areyoutrouble",
+  "type": "skill",
+  "name": "AreYouUnderTrouble 危险信号检测技能",
+  "description": "检测用户输入中的自杀、自残、暴力、危机等危险信号",
+  "version": "1.0.0",
+  "abi": "lmbrew-mod/1",
+  "entry": "areYouUnderTrouble:register",
+  "hooks": [
+    "agent.tool"
+  ],
+  "capabilities": {},
+  "requires": {
+    "lmbrew": ">=2.0,<3",
+    "python": ">=3.9"
+  },
+  "license": "proprietary"
+}

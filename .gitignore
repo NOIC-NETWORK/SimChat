@@ -8,6 +8,10 @@ data/
 *.pem
 *.p12
 secrets*
+dev-keys/
+
+# MOD 运行时上传目录
+mods/uploads/
 
 # Python
 __pycache__/

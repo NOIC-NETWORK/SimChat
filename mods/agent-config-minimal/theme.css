@@ -1,0 +1,18 @@
+/* agent-config-minimal · theme.css
+ * 极简演示主题：替换 --k-accent 为浅粉，输入框/按钮 轻微圆角。
+ * 仅覆盖两个 CSS 变量，不碰布局骨架。
+ */
+
+:root {
+    --k-accent: #ffc4d6;
+    --k-accent-soft: #ffeaf1;
+}
+
+.maid-theme .persona-card.selected {
+    border-color: var(--k-accent);
+    box-shadow: 0 0 0 2px var(--k-accent-soft);
+}
+
+.maid-theme .chat-input textarea:focus {
+    border-color: var(--k-accent);
+}
