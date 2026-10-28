@@ -1,0 +1,72 @@
+{
+  "name": "agent-max-turns",
+  "contract": "lmbrew-mod/1",
+  "source": "derived-from-code",
+  "source_refs": [
+    "kirara/services/agent/loop.py::_run_turns"
+  ],
+  "description": "max_turns=2 时连续两轮只调工具不终结，循环耗尽后以 max_turns 结束。",
+  "config": {
+    "max_turns": 2,
+    "shell_enabled": false,
+    "workdir": "<project-root>"
+  },
+  "streams": [
+    {
+      "step": "run",
+      "http": {
+        "method": "POST",
+        "path": "/api/simchat/agent/run",
+        "body": {
+          "message": "把工作区里所有配置文件的键名都找出来并交叉比对。",
+          "history": [],
+          "session_id": "agent_fixture_max_turns"
+        }
+      },
+      "events": [
+        { "event": "run_started", "run_id": "run_fixture_max_turns" },
+        { "event": "thought", "turn": 0, "content": "收到任务，开始规划…" },
+        {
+          "event": "plan",
+          "turn": 0,
+          "steps": ["用 glob 找出所有配置文件", "读取每个配置文件", "比对键名并汇总"],
+          "raw": "1. 用 glob 找出所有配置文件\n2. 读取每个配置文件\n3. 比对键名并汇总"
+        },
+        { "event": "token_usage", "turn": 1, "prompt_tokens": 1730, "completion_tokens": 92, "budget": 16384, "threshold": 12288 },
+        { "event": "thought", "turn": 1, "content": "先定位配置文件。" },
+        { "event": "tool_call", "turn": 1, "call_id": "t1c1", "tool": "glob", "input": { "pattern": "**/*.json" }, "risk": "read" },
+        {
+          "event": "tool_result",
+          "turn": 1,
+          "call_id": "t1c1",
+          "tool": "glob",
+          "ok": true,
+          "output": "kirara/memories/options.json\npackage.json",
+          "error": ""
+        },
+        { "event": "plan_progress", "done_count": 1, "last_tool": "glob" },
+        { "event": "token_usage", "turn": 2, "prompt_tokens": 2050, "completion_tokens": 118, "budget": 16384, "threshold": 12288 },
+        { "event": "thought", "turn": 2, "content": "读取第一个配置文件。" },
+        {
+          "event": "tool_call",
+          "turn": 2,
+          "call_id": "t2c1",
+          "tool": "file_read",
+          "input": { "path": "kirara/memories/options.json" },
+          "risk": "read"
+        },
+        {
+          "event": "tool_result",
+          "turn": 2,
+          "call_id": "t2c1",
+          "tool": "file_read",
+          "ok": true,
+          "output": "{\"max_context\": 1024000, \"online\": false, ...}",
+          "error": ""
+        },
+        { "event": "plan_progress", "done_count": 2, "last_tool": "file_read" },
+        { "event": "max_turns", "message": "已达到最大轮数（2），任务未完成，可尝试拆分任务后重试。" }
+      ]
+    }
+  ]
+}

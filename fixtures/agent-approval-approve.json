@@ -1,0 +1,102 @@
+{
+  "name": "agent-approval-approve",
+  "contract": "lmbrew-mod/1",
+  "source": "derived-from-code",
+  "source_refs": [
+    "kirara/services/agent/loop.py::run/_process_turn_calls/resume/_resolve_pending",
+    "lmbrew.py::kirara_agent_approve"
+  ],
+  "description": "写操作挂起 → 批准（携带 edits）→ 新流恢复：plan(restored) → 重发 tool_call → 执行 → final。",
+  "config": {
+    "max_turns": 10,
+    "shell_enabled": false,
+    "approval_ttl": 600,
+    "workdir": "<project-root>"
+  },
+  "streams": [
+    {
+      "step": "run",
+      "http": {
+        "method": "POST",
+        "path": "/api/simchat/agent/run",
+        "body": {
+          "message": "把刚才的结论写进 digest.md。",
+          "history": [],
+          "session_id": "agent_fixture_approve"
+        }
+      },
+      "events": [
+        { "event": "run_started", "run_id": "run_fixture_approve" },
+        { "event": "thought", "turn": 0, "content": "收到任务，开始规划…" },
+        {
+          "event": "plan",
+          "turn": 0,
+          "steps": ["确认要写入的内容", "写入 digest.md", "回报写入结果"],
+          "raw": "1. 确认要写入的内容\n2. 写入 digest.md\n3. 回报写入结果"
+        },
+        { "event": "token_usage", "turn": 1, "prompt_tokens": 1760, "completion_tokens": 120, "budget": 16384, "threshold": 12288 },
+        { "event": "thought", "turn": 1, "content": "内容已确认，直接写入 digest.md。" },
+        {
+          "event": "tool_call",
+          "turn": 1,
+          "call_id": "t1c1",
+          "tool": "file_write",
+          "input": { "path": "digest.md", "content": "项目内共有 3 个 Markdown 文件……" },
+          "risk": "write"
+        },
+        {
+          "event": "approval_required",
+          "turn": 1,
+          "call_id": "t1c1",
+          "tool": "file_write",
+          "input": { "path": "digest.md", "content": "项目内共有 3 个 Markdown 文件……" },
+          "risk": "write",
+          "reason": "写操作工具 file_write 将修改项目文件，需您确认。"
+        }
+      ]
+    },
+    {
+      "step": "approve",
+      "http": {
+        "method": "POST",
+        "path": "/api/simchat/agent/approve",
+        "body": {
+          "run_id": "run_fixture_approve",
+          "decision": "approve",
+          "edits": { "content": "项目内共有 3 个 Markdown 文件……（已人工修订）" }
+        }
+      },
+      "events": [
+        { "event": "run_started", "run_id": "run_fixture_approve" },
+        {
+          "event": "plan",
+          "turn": 0,
+          "steps": ["确认要写入的内容", "写入 digest.md", "回报写入结果"],
+          "raw": "",
+          "restored": true
+        },
+        {
+          "event": "tool_call",
+          "turn": 1,
+          "call_id": "t1c1",
+          "tool": "file_write",
+          "input": { "path": "digest.md", "content": "项目内共有 3 个 Markdown 文件……（已人工修订）" },
+          "risk": "write"
+        },
+        {
+          "event": "tool_result",
+          "turn": 1,
+          "call_id": "t1c1",
+          "tool": "file_write",
+          "ok": true,
+          "output": "已写入 digest.md（78 字节）",
+          "error": ""
+        },
+        { "event": "plan_progress", "done_count": 1, "last_tool": "file_write" },
+        { "event": "token_usage", "turn": 2, "prompt_tokens": 2200, "completion_tokens": 64, "budget": 16384, "threshold": 12288 },
+        { "event": "thought", "turn": 2, "content": "digest.md 写入成功，共 78 字节。" },
+        { "event": "final", "content": "已写入 digest.md（78 字节）。" }
+      ]
+    }
+  ]
+}

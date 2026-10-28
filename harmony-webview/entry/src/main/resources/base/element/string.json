@@ -1,0 +1,7 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "SimChat WebView shell — brings the SimChat backend to HarmonyOS" },
+    { "name": "ability_desc", "value": "SimChat WebView shell" },
+    { "name": "app_name", "value": "SimChat" }
+  ]
+}

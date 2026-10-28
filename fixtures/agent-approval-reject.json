@@ -1,0 +1,89 @@
+{
+  "name": "agent-approval-reject",
+  "contract": "lmbrew-mod/1",
+  "source": "derived-from-code",
+  "source_refs": [
+    "kirara/services/agent/loop.py::_resolve_pending",
+    "lmbrew.py::kirara_agent_approve"
+  ],
+  "description": "写操作挂起 → 拒绝 → 新流恢复：plan(restored) → 重发 tool_call → tool_result.ok=false → 模型改口给出 final（不发 plan_progress）。",
+  "config": {
+    "max_turns": 10,
+    "shell_enabled": false,
+    "approval_ttl": 600,
+    "workdir": "<project-root>"
+  },
+  "streams": [
+    {
+      "step": "run",
+      "http": {
+        "method": "POST",
+        "path": "/api/simchat/agent/run",
+        "body": {
+          "message": "把结论写进 digest.md。",
+          "history": [],
+          "session_id": "agent_fixture_reject"
+        }
+      },
+      "events": [
+        { "event": "run_started", "run_id": "run_fixture_reject" },
+        { "event": "thought", "turn": 0, "content": "收到任务，开始规划…" },
+        { "event": "plan", "turn": 0, "steps": ["整理结论", "写入 digest.md"], "raw": "1. 整理结论\n2. 写入 digest.md" },
+        { "event": "token_usage", "turn": 1, "prompt_tokens": 1710, "completion_tokens": 102, "budget": 16384, "threshold": 12288 },
+        { "event": "thought", "turn": 1, "content": "整理完毕，写入 digest.md。" },
+        {
+          "event": "tool_call",
+          "turn": 1,
+          "call_id": "t1c1",
+          "tool": "file_write",
+          "input": { "path": "digest.md", "content": "项目内共有 3 个 Markdown 文件……" },
+          "risk": "write"
+        },
+        {
+          "event": "approval_required",
+          "turn": 1,
+          "call_id": "t1c1",
+          "tool": "file_write",
+          "input": { "path": "digest.md", "content": "项目内共有 3 个 Markdown 文件……" },
+          "risk": "write",
+          "reason": "写操作工具 file_write 将修改项目文件，需您确认。"
+        }
+      ]
+    },
+    {
+      "step": "approve",
+      "http": {
+        "method": "POST",
+        "path": "/api/simchat/agent/approve",
+        "body": {
+          "run_id": "run_fixture_reject",
+          "decision": "reject"
+        }
+      },
+      "events": [
+        { "event": "run_started", "run_id": "run_fixture_reject" },
+        { "event": "plan", "turn": 0, "steps": ["整理结论", "写入 digest.md"], "raw": "", "restored": true },
+        {
+          "event": "tool_call",
+          "turn": 1,
+          "call_id": "t1c1",
+          "tool": "file_write",
+          "input": { "path": "digest.md", "content": "项目内共有 3 个 Markdown 文件……" },
+          "risk": "write"
+        },
+        {
+          "event": "tool_result",
+          "turn": 1,
+          "call_id": "t1c1",
+          "tool": "file_write",
+          "ok": false,
+          "output": "",
+          "error": "用户拒绝了此操作，请改用只读思路或调整方案。"
+        },
+        { "event": "token_usage", "turn": 2, "prompt_tokens": 2080, "completion_tokens": 96, "budget": 16384, "threshold": 12288 },
+        { "event": "thought", "turn": 2, "content": "用户拒绝了写入，我改为在对话里直接给出结论。" },
+        { "event": "final", "content": "好的，不写入文件。结论如下：项目内共有 3 个 Markdown 文件……" }
+      ]
+    }
+  ]
+}

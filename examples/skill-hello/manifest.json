@@ -1,0 +1,25 @@
+{
+  "$schema": "../../simchat/spec/mod-manifest.schema.json",
+  "id": "simchat.skill-hello",
+  "type": "skill",
+  "name": "Hello Skill（示例）",
+  "description": "SimChat CLI init 生成的最小 skill MOD 样例：register_tool() 注册 say_hello backend。加载期完整走 discover → 校验 → sandbox 启动 → register → call_tool 链路。",
+  "version": "0.1.0",
+  "abi": "lmbrew-mod/1",
+  "entry": "hello_skill:register",
+  "hooks": [
+    "agent.tool"
+  ],
+  "capabilities": {
+    "fs": {
+      "read": [
+        "workspace"
+      ]
+    }
+  },
+  "requires": {
+    "lmbrew": ">=2.0,<3",
+    "python": ">=3.9"
+  },
+  "license": "MIT"
+}

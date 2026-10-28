@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simchat.dev/spec/mod-manifest.schema.json",
+  "title": "SimChat MOD Manifest",
+  "description": "LMBrewer MOD 的唯一权威描述文件。四类 MOD 共用一套字段，按 type 施加额外约束。加载器必须 fail-closed：任何不满足本 schema 或包含未知 hook / capability 的包一律拒绝加载。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "type", "name", "version", "abi", "license"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{2,63}$",
+      "description": "全局唯一标识；建议使用作者域前缀（如 barry.galax）。一旦发布不可复用。"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["agent-config", "skill", "automation", "binary"],
+      "description": "agent-config=纯数据；skill=可执行工具；automation=定时/事件流程；binary=一等方或授权方加密模块。"
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "description": { "type": "string", "maxLength": 2000 },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "abi": {
+      "type": "string",
+      "const": "lmbrew-mod/1",
+      "description": "MOD 编译/编写时面向的本体扩展接口版本。加载器按语义化版本做兼容判断。"
+    },
+    "entry": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$",
+      "description": "代码入口 module:attr。agent-config 禁止出现该字段。"
+    },
+    "hooks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "chat.mode",
+          "agent.tool",
+          "agent.context",
+          "agent.system_prompt",
+          "agent.safety",
+          "agent.memory",
+          "agent.event",
+          "ui.slot",
+          "provider.model",
+          "automation.hook"
+        ]
+      },
+      "uniqueItems": true,
+      "description": "MOD 声明自己要接入的扩展点。未声明的 hook 不会被调用；声明了但本体未实现的 hook 视为不兼容，拒绝加载。"
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "权限声明。缺省即无权限；未声明的 capability 不得使用。",
+      "properties": {
+        "fs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read": {
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true,
+              "description": "read:<scope>，scope 仅允许 workspace / mod-data / 显式相对子路径。"
+            },
+            "write": {
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true,
+              "description": "write:<scope>，语义同 read。写权限永远需要用户逐次审批。"
+            }
+          }
+        },
+        "net": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["domains"],
+          "properties": {
+            "domains": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^[a-z0-9*]([a-z0-9.-]*[a-z0-9])?$" },
+              "minItems": 1,
+              "uniqueItems": true,
+              "description": "允许访问的域名白名单；不支持通配中间段，仅允许 *.example.com 这种前缀通配。"
+            }
+          }
+        },
+        "shell": {
+          "type": "boolean",
+          "description": "是否允许调用宿主 shell。true 仍需逐次审批 + 黑名单 + 超时。"
+        },
+        "process": {
+          "type": "boolean",
+          "description": "是否允许以子进程方式执行 MOD 自身代码。"
+        },
+        "credentials": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true,
+          "description": "按名称申请凭据（如 openai.api_key）。只能拿到句柄，拿不到明文。"
+        },
+        "schedule": {
+          "type": "boolean",
+          "description": "是否允许注册定时/事件触发。仅 automation 类型可声明。"
+        }
+      }
+    },
+    "requires": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lmbrew": { "type": "string", "description": "本体版本范围，如 >=2.0,<3。" },
+        "python": { "type": "string", "description": "Python 版本范围。" },
+        "packages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true,
+          "description": "额外依赖；加载器只校验已安装，不自动联网安装。"
+        }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "properties": {
+        "root": { "type": "string", "description": "资源根目录，相对 MOD 包内路径。" },
+        "icon": { "type": "string" },
+        "cover": { "type": "string" }
+      }
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SPDX 标识或 proprietary。"
+    },
+    "homepage": { "type": "string" },
+    "repository": { "type": "string" },
+    "signature": {
+      "type": "string",
+      "minLength": 32,
+      "description": "ed25519:<base64>，对包内容哈希的发布者签名。binary 类型必填。"
+    },
+    "integrity": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "包内容哈希。binary 类型必填。"
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "仅 agent-config 使用：人设、提示词、参数与主题。",
+      "properties": {
+        "persona": { "type": "string", "description": "人设标识，对应本体的 persona 注册名。" },
+        "system_prompt_file": { "type": "string", "description": "相对包内的提示词文件。" },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean"]
+          },
+          "description": "模型/会话参数，如 think_mode、agent_max_turns。不得包含可执行内容。"
+        },
+        "theme": { "type": "string", "description": "相对包内的主题 CSS 或资源清单。" }
+      }
+    },
+    "automation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "仅 automation 使用：流程文件、触发器与执行策略。",
+      "required": ["flow", "trigger"],
+      "properties": {
+        "flow": { "type": "string", "description": "相对包内的 flow.json（DAG）路径。" },
+        "trigger": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": { "type": "string", "enum": ["cron", "event", "manual"] },
+            "expr": { "type": "string", "description": "cron 表达式（5 段）。" },
+            "event": {
+              "type": "string",
+              "enum": ["message.received", "agent.finished", "file.changed"],
+              "description": "event 触发时的本体事件名。"
+            }
+          }
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_runtime_s": { "type": "integer", "minimum": 1, "maximum": 3600 },
+            "daily_quota": { "type": "integer", "minimum": 1, "maximum": 10000 },
+            "on_error": { "type": "string", "enum": ["stop", "retry", "skip"] }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "enum": ["skill", "automation", "binary"] } }, "required": ["type"] },
+      "then": { "required": ["entry"], "properties": { "hooks": { "minItems": 1 } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "agent-config" } }, "required": ["type"] },
+      "then": {
+        "required": ["config"],
+        "not": { "required": ["entry"] }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "binary" } }, "required": ["type"] },
+      "then": { "required": ["signature", "integrity"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "automation" } }, "required": ["type"] },
+      "then": {
+        "required": ["automation"],
+        "properties": {
+          "capabilities": {
+            "properties": { "schedule": { "const": true } },
+            "required": ["schedule"]
+          }
+        }
+      }
+    }
+  ]
+}

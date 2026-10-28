@@ -1,0 +1,71 @@
+{
+  "name": "agent-happy",
+  "contract": "lmbrew-mod/1",
+  "source": "derived-from-code",
+  "source_refs": [
+    "kirara/services/agent/loop.py",
+    "lmbrew.py::_agent_sse_response"
+  ],
+  "description": "只读任务全链路：plan → token_usage/thought/tool_call/tool_result/plan_progress ×2 → final。",
+  "config": {
+    "max_turns": 10,
+    "shell_enabled": false,
+    "workdir": "<project-root>"
+  },
+  "streams": [
+    {
+      "step": "run",
+      "http": {
+        "method": "POST",
+        "path": "/api/simchat/agent/run",
+        "body": {
+          "message": "列出项目里所有 Markdown 文件，并读取 readme.md 的前 20 行。",
+          "history": [],
+          "session_id": "agent_fixture_happy"
+        }
+      },
+      "events": [
+        { "event": "run_started", "run_id": "run_fixture_happy" },
+        { "event": "thought", "turn": 0, "content": "收到任务，开始规划…" },
+        {
+          "event": "plan",
+          "turn": 0,
+          "steps": ["用 glob 定位所有 Markdown 文件", "用 file_read 读取 readme.md 前 20 行", "汇总结果并回答用户"],
+          "raw": "1. 用 glob 定位所有 Markdown 文件\n2. 用 file_read 读取 readme.md 前 20 行\n3. 汇总结果并回答用户"
+        },
+        { "event": "token_usage", "turn": 1, "prompt_tokens": 1840, "completion_tokens": 96, "budget": 16384, "threshold": 12288 },
+        { "event": "thought", "turn": 1, "content": "我先用 glob 找出项目内的 Markdown 文件。" },
+        { "event": "tool_call", "turn": 1, "call_id": "t1c1", "tool": "glob", "input": { "pattern": "**/*.md" }, "risk": "read" },
+        {
+          "event": "tool_result",
+          "turn": 1,
+          "call_id": "t1c1",
+          "tool": "glob",
+          "ok": true,
+          "output": "readme.md\nkirara/kirara_intro.md\nrigard/rigard_intro.md",
+          "error": ""
+        },
+        { "event": "plan_progress", "done_count": 1, "last_tool": "glob" },
+        { "event": "token_usage", "turn": 2, "prompt_tokens": 2120, "completion_tokens": 88, "budget": 16384, "threshold": 12288 },
+        { "event": "thought", "turn": 2, "content": "已找到 3 个 Markdown 文件，接下来读取 readme.md 前 20 行。" },
+        { "event": "tool_call", "turn": 2, "call_id": "t2c1", "tool": "file_read", "input": { "path": "readme.md", "limit": 20 }, "risk": "read" },
+        {
+          "event": "tool_result",
+          "turn": 2,
+          "call_id": "t2c1",
+          "tool": "file_read",
+          "ok": true,
+          "output": "# LMBrewer\n\n> 本地优先的多智能体工作台……\n（共 20 行）",
+          "error": ""
+        },
+        { "event": "plan_progress", "done_count": 2, "last_tool": "file_read" },
+        { "event": "token_usage", "turn": 3, "prompt_tokens": 2450, "completion_tokens": 210, "budget": 16384, "threshold": 12288 },
+        { "event": "thought", "turn": 3, "content": "项目内共有 3 个 Markdown 文件：readme.md、kirara/kirara_intro.md、rigard/rigard_intro.md。readme.md 的前 20 行概述了 LMBrewer 的定位……" },
+        {
+          "event": "final",
+          "content": "项目内共有 3 个 Markdown 文件：readme.md、kirara/kirara_intro.md、rigard/rigard_intro.md。readme.md 的前 20 行概述了 LMBrewer 的定位与主要模块……"
+        }
+      ]
+    }
+  ]
+}

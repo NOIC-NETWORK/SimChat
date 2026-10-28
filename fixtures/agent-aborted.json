@@ -1,0 +1,41 @@
+{
+  "name": "agent-aborted",
+  "contract": "lmbrew-mod/1",
+  "source": "derived-from-code",
+  "source_refs": [
+    "kirara/services/agent/loop.py::_run_turns",
+    "lmbrew.py::kirara_agent_abort"
+  ],
+  "description": "规划完成后、进入第一轮前用户点中止：流以 aborted 结束，没有 token_usage。",
+  "config": {
+    "max_turns": 10,
+    "shell_enabled": false,
+    "workdir": "<project-root>"
+  },
+  "streams": [
+    {
+      "step": "run-then-abort",
+      "http": {
+        "method": "POST",
+        "path": "/api/simchat/agent/run",
+        "body": {
+          "message": "扫描整个工作区并生成一份详细报告。",
+          "history": [],
+          "session_id": "agent_fixture_abort"
+        }
+      },
+      "abort_after_event": "plan",
+      "events": [
+        { "event": "run_started", "run_id": "run_fixture_abort" },
+        { "event": "thought", "turn": 0, "content": "收到任务，开始规划…" },
+        {
+          "event": "plan",
+          "turn": 0,
+          "steps": ["遍历工作区列出所有文件", "逐个读取关键文件", "汇总生成报告"],
+          "raw": "1. 遍历工作区列出所有文件\n2. 逐个读取关键文件\n3. 汇总生成报告"
+        },
+        { "event": "aborted", "message": "任务已中止。" }
+      ]
+    }
+  ]
+}

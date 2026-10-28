@@ -1,0 +1,32 @@
+# 运行时数据（含 AK 的 config.json、会话记录）
+data/
+
+# 密钥与证书
+.env
+.env.*
+*.key
+*.pem
+*.p12
+secrets*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 日志与缓存
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

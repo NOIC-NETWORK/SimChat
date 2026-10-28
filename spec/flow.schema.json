@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simchat.dev/spec/flow.schema.json",
+  "title": "SimChat Automation Flow",
+  "description": "Automation MOD 的 flow.json DAG 正式 Schema。Phase 5 冻结。",
+  "type": "object",
+  "required": ["id", "version", "trigger", "steps", "policy"],
+  "additionalProperties": false,
+
+  "properties": {
+    "id":            { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{2,63}$" },
+    "version":       { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "description":   { "type": "string" },
+
+    "trigger": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["cron", "event", "manual"] },
+        "expr": { "type": "string" },
+        "event": { "type": "string", "pattern": "^(message\\.received|file\\.changed|agent\\.completed)$" },
+        "manual_token": { "type": "string" }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "cron" } }, "required": ["type"] },
+          "then": { "required": ["expr"], "not": { "required": ["event"] } } },
+        { "if": { "properties": { "type": { "const": "event" } }, "required": ["type"] },
+          "then": { "required": ["event"], "not": { "required": ["expr"] } } }
+      ]
+    },
+
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/Step" }
+    },
+
+    "policy": { "$ref": "#/$defs/Policy" }
+  },
+
+  "$defs": {
+    "Step": {
+      "type": "object",
+      "required": ["id", "use", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "id":          { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{1,63}$" },
+        "description": { "type": "string" },
+        "use":         {
+          "type": "string",
+          "pattern": "^(skill:[a-zA-Z0-9_.\\-]+|agent:run|file:(read|write))$"
+        },
+        "args":        { "type": "object" },
+        "depends":     { "type": "array", "items": { "type": "string" } },
+        "approval":    { "enum": ["required", "optional", "none"], "default": "none" },
+        "max_runtime_s": { "type": "integer", "minimum": 1, "maximum": 3600, "default": 60 },
+        "on_error":    { "enum": ["stop", "continue", "retry"], "default": "stop" },
+        "retry_count": { "type": "integer", "minimum": 0, "maximum": 5, "default": 0 }
+      },
+      "allOf": [
+        { "if": { "properties": { "use": { "const": "file:write" } }, "required": ["use"] },
+          "then": { "properties": { "approval": { "const": "required" } } } }
+      ]
+    },
+
+    "Policy": {
+      "type": "object",
+      "required": ["max_runtime_s", "daily_quota", "on_error"],
+      "additionalProperties": false,
+      "properties": {
+        "max_runtime_s": { "type": "integer", "minimum": 1, "maximum": 3600, "default": 300 },
+        "daily_quota":    { "type": "integer", "minimum": 1, "maximum": 100, "default": 10 },
+        "on_error":       { "enum": ["stop", "continue"], "default": "stop" },
+        "concurrency":    { "type": "integer", "minimum": 1, "maximum": 4, "default": 1 }
+      }
+    }
+  }
+}

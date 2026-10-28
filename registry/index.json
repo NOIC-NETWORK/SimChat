@@ -1,0 +1,233 @@
+{
+  "$schema": "../spec/registry.schema.json",
+  "version": 1,
+  "updated_at": "2026-10-27",
+  "abi": "lmbrew-mod/1",
+  "entries": [
+    {
+      "mod_id": "barry.galax",
+      "type": "binary",
+      "name": "Galax 联合推理检索",
+      "description": "四阶段证据加权检索-推理管线：召回 → 假设 → 证据 → 结论。以 ⚡ 模式接入聊天输入框。",
+      "license": "proprietary",
+      "publisher": "LMBrewer Official",
+      "homepage": "",
+      "versions": [
+        {
+          "version": "1.4.0",
+          "abi": "lmbrew-mod/1",
+          "requires": {
+            "lmbrew": ">=2.0,<3",
+            "python": ">=3.9"
+          },
+          "download": {
+            "type": "git-path",
+            "url": "https://github.com/LMBrewer/simchat",
+            "path": "mods/barry.galax",
+            "ref": "HEAD"
+          },
+          "manifest_hash": "sha256:ef0e863534056676eb1760c4d37c732763aa2cd7172ed17f07d83fc7624773fc",
+          "signature": "ed25519:HkLthRxrfARqIDRaM2NN5bwl5qb9m50jxJ8zphTC-cCBLQ2YQUEn0FSNK4_yf6-dgkRncGjIoZNW-PlCkn16AQ",
+          "capabilities": {
+            "net": {
+              "domains": ["bing.com", "sogou.com"]
+            }
+          },
+          "published_at": "2026-10-24",
+          "downloads": 0,
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "mod_id": "agent-config-minimal",
+      "type": "agent-config",
+      "name": "Kirara Agent Config (Minimal)",
+      "description": "P3 收尾样例 MOD：提供 1 个女仆人设 + 1 套简约主题 CSS。",
+      "license": "MIT",
+      "publisher": "LMBrewer Official",
+      "homepage": "",
+      "versions": [
+        {
+          "version": "0.2.0",
+          "abi": "lmbrew-mod/1",
+          "requires": {
+            "lmbrew": ">=2.0,<3"
+          },
+          "download": {
+            "type": "git-path",
+            "url": "https://github.com/LMBrewer/simchat",
+            "path": "mods/agent-config-minimal",
+            "ref": "HEAD"
+          },
+          "published_at": "2026-10-26",
+          "downloads": 0,
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "mod_id": "noic.skill-readfile",
+      "type": "skill",
+      "name": "ReadFile 文件读取技能",
+      "description": "读取用户上传的文件内容，支持文本/PDF/Word/Excel/图片元数据等多种格式",
+      "license": "proprietary",
+      "publisher": "LMBrewer Official",
+      "homepage": "",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "abi": "lmbrew-mod/1",
+          "requires": {
+            "lmbrew": ">=2.0,<3",
+            "python": ">=3.9"
+          },
+          "download": {
+            "type": "git-path",
+            "url": "https://github.com/LMBrewer/simchat",
+            "path": "mods/noic.readFile",
+            "ref": "HEAD"
+          },
+          "capabilities": {
+            "fs": {
+              "read": ["workspace"]
+            }
+          },
+          "published_at": "2026-10-27",
+          "downloads": 0,
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "mod_id": "noic.skill-websearch",
+      "type": "skill",
+      "name": "WebSearch 网络搜索技能",
+      "description": "调用 Bing 搜索接口返回结构化摘要",
+      "license": "proprietary",
+      "publisher": "LMBrewer Official",
+      "homepage": "",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "abi": "lmbrew-mod/1",
+          "requires": {
+            "lmbrew": ">=2.0,<3",
+            "python": ">=3.9"
+          },
+          "download": {
+            "type": "git-path",
+            "url": "https://github.com/LMBrewer/simchat",
+            "path": "mods/noic.webSearch",
+            "ref": "HEAD"
+          },
+          "capabilities": {
+            "net": {
+              "domains": ["bing.com"]
+            }
+          },
+          "published_at": "2026-10-27",
+          "downloads": 0,
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "mod_id": "noic.skill-screenshot-recognition",
+      "type": "skill",
+      "name": "ScreenshotRecognition 截图识别技能",
+      "description": "调用 OCR/视觉模型识别截图文字与 UI 元素",
+      "license": "proprietary",
+      "publisher": "LMBrewer Official",
+      "homepage": "",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "abi": "lmbrew-mod/1",
+          "requires": {
+            "lmbrew": ">=2.0,<3",
+            "python": ">=3.9"
+          },
+          "download": {
+            "type": "git-path",
+            "url": "https://github.com/LMBrewer/simchat",
+            "path": "mods/noic.screenshotRecognition",
+            "ref": "HEAD"
+          },
+          "capabilities": {
+            "fs": {
+              "read": ["workspace"]
+            },
+            "net": {
+              "domains": ["api.ocr.example.com"]
+            }
+          },
+          "published_at": "2026-10-27",
+          "downloads": 0,
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "mod_id": "noic.skill-areyoutrouble",
+      "type": "skill",
+      "name": "AreYouUnderTrouble 异常检测技能",
+      "description": "监控 Agent 执行状态并返回异常摘要",
+      "license": "proprietary",
+      "publisher": "LMBrewer Official",
+      "homepage": "",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "abi": "lmbrew-mod/1",
+          "requires": {
+            "lmbrew": ">=2.0,<3",
+            "python": ">=3.9"
+          },
+          "download": {
+            "type": "git-path",
+            "url": "https://github.com/LMBrewer/simchat",
+            "path": "mods/noic.areYouUnderTrouble",
+            "ref": "HEAD"
+          },
+          "published_at": "2026-10-27",
+          "downloads": 0,
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "mod_id": "noic.skill-realitycheck",
+      "type": "skill",
+      "name": "RealityCheck 事实核查技能",
+      "description": "对 Agent 输出做事实交叉验证",
+      "license": "proprietary",
+      "publisher": "LMBrewer Official",
+      "homepage": "",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "abi": "lmbrew-mod/1",
+          "requires": {
+            "lmbrew": ">=2.0,<3",
+            "python": ">=3.9"
+          },
+          "download": {
+            "type": "git-path",
+            "url": "https://github.com/LMBrewer/simchat",
+            "path": "mods/noic.realityCheck",
+            "ref": "HEAD"
+          },
+          "capabilities": {
+            "net": {
+              "domains": ["bing.com"]
+            }
+          },
+          "published_at": "2026-10-27",
+          "downloads": 0,
+          "deprecated": false
+        }
+      ]
+    }
+  ]
+}

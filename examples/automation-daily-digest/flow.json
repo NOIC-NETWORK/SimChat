@@ -1,0 +1,27 @@
+{
+  "id": "daily.workspace.digest",
+  "version": "0.1.0",
+  "trigger": { "type": "cron", "expr": "0 9 * * 1-5" },
+  "steps": [
+    {
+      "id": "scan",
+      "use": "skill:readFile",
+      "args": { "file_path": "${env:WORKSPACE}/README.md" }
+    },
+    {
+      "id": "sum",
+      "use": "agent:run",
+      "args": {
+        "message": "请用中文总结以下文件的核心内容、重要函数/类定义和使用方法，控制在 200 字以内。\n\n---\n${scan.output}"
+      }
+    },
+    {
+      "id": "write",
+      "use": "file:write",
+      "args": { "path": "digest.md", "content": "# 每日工作区摘要\n\n${sum.output}" },
+      "approval": "required",
+      "approval_hint": "自动写入 digest.md"
+    }
+  ],
+  "policy": { "max_runtime_s": 300, "daily_quota": 20, "on_error": "stop", "concurrency": 1 }
+}

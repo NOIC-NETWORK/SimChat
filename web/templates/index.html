@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SimChat | Everything, Harnessed.</title>
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261028e">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261028c">
+</head>
+<body data-logo="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
+<div class="app">
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">
+        <img class="brand-logo" src="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}" alt="SimChat">
+      </div>
+      <button class="icon-button" id="new-chat" title="新对话" aria-label="新对话">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+      </button>
+    </div>
+
+    <nav class="session-list" id="session-list" aria-label="会话历史"></nav>
+
+    <div class="sidebar-footer">
+      <div class="user-badge">
+        <span class="user-avatar">J</span>
+        <span class="user-name">本地对话</span>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-button mobile-only" id="toggle-sidebar" aria-label="打开会话列表">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+      </button>
+      <div class="topbar-title" id="chat-title">新对话</div>
+      <div class="agent-toggle" title="切换 Agent 模式" role="group" aria-label="模式切换">
+        <div class="agent-toggle-track" id="agent-toggle" data-mode="chat" aria-pressed="false" tabindex="0">
+          <img class="agent-toggle-icon agent-toggle-icon--chat" src="{{ url_for('static', filename='sprites/logos/chatMode.png') }}" alt="对话模式">
+          <img class="agent-toggle-icon agent-toggle-icon--agent" src="{{ url_for('static', filename='sprites/logos/agentMode.png') }}" alt="Agent 模式">
+          <div class="agent-toggle-thumb"><img src="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}" alt=""></div>
+        </div>
+        <span class="agent-toggle-label" id="agent-toggle-label">对话</span>
+      </div>
+      <button class="icon-button open-ide" id="open-ide" title="在 IDE 中打开项目" aria-label="在 IDE 中打开项目">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+          <polyline points="15 3 21 3 21 9"/>
+          <line x1="10" y1="14" x2="21" y2="3"/>
+        </svg>
+      </button>
+      <button class="icon-button" id="open-setup" title="设置" aria-label="设置">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+      <span class="status-dot" id="status-dot" title="空闲"></span>
+    </header>
+
+    <div class="conversation" id="conversation">
+      <!-- ======= 基础设置 ======= -->
+      <div class="setup" id="setup">
+        <div class="setup-card">
+          <button class="setup-back" id="setup-back" type="button" data-block="setup.back" style="display:none">返回对话</button>
+          <img class="setup-logo" src="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}" alt="SimChat">
+          <h1 data-block="setup.title">连接一个服务商</h1>
+          <p class="setup-sub" id="setup-subtitle" data-block="setup.subtitle">SimChat 需要一个可用的模型服务才能开始对话。API 信息只保存在本地。</p>
+
+          <!-- 服务商 -->
+          <div class="provider-tabs" id="provider-tabs" role="tablist"></div>
+          <p class="provider-detail" id="provider-detail"></p>
+
+          <form class="provider-form" id="provider-form" novalidate>
+            <div class="provider-fields" id="provider-fields"></div>
+            <div class="setup-message" id="setup-message" aria-live="polite"></div>
+            <div class="setup-actions">
+              <button type="button" class="ghost-button" id="test-provider" data-block="setup.test">测试连接</button>
+              <button type="submit" class="primary-button" id="save-provider" data-block="setup.save">保存并检测</button>
+            </div>
+          </form>
+
+          <div class="provider-presets hidden" id="provider-presets"></div>
+
+          <!-- 分割线 -->
+          <hr style="border:none;border-top:1px solid var(--border);margin:22px 0;">
+
+          <!-- 基础设置（对话参数 + 外观） -->
+          <div class="settings-basic" id="settings-basic">
+            <!-- 对话参数 -->
+            <div class="settings-group">
+              <h3 class="settings-group-title" data-block="settings.group.basic">对话参数</h3>
+              <div class="settings-grid">
+                <label class="field">
+                  <span class="field-label">历史窗口</span>
+                  <div class="field-range">
+                    <input type="range" id="set-max-history" min="4" max="200" step="1" value="40">
+                    <span class="range-value" id="set-max-history-val">40</span>
+                  </div>
+                  <span class="field-hint">保留到上下文窗口的历史消息条数</span>
+                </label>
+                <label class="field">
+                  <span class="field-label">温度</span>
+                  <div class="field-range">
+                    <input type="range" id="set-temperature" min="0" max="2" step="0.1" value="0.7">
+                    <span class="range-value" id="set-temperature-val">0.7</span>
+                  </div>
+                  <span class="field-hint">0 = 确定性输出，2 = 更随机</span>
+                </label>
+                <label class="field">
+                  <span class="field-label">最大 tokens</span>
+                  <input type="number" id="set-max-tokens" class="field-input" min="128" max="32768" value="4096">
+                  <span class="field-hint">单次回复的上限（128–32768）</span>
+                </label>
+                <label class="field">
+                  <span class="field-label">系统提示词</span>
+                  <textarea id="set-system-prompt" class="field-input" rows="3" placeholder="（可选）自定义系统角色指令" style="resize:vertical;"></textarea>
+                </label>
+                <label class="field">
+                  <span class="field-label">快捷键</span>
+                  <div class="field-switch" id="set-send-with-enter-wrap">
+                    <div class="switch-track" id="set-send-with-enter">
+                      <div class="switch-thumb"></div>
+                    </div>
+                    <span class="switch-label" id="set-send-with-enter-label">Enter 发送（Shift+Enter 换行）</span>
+                  </div>
+                </label>
+                <label class="field">
+                  <span class="field-label">Token 估算栏</span>
+                  <div class="field-switch" id="set-show-token-bar-wrap">
+                    <div class="switch-track on" id="set-show-token-bar">
+                      <div class="switch-thumb"></div>
+                    </div>
+                    <span class="switch-label">在输入框下方显示</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- 外观 -->
+            <div class="settings-group">
+              <h3 class="settings-group-title" data-block="settings.group.appearance">外观</h3>
+              <div class="settings-grid">
+                <div class="field">
+                  <span class="field-label">主题</span>
+                  <div class="theme-cards" id="set-theme">
+                    <button type="button" class="theme-card active" data-theme="system">跟随系统</button>
+                    <button type="button" class="theme-card" data-theme="light">浅色</button>
+                    <button type="button" class="theme-card" data-theme="dark">深色</button>
+                  </div>
+                </div>
+                <label class="field">
+                  <span class="field-label">字号</span>
+                  <div class="field-range">
+                    <input type="range" id="set-font-scale" min="0.8" max="1.4" step="0.05" value="1.0">
+                    <span class="range-value" id="set-font-scale-val">1.0</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- 操作栏 -->
+            <div class="settings-actions">
+              <button type="button" class="ghost-button" id="reset-settings-btn" data-block="settings.reset">恢复默认</button>
+              <div class="settings-status" id="settings-status"></div>
+              <button type="button" class="primary-button" id="save-settings-btn" data-block="settings.save">保存设置</button>
+            </div>
+          </div>
+
+          <!-- 高级入口 -->
+          <div style="margin-top:18px;">
+            <button type="button" class="settings-advanced-entry" id="open-console">
+              <span data-block="settings.advanced">高级功能设置 ▸</span>
+              <span class="chevron">›</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="welcome" id="welcome">
+        <div class="welcome-title-wrap">
+          <div aria-label="SimChat" class="welcome-logo"><img src="../static/sprites/logos/simChat-2.png" ></div>
+          <span class="welcome-splash" id="welcome-splash">Everything Harnessed!</span>
+        </div>
+        <p class="welcome-sub">SimChat 本体独立对话 · 会话自动保存在本地</p>
+        <div class="suggestions">
+          <button class="suggestion" data-prompt="介绍一下 SimChat 的整体架构">介绍一下 SimChat 的整体架构</button>
+          <button class="suggestion" data-prompt="SimChat 的 MOD 加载器是怎么工作的？">MOD 加载器是怎么工作的？</button>
+          <button class="suggestion" data-prompt="用 Python 写一个快速排序，并解释思路">用 Python 写一个快速排序</button>
+          <button class="suggestion" data-prompt="帮我想几个适合独立网页游戏的玩法点子">想几个网页游戏的玩法点子</button>
+        </div>
+      </div>
+      <div class="messages" id="messages"></div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="lock-banner hidden" id="lock-banner">
+        <span>尚未配置可用的服务商，无法对话。</span>
+        <button type="button" id="lock-config">配置服务商</button>
+      </div>
+      <form class="composer hidden" id="composer">
+        <textarea id="input" rows="1" placeholder="给 SimChat 发送消息" autocomplete="off"></textarea>
+        <button class="send-button" id="send" type="submit" aria-label="发送" disabled>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 19V5M5 12l7-7 7 7"/>
+          </svg>
+        </button>
+      </form>
+      <div class="token-bar hidden" id="token-bar" title="按字符估算：中文约 1 字 ≈ 1 token，英文约 4 字符 ≈ 1 token">
+        <span id="token-input">输入 0 tokens</span>
+        <span class="token-sep">·</span>
+        <span id="token-total">会话 0 tokens</span>
+      </div>
+      <p class="disclaimer">SimChat 含有人工智能生成内容，请核查重要信息。</p>
+    </div>
+  </main>
+</div>
+
+<!-- ======= 高级控制台 ======= -->
+<div class="settings-console" id="settings-console">
+  <header class="console-header">
+    <button class="back-button" id="console-back" data-block="console.back">← 返回基础设置</button>
+    <h2 data-block="console.title">高级功能设置</h2>
+    <span class="settings-status-pill" id="console-status">已同步</span>
+  </header>
+  <div class="console-body">
+    <aside class="console-nav">
+      <div class="console-nav-group">
+        <h4 data-block="console.group.control">控制</h4>
+        <button class="console-nav-item is-active" data-section="overview" data-block="console.section.overview">概览</button>
+        <button class="console-nav-item" data-section="comms" data-block="console.section.comms">通讯</button>
+        <button class="console-nav-item" data-section="instances" data-block="console.section.instances">实例</button>
+        <button class="console-nav-item" data-section="sessions" data-block="console.section.sessions">会话</button>
+        <button class="console-nav-item" data-section="usage" data-block="console.section.usage">使用情况</button>
+        <button class="console-nav-item" data-section="automation" data-block="console.section.automation">自动化</button>
+      </div>
+      <div class="console-nav-group">
+        <h4 data-block="console.group.agent">代理</h4>
+        <button class="console-nav-item" data-section="agent" data-block="console.section.agent">代理</button>
+        <button class="console-nav-item" data-section="skills" data-block="console.section.skills">技能</button>
+        <button class="console-nav-item" data-section="nodes" data-block="console.section.nodes">节点</button>
+      </div>
+      <div class="console-nav-group">
+        <h4 data-block="console.group.config">配置</h4>
+        <button class="console-nav-item" data-section="system" data-block="console.section.system">配置</button>
+        <button class="console-nav-item" data-section="debug" data-block="console.section.debug">调试</button>
+        <button class="console-nav-item" data-section="logs" data-block="console.section.logs">日志</button>
+      </div>
+    </aside>
+    <div class="console-content">
+      <section class="setting-section" data-section="overview">
+        <h3 data-block="console.section.overview">概览</h3>
+        <p class="section-desc">SimChat 网关的整体健康状况与入口点。</p>
+        <div class="overview-grid">
+          <div class="stat-card">
+            <div class="stat-card-label">服务商</div>
+            <div class="stat-card-value" id="ov-provider">—</div>
+            <div class="stat-card-sub" id="ov-provider-detail">检测中…</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card-label">进程运行</div>
+            <div class="stat-card-value" id="ov-uptime">—</div>
+            <div class="stat-card-sub">SimChat 自启动以来</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card-label">监听地址</div>
+            <div class="stat-card-value" id="ov-listen">127.0.0.1</div>
+            <div class="stat-card-sub" id="ov-version">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card-label">活动会话</div>
+            <div class="stat-card-value" id="ov-sessions">0</div>
+            <div class="stat-card-sub">磁盘内保存的会话</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="setting-section" data-section="comms" hidden>
+        <h3 data-block="console.section.comms">通讯</h3>
+        <p class="section-desc">即时通讯通道（WhatsApp / Telegram / 微信等）。</p>
+        <div class="state-card">
+          <div class="state-card-icon">📡</div>
+          <h4 class="state-card-title">该模块尚未接入</h4>
+          <p class="state-card-reason">通讯服务的统一接口需要 services/comms/ 目录，当前版本未实现。</p>
+        </div>
+      </section>
+
+      <section class="setting-section" data-section="instances" hidden>
+        <h3 data-block="console.section.instances">实例</h3>
+        <p class="section-desc">当前已连接的浏览器客户端与节点设备。</p>
+        <div class="state-card">
+          <div class="state-card-icon">🖥️</div>
+          <h4 class="state-card-title">该模块尚未接入</h4>
+          <p class="state-card-reason">客户端心跳机制需要 runtime/console.py，当前版本未实现。</p>
+        </div>
+      </section>
+
+      <section class="setting-section" data-section="sessions" hidden>
+        <h3 data-block="console.section.sessions">会话</h3>
+        <p class="section-desc">活动与历史会话列表。</p>
+        <div class="state-card">
+          <div class="state-card-icon">💬</div>
+          <h4 class="state-card-title">该模块尚未接入</h4>
+          <p class="state-card-reason">会话列表展示需要额外的活动会话追踪，当前版本只在侧边栏提供基础列表。</p>
+        </div>
+      </section>
+
+      <section class="setting-section" data-section="usage" hidden>
+        <h3 data-block="console.section.usage">使用情况</h3>
+        <p class="section-desc">Token 用量统计与额度锁。</p>
+        <div class="state-card">
+          <div class="state-card-icon">📊</div>
+          <h4 class="state-card-title">该模块尚未接入</h4>
+          <p class="state-card-reason">用量统计需要 runtime/usage.py，当前版本未实现。</p>
+        </div>
+      </section>
+
+      <section class="setting-section" data-section="automation" hidden>
+        <h3 data-block="console.section.automation">自动化</h3>
+        <p class="section-desc">定时任务、触发器与工作流（需 MOD）。</p>
+        <div class="state-card">
+          <div class="state-card-icon">⏰</div>
+          <h4 class="state-card-title">该模块尚未接入</h4>
+          <p class="state-card-reason">自动化由 automation MOD 提供；未安装时此分区保持空态。</p>
+        </div>
+      </section>
+
+      <section class="setting-section" data-section="agent" hidden>
+        <h3 data-block="console.section.agent">代理</h3>
+        <p class="section-desc">Agent 模式的系统提示词、工具白名单与工作范围。</p>
+        <div class="state-card">
+          <div class="state-card-icon">🤖</div>
+          <h4 class="state-card-title">该模块尚未接入</h4>
+          <p class="state-card-reason">Agent 模式本体未落地；工具白名单与代理设置将在后续阶段实现。</p>
+        </div>
+      </section>
+
+      <section class="setting-section" data-section="skills" hidden>
+        <h3 data-block="console.section.skills">技能</h3>
+        <p class="section-desc">已安装技能的开关与参数。</p>
+        <div class="state-card">
+          <div class="state-card-icon">✨</div>
+          <h4 class="state-card-title">该模块尚未接入</h4>
+          <p class="state-card-reason">技能开关持久化需要 data/state/skills.json，当前版本未实现。</p>
+        </div>
+      </section>
+
+      <section class="setting-section" data-section="nodes" hidden>
+        <h3 data-block="console.section.nodes">节点</h3>
+        <p class="section-desc">设备配对与公开命令。</p>
+        <div class="state-card">
+          <div class="state-card-icon">🔗</div>
+          <h4 class="state-card-title">该模块尚未接入</h4>
+          <p class="state-card-reason">节点配对协议待定义，当前版本未实现。</p>
+        </div>
+      </section>
+
+      <section class="setting-section" data-section="system" hidden>
+        <h3 data-block="console.section.system">系统配置</h3>
+        <p class="section-desc">服务端可调项（只读检测 + 白名单可写）。</p>
+        <div class="state-card">
+          <div class="state-card-icon">⚙️</div>
+          <h4 class="state-card-title">该模块尚未接入</h4>
+          <p class="state-card-reason">系统配置需要 runtime/system_config.py，当前版本未实现。</p>
+        </div>
+      </section>
+
+      <section class="setting-section" data-section="debug" hidden>
+        <h3 data-block="console.section.debug">调试</h3>
+        <p class="section-desc">进程快照、事件流与手动 RPC。</p>
+        <div class="state-card">
+          <div class="state-card-icon">🔧</div>
+          <h4 class="state-card-title">该模块尚未接入</h4>
+          <p class="state-card-reason">调试面板需要 psutil 与环形缓冲，当前版本未实现。</p>
+        </div>
+      </section>
+
+      <section class="setting-section" data-section="logs" hidden>
+        <h3 data-block="console.section.logs">日志</h3>
+        <p class="section-desc">运行日志的尾部读取（只读）。</p>
+        <div class="state-card">
+          <div class="state-card-icon">📜</div>
+          <h4 class="state-card-title">该模块尚未接入</h4>
+          <p class="state-card-reason">日志查看器需要 rotating handler，当前版本未实现。</p>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261028f"></script>
+</body>
+</html>
