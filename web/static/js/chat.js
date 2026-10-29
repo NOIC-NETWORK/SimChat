@@ -33,9 +33,10 @@
     attachInput: document.getElementById("attach-input"),
     attachChips: document.getElementById("attach-chips"),
     modelSelect: document.getElementById("model-select"),
+    modelRefresh: document.getElementById("model-refresh"),
     approvalMode: document.getElementById("approval-mode"),
     orbiterMode: document.getElementById("orbiter-mode"),
-    ttsMode: document.getElementById("tts-mode"),
+    voiceInputMode: document.getElementById("voice-input-mode"),
     agentToggle: document.getElementById("agent-toggle"),
     agentToggleLabel: document.getElementById("agent-toggle-label"),
     openIde: document.getElementById("open-ide"),
@@ -82,6 +83,7 @@
     stickToBottom: true,
     locked: true,
     mode: "chat",  // "chat" | "setup" | "console" —— 唯一事实源
+    agents: "chat", // "chat" | "agent" —— Agent 开关的当前模式
     providers: [],
     presets: [],
     blocks: {},
@@ -90,13 +92,140 @@
     resolved: null,
     drafts: {},
     model: null,          // composer 模型选择；null = 跟随服务商默认
+    modelProvider: null,   // 选中模型所属的 provider id（新：聚合多 provider 模型时需要）
+    approvalMode: "manual", // "manual" | "auto" | "off" | "custom"
     attachments: [],      // 待发送的文本附件 {name, content}
+
+    // Agent 运行态
+    agentRunId: null,       // 当前运行的 run_id
+    agentPendingRunId: null, // 待审批的 run_id
+
+    // 自动模型发现
+    discoverTimer: null,   // 防抖计时器
+    discovering: false,    // 是否正在 discover
+    lastDiscoveredAt: {},  // 每个 provider 上次 discover 成功的时间戳
 
     // 设置页状态
     settings: null,
     settingsDirty: false,
     activeSection: "overview",
   };
+
+  // ---------------- 模型提供商存档（固化 + 全局可调用） ----------------
+  // 把后端返回的 providers（含已 discover 的 models）缓存到 localStorage，
+  // 下次刷新页面先读缓存渲染 UI，再异步从后端刷新——避免每次打开都等 discover。
+  // 同时暴露 window.SimChatProviderStore，使任何需要"选择模型"的地方都能调用。
+  const PROVIDER_CACHE_KEY = "simchat.providers.cache";
+  const PROVIDER_CACHE_MAX_AGE = 10 * 60 * 1000; // 10 分钟内视为新鲜
+
+  const providerStore = {
+    _data: null,
+
+    /** 从 localStorage 读取缓存；过期或无数据返回 null */
+    loadFromCache() {
+      try {
+        const raw = localStorage.getItem(PROVIDER_CACHE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !parsed.providers) return null;
+        const age = Date.now() - (parsed.savedAt || 0);
+        if (age > PROVIDER_CACHE_MAX_AGE) return null;
+        this._data = parsed;
+        return parsed;
+      } catch (_) {
+        return null;
+      }
+    },
+
+    /** 把 providers 数据写入 localStorage 缓存 */
+    saveToCache(data) {
+      try {
+        const payload = {
+          providers: data.providers || [],
+          presets: data.presets || [],
+          configured: data.configured || null,
+          resolved: data.resolved || null,
+          preferred: data.preferred || null,
+          blocks: data.blocks || [],
+          savedAt: Date.now(),
+        };
+        localStorage.setItem(PROVIDER_CACHE_KEY, JSON.stringify(payload));
+        this._data = payload;
+      } catch (_) {
+        /* localStorage 不可用时静默忽略 */
+      }
+    },
+
+    /** 清除缓存 */
+    clearCache() {
+      try { localStorage.removeItem(PROVIDER_CACHE_KEY); } catch (_) {}
+      this._data = null;
+    },
+
+    // —— 以下为全局可调用的便捷 API ——
+
+    /** 获取所有 provider */
+    getAll() {
+      return (this._data && this._data.providers) || state.providers || [];
+    },
+
+    /** 按 ID 获取单个 provider */
+    getProvider(id) {
+      return this.getAll().find((p) => p.id === id) || null;
+    },
+
+    /** 获取当前 resolved（实际生效）的 provider */
+    getResolved() {
+      const id = (this._data && this._data.resolved) || state.resolved;
+      if (id) {
+        const p = this.getProvider(id);
+        if (p) return p;
+      }
+      // 兜底：第一个 available 的
+      return this.getAll().find((p) => p.available) || null;
+    },
+
+    /** 获取指定 provider 的模型列表 */
+    getModels(providerId) {
+      const p = this.getProvider(providerId);
+      if (p && p.models && p.models.length) return p.models;
+      // 从 fields.options 兜底
+      if (p && p.fields) {
+        for (const f of p.fields) {
+          if ((f.name === "model" || f.name === "model_name") && Array.isArray(f.options) && f.options.length) {
+            return f.options;
+          }
+        }
+      }
+      return [];
+    },
+
+    /** 获取默认 provider 的模型列表（composer 下拉用） */
+    getDefaultModels() {
+      const resolved = this.getResolved();
+      if (resolved) {
+        const models = this.getModels(resolved.id);
+        if (models.length) return { provider: resolved, models };
+      }
+      // 兜底：遍历所有 provider 找有 models 的
+      for (const p of this.getAll()) {
+        const models = this.getModels(p.id);
+        if (models.length) return { provider: p, models };
+      }
+      return { provider: null, models: [] };
+    },
+
+    /** 获取指定 provider 的默认模型名 */
+    getDefaultModelName(providerId) {
+      const p = this.getProvider(providerId);
+      if (!p) return "";
+      const v = p.values || {};
+      return v.model || v.model_name || (this.getModels(providerId)[0] || "");
+    },
+  };
+
+  // 暴露到全局——任何地方都可以调用 window.SimChatProviderStore
+  window.SimChatProviderStore = providerStore;
 
   const TRASH_ICON =
     '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" ' +
@@ -489,50 +618,118 @@
       renderProviderForm();
       renderPresets();
     }
+
+    // 固化到 localStorage——下次刷新先读缓存，不等后端 discover
+    providerStore.saveToCache(data);
   }
 
   // ---------------- Composer 工具条：模型选择 / 附件 / 预留控件 ----------------
 
-  /* 模型下拉跟随「实际生效的服务商」（auto 时取 resolved）：
-     ollama 列出已安装模型，openai_compat 列已配置的 model_name，
-     auto 且 resolved 不可用时给提示项。选择写入 state.model，随 /api/chat 发送。 */
+  /* 模型下拉：聚合所有 provider 的所有模型，用 optgroup 按 provider 分组。
+     这样无论用户配了 ollama + openai_compat 还是只配了一个，下拉里都能看到所有选项。
+     option.value 格式为 "providerId::modelName"（双冒号分隔），避免不同 provider 有同名模型时冲突。 */
   function updateModelSelect() {
     const select = el.modelSelect;
     if (!select) return;
     const providers = state.providers || [];
-    const real =
-      providers.find((p) => p.id === state.resolved) ||
-      providers.find((p) => p.available) ||
-      null;
-    select.innerHTML = "";
-    state.model = null;
 
-    if (!real) {
+    select.innerHTML = "";
+
+    // 收集所有有模型的 provider（跳过 auto——它是虚拟 provider，没有自己的模型）
+    const providersWithModels = [];
+    for (const p of providers) {
+      if (p.id === "auto") continue;
+      let models = [];
+      if (p.models && p.models.length) {
+        models = p.models.slice();
+      } else if (p.values) {
+        // 兜底：从 values 里拿单个模型名
+        const single = p.values.model || p.values.model_name;
+        if (single) models = [single];
+      }
+      if (!models.length) continue;
+      providersWithModels.push({ provider: p, models });
+    }
+
+    if (!providersWithModels.length) {
       select.disabled = true;
       const opt = document.createElement("option");
       opt.value = "";
       opt.textContent = "无可用模型";
       select.appendChild(opt);
+      select.title = "选择模型";
+      state.model = null;
+      state.modelProvider = null;
       return;
     }
 
     select.disabled = false;
-    const values = real.values || {};
-    const models =
-      (real.models && real.models.length ? real.models : null) ||
-      (values.model ? [values.model] : null) ||
-      (values.model_name ? [values.model_name] : []);
-    const current = values.model || values.model_name || models[0] || "";
-    state.model = current || null;
 
-    for (const name of models) {
-      const opt = document.createElement("option");
-      opt.value = name;
-      opt.textContent = name;
-      select.appendChild(opt);
+    // 当前已选：从 state.model + state.modelProvider 拼 key；或从 target provider 的默认模型取
+    let currentKey = null; // 格式 "providerId::modelName"
+
+    for (const group of providersWithModels) {
+      const { provider, models } = group;
+
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = provider.label || provider.id;
+
+      // 确定这个 provider 的默认选中项
+      const values = provider.values || {};
+      const defaultModel = values.model || values.model_name || models[0] || "";
+
+      for (const name of models) {
+        const opt = document.createElement("option");
+        const key = provider.id + "::" + name;
+        opt.value = key;
+        opt.textContent = name;
+
+        // 选中逻辑优先顺序：
+        // 1. state 里已有的 modelProvider+model 匹配
+        // 2. 当前 resolved provider 的默认模型
+        // 3. 第一个 provider 的第一个模型兜底
+        if (state.modelProvider && state.model &&
+            state.modelProvider === provider.id && state.model === name) {
+          opt.selected = true;
+          currentKey = key;
+        } else if (!currentKey && state.resolved === provider.id && name === defaultModel) {
+          // resolved provider 的默认模型自动选中
+          opt.selected = true;
+          currentKey = key;
+        }
+
+        optgroup.appendChild(opt);
+      }
+
+      // 兜底：如果还没选中过任何，resolved provider 没找到，选第一个 provider 的第一个
+      if (!currentKey && providersWithModels[0].provider.id === provider.id) {
+        // 先不设，等外层循环完再兜底
+      }
+
+      select.appendChild(optgroup);
     }
-    if (current) select.value = current;
-    select.title = "选择模型（" + real.label + "）";
+
+    // 最终兜底：还没选中就选第一个 group 的第一个 option
+    if (!currentKey) {
+      const firstOpt = select.querySelector("option");
+      if (firstOpt) {
+        firstOpt.selected = true;
+        currentKey = firstOpt.value;
+      }
+    }
+
+    // 同步到 state
+    if (currentKey && currentKey.includes("::")) {
+      const idx = currentKey.indexOf("::");
+      state.modelProvider = currentKey.substring(0, idx);
+      state.model = currentKey.substring(idx + 2);
+    } else {
+      state.model = null;
+      state.modelProvider = null;
+    }
+
+    const target = providers.find((p) => p.id === state.modelProvider);
+    select.title = "选择模型" + (target ? "（" + target.label + "）" : "");
   }
 
   function setAgentOnlyVisible(visible) {
@@ -541,7 +738,7 @@
     });
   }
 
-  /* 预留开关控件：审批 / Orbiter / TTS。只做 UI 状态，不接后端。 */
+  /* 预留开关控件：Orbiter / 语音输入。只做 UI 状态，不接后端。 */
   function bindReservedToggle(btn) {
     btn?.addEventListener("click", () => btn.classList.toggle("on"));
   }
@@ -619,17 +816,31 @@
 
   // ---------------- 预留接口：Agent 切换 / IDE 跳转 ----------------
 
+  function getCurrentMode() {
+    return (el.agentToggle?.dataset.mode === "agent") ? "agent" : "chat";
+  }
+
   function toggleAgentMode() {
     const track = el.agentToggle;
     const isAgent = track.dataset.mode === "agent";
     const next = isAgent ? "chat" : "agent";
     track.dataset.mode = next;
     track.setAttribute("aria-pressed", String(next === "agent"));
+    state.agents = next;
     if (el.agentToggleLabel) {
       el.agentToggleLabel.textContent = next === "agent" ? "Agent" : "对话";
     }
     // 审批 / Orbiter 等控件仅在 Agent 模式显示（功能本身仍为预留）
     setAgentOnlyVisible(next === "agent");
+    // 切换底下 welcome-sub 文案（不动 splash）
+    const subEl = document.getElementById("welcome-sub");
+    if (subEl) {
+      if (next === "agent") {
+        subEl.textContent = "Agent 模式 · 读写本地项目 + Shell · 会话自动保存在本地";
+      } else {
+        subEl.textContent = "SimChat 本体独立对话 · 会话自动保存在本地";
+      }
+    }
   }
 
   function renderProviderTabs() {
@@ -657,6 +868,15 @@
         renderProviderTabs();
         renderProviderDetail();
         renderProviderForm();
+        // 切 tab 立即刷新 composer 下拉（即使 discover 还没返回，先用 state 里已有的）
+        updateModelSelect();
+        // 然后异步 discover 拿最新 models，成功后再刷新一次
+        if (provider.id !== "auto") {
+          const draft = state.drafts[provider.id] || {};
+          const cfg = {};
+          for (const f of provider.fields || []) cfg[f.name] = String(draft[f.name] || "").trim();
+          scheduleDiscoverProvider(provider.id, cfg);
+        }
       });
       el.providerTabs.appendChild(tab);
     }
@@ -696,19 +916,26 @@
       wrap.appendChild(caption);
 
       let control;
+      let datalist = null;
       if (Array.isArray(field.options) && field.options.length) {
-        control = document.createElement("select");
-        const options = field.options.slice();
-        const current = draft[field.name] || "";
-        if (current && options.indexOf(current) === -1) options.unshift(current);
-        if (!current) options.unshift("");
-        for (const value of options) {
-          const option = document.createElement("option");
-          option.value = value;
-          option.textContent = value || "请选择模型";
-          control.appendChild(option);
+        // 有 options 时：用 <input> + <datalist>（既有补全又能自由输入，比纯 <select> 灵活）
+        const datalistId = "dl-" + provider.id + "-" + field.name;
+        datalist = document.createElement("datalist");
+        datalist.id = datalistId;
+        const seen = new Set();
+        for (const val of field.options) {
+          if (seen.has(val)) continue;
+          seen.add(val);
+          const opt = document.createElement("option");
+          opt.value = val;
+          datalist.appendChild(opt);
         }
-        control.value = current;
+        control = document.createElement("input");
+        control.type = "text";
+        control.setAttribute("list", datalistId);
+        control.value = draft[field.name] || "";
+        control.placeholder = field.placeholder || "从下拉选择或手动输入";
+        control.autocomplete = "off";
       } else {
         control = document.createElement("input");
         control.type = field.type === "password" ? "password" : "text";
@@ -721,11 +948,36 @@
       control.name = field.name;
       control.addEventListener("input", () => {
         draft[field.name] = control.value;
+        // api_base / api_key / base_url 变化时自动触发 discover（防抖 1 秒）
+        const discoverTriggers = {
+          openai_compat: ["api_base", "api_key"],
+          ollama: ["base_url"],
+        };
+        const triggerFields = discoverTriggers[provider.id] || [];
+        if (triggerFields.includes(field.name)) {
+          scheduleDiscoverProvider(provider.id, collectConfig());
+        }
       });
       control.addEventListener("change", () => {
         draft[field.name] = control.value;
       });
       wrap.appendChild(control);
+      if (datalist) wrap.appendChild(datalist);
+
+      // api_base / base_url 旁边放个「🔍 探测模型」手动按钮
+      if ((field.name === "api_base" || field.name === "base_url") && provider.id !== "auto") {
+        const probeBtn = document.createElement("button");
+        probeBtn.type = "button";
+        probeBtn.className = "field-probe-btn";
+        probeBtn.textContent = "🔍 探测模型";
+        probeBtn.title = "用当前 API Base + Key 自动发现可用模型";
+        probeBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          const cfg = collectConfig();
+          discoverProvider(provider.id, cfg, false);
+        });
+        wrap.appendChild(probeBtn);
+      }
 
       if (field.hint) {
         const hint = document.createElement("span");
@@ -812,6 +1064,8 @@
       el.messages.style.display = "";
       showWelcome(el.messages.children.length === 0);
       document.body.style.overflow = "";
+      // setup → chat 切换后重新按 resolved provider 刷新下拉
+      updateModelSelect();
     } else if (next === "setup") {
       // 右侧抽屉面板：底下主界面保持可见（有半透明遮罩）
       // 不再硬藏 messages/welcome——PC 风格，边看聊天边改设置
@@ -824,6 +1078,8 @@
         renderProviderForm();
         renderPresets();
         loadSettings();
+        // 进 setup 也立刻同步一次（按 activeProvider 优先）
+        updateModelSelect();
       }
     } else if (next === "console") {
       // 控制台全屏盖下来
@@ -852,15 +1108,28 @@
   }
 
   async function loadProviders() {
+    // 第一步：先尝试从 localStorage 缓存读，立刻渲染 UI
+    // 这样刷新页面后模型下拉立即有数据，不用等后端 discover
+    const cached = providerStore.loadFromCache();
+    if (cached && cached.providers && cached.providers.length) {
+      setProviderData({ ...cached, available: cached.providers.some((p) => p.available) });
+    }
+
+    // 第二步：异步从后端拉最新数据（会覆盖缓存渲染的结果）
     try {
       const data = await api("/api/providers");
       setProviderData(data);
     } catch (err) {
-      state.locked = true;
-      state.providers = [];
-      setLocked(true);
-      showSetup();
-      setSetupMessage("无法检测服务商：" + err.message, "error");
+      // 后端不可用：如果有缓存就继续用缓存；否则进入 locked 状态
+      if (!cached || !cached.providers || !cached.providers.some((p) => p.available)) {
+        state.locked = true;
+        state.providers = [];
+        setLocked(true);
+        showSetup();
+        setSetupMessage("无法检测服务商：" + err.message, "error");
+      }
+      // 有缓存就静默继续用缓存，只在 console 里警告
+      console.warn("[SimChat] 后端不可用，使用本地缓存的 providers");
     }
   }
 
@@ -950,7 +1219,68 @@
     }
   }
 
-  // ---------------- 消息操作栏 ----------------
+  // ---------------- 自动模型发现 ----------------
+
+  async function discoverProvider(providerId, draftValues, silent) {
+    /** 调 /api/providers/discover 拉模型列表，更新 state.providers 后重渲染表单。
+        silent=true 时不弹 toast（输入过程中自动 discover 用）。 */
+    if (state.discovering) return;
+    state.discovering = true;
+    const provider = (state.providers || []).find((p) => p.id === providerId);
+    if (!provider) { state.discovering = false; return; }
+
+    try {
+      const result = await api("/api/providers/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: providerId, config: draftValues || {} }),
+      });
+
+      if (result.ok && result.models && result.models.length) {
+        // 找到当前 provider，更新 models + fields.options
+        const providers = state.providers || [];
+        for (const p of providers) {
+          if (p.id === providerId) {
+            p.models = result.models;
+            for (const f of p.fields || []) {
+              if (f.name === "model_name" || f.name === "model") {
+                f.options = result.models.slice();
+                f.hint = "已探测到 " + result.models.length + " 个模型";
+                // 保留用户当前输入的模型名在 options 里
+                const curModel = (draftValues && (draftValues.model_name || draftValues.model)) || f.value;
+                if (curModel && !f.options.includes(curModel)) {
+                  f.options.unshift(curModel);
+                }
+              }
+            }
+            break;
+          }
+        }
+        state.lastDiscoveredAt[providerId] = Date.now();
+        renderProviderForm();
+        updateModelSelect();
+        if (!silent) {
+          setSetupMessage("✓ " + (result.message || ("发现 " + result.models.length + " 个模型")), "");
+        }
+      } else if (!silent && result.message) {
+        setSetupMessage(result.message, "error");
+      }
+    } catch (err) {
+      if (!silent) setSetupMessage("模型发现失败: " + err.message, "error");
+    } finally {
+      state.discovering = false;
+    }
+  }
+
+  function scheduleDiscoverProvider(providerId, draftValues) {
+    /** 防抖触发自动 discover：1 秒内无新输入才真正发起请求。 */
+    if (state.discoverTimer) clearTimeout(state.discoverTimer);
+    state.discoverTimer = setTimeout(() => {
+      clearTimeout(state.discoverTimer);
+      state.discoverTimer = null;
+      discoverProvider(providerId, draftValues, true);
+    }, 1000);
+  }
 
   async function copyText(text) {
     try {
@@ -1149,157 +1479,361 @@
     updateSendState();
   }
 
-  // ---------------- 流式对话 ----------------
+  // ---------------- Agent SSE 辅助函数 ----------------
 
-  async function sendMessage(text, options) {
-    options = options || {};
-    if (state.streaming) return;
-    if (state.locked) {
-      showSetup();
-      return;
+  function riskLabel(risk) {
+    const map = { read: "只读", write: "写操作", dangerous: "危险" };
+    return map[risk] || risk;
+  }
+
+  function createPlanCard(steps, raw) {
+    const card = document.createElement("div");
+    card.className = "agent-card agent-plan-card";
+    const header = document.createElement("div");
+    header.className = "agent-card-header";
+    header.innerHTML = '<svg class="agent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>执行计划';
+    card.appendChild(header);
+    const ul = document.createElement("ul");
+    ul.className = "plan-steps";
+    (steps || []).forEach((text, i) => {
+      const li = document.createElement("li");
+      li.className = "plan-step";
+      li.dataset.idx = i;
+      li.innerHTML = '<span class="plan-step-check">✓</span><span class="plan-step-text"></span>';
+      li.querySelector(".plan-step-text").textContent = text;
+      ul.appendChild(li);
+    });
+    card.appendChild(ul);
+    return card;
+  }
+
+  function updatePlanDone(cardsContainer, doneCount) {
+    const planCard = cardsContainer.querySelector(".agent-plan-card");
+    if (!planCard) return;
+    const steps = planCard.querySelectorAll(".plan-step");
+    steps.forEach((li) => {
+      const idx = parseInt(li.dataset.idx, 10);
+      li.classList.toggle("done", idx < doneCount);
+    });
+  }
+
+  function createThoughtCard(content) {
+    const card = document.createElement("div");
+    card.className = "agent-card agent-thought-card";
+    const header = document.createElement("div");
+    header.className = "agent-card-header";
+    header.innerHTML = '<svg class="agent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>思考';
+    card.appendChild(header);
+    const body = document.createElement("div");
+    body.className = "thought-content";
+    body.textContent = content || "…";
+    card.appendChild(body);
+    return card;
+  }
+
+  function createToolCallCard(toolName, input, risk) {
+    const card = document.createElement("div");
+    card.className = "agent-card agent-tool-call-card";
+    const header = document.createElement("div");
+    header.className = "agent-card-header";
+    header.innerHTML = '<svg class="agent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>工具调用';
+    card.appendChild(header);
+    const info = document.createElement("div");
+    info.className = "tool-call-info";
+    info.innerHTML =
+      '<span class="tool-badge">' + escapeHtml(toolName || "?") + '</span>' +
+      '<span class="tool-risk tool-risk-' + (risk || "read") + '">' + riskLabel(risk || "read") + '</span>';
+    card.appendChild(info);
+    if (input && Object.keys(input).length) {
+      const paramsEl = document.createElement("div");
+      paramsEl.className = "tool-params";
+      try {
+        paramsEl.textContent = JSON.stringify(input, null, 2);
+      } catch (_) {
+        paramsEl.textContent = String(input);
+      }
+      card.appendChild(paramsEl);
     }
+    const resultSlot = document.createElement("div");
+    resultSlot.className = "tool-result hidden";
+    card.appendChild(resultSlot);
+    return card;
+  }
+
+  function createApprovalCard(toolName, input, risk, reason, onApprove, onReject) {
+    const card = document.createElement("div");
+    card.className = "agent-card agent-approval-card";
+    const header = document.createElement("div");
+    header.className = "agent-card-header";
+    header.innerHTML = '<svg class="agent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>需要审批';
+    card.appendChild(header);
+    const reasonEl = document.createElement("div");
+    reasonEl.className = "approval-reason";
+    const riskBadge = '<span class="approval-risk-badge ' + (risk || "write") + '">' + riskLabel(risk || "write") + '</span>';
+    reasonEl.innerHTML = escapeHtml(reason || "") + riskBadge;
+    card.appendChild(reasonEl);
+
+    const info = document.createElement("div");
+    info.className = "tool-call-info";
+    info.innerHTML = '<span class="tool-badge">' + escapeHtml(toolName || "?") + '</span>';
+    card.appendChild(info);
+
+    if (input && Object.keys(input).length) {
+      const paramsEl = document.createElement("div");
+      paramsEl.className = "tool-params";
+      try { paramsEl.textContent = JSON.stringify(input, null, 2); } catch (_) { paramsEl.textContent = String(input); }
+      card.appendChild(paramsEl);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "approval-actions";
+    const approveBtn = document.createElement("button");
+    approveBtn.className = "approval-btn approve";
+    approveBtn.type = "button";
+    approveBtn.textContent = "批准执行";
+    const rejectBtn = document.createElement("button");
+    rejectBtn.className = "approval-btn reject";
+    rejectBtn.type = "button";
+    rejectBtn.textContent = "拒绝";
+    approveBtn.addEventListener("click", () => { approveBtn.disabled = true; rejectBtn.disabled = true; onApprove(); });
+    rejectBtn.addEventListener("click", () => { approveBtn.disabled = true; rejectBtn.disabled = true; onReject(); });
+    actions.appendChild(approveBtn);
+    actions.appendChild(rejectBtn);
+    card.appendChild(actions);
+    return card;
+  }
+
+  function createErrorCard(message) {
+    const card = document.createElement("div");
+    card.className = "agent-card agent-error-card";
+    card.textContent = "⚠ " + (message || "未知错误");
+    return card;
+  }
+
+  // 找到 assistant 消息行里的 .agent-cards 容器，没有就创建
+  function ensureAgentCards(row) {
+    let cards = row._agentCards;
+    if (cards) return cards;
+    cards = document.createElement("div");
+    cards.className = "agent-cards";
+    row._agentCards = cards;
+    // 插到 body（content）和 actions 之间
+    row._body.parentNode.insertBefore(cards, row._actions);
+    return cards;
+  }
+
+  function updateLastToolResult(cardsContainer, callId, ok, output, error) {
+    const toolCards = cardsContainer.querySelectorAll(".agent-tool-call-card");
+    // 结果卡片在 tool_result 里用 call_id 做标记；我们直接找最后一个没显示结果的 tool card
+    // 简单实现：找最后一个 tool-card，填入结果
+    for (let i = toolCards.length - 1; i >= 0; i--) {
+      const c = toolCards[i];
+      const slot = c.querySelector(".tool-result");
+      if (slot && slot.classList.contains("hidden")) {
+        slot.classList.remove("hidden");
+        if (ok) {
+          slot.textContent = output || "（执行成功）";
+        } else {
+          slot.classList.add("error");
+          slot.textContent = "✗ " + (error || "执行失败");
+        }
+        // 标记这个 call_id 已经处理过
+        c.dataset.callId = callId;
+        return;
+      }
+      if (c.dataset.callId) return; // 已处理过就停下
+    }
+  }
+
+  // ---------------- SSE 解析辅助 ----------------
+
+  async function* parseSSE(reader) {
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let boundary;
+      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        for (const line of frame.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          const raw = line.slice(5).trim();
+          if (!raw) continue;
+          try { yield JSON.parse(raw); } catch (_) { /* keepalive 等注释行 */ }
+        }
+      }
+    }
+  }
+
+  // ---------------- Agent 模式运行（统一走 /api/agent/run） ----------------
+
+  async function runAgent(text, options, mode, existingRow) {
+    options = options || {};
+    mode = mode || "agent";
 
     setStreaming(true);
     state.stickToBottom = true;
     showWelcome(false);
 
-    // 附件：气泡里只显示文件名，完整内容随请求发给后端
-    const attachNames = state.attachments.map((att) => att.name);
-    const payloadText = composeMessageWithAttachments(text);
-    const displayText = attachNames.length
-      ? "📎 " + attachNames.join("、") + (text ? "\n\n" + text : "")
-      : text;
-    clearAttachments();
-
-    addMessage("user", displayText);
-    const row = addMessage("assistant", "");
+    let row = existingRow;
+    if (!row) {
+      addMessage("user", text);
+      row = addMessage("assistant", "");
+    }
+    row._body.classList.add("streaming");
+    row._actions.classList.add("hidden");
     const contentEl = row._body;
     const raw = row._raw;
     const actions = row._actions;
-    contentEl.classList.add("streaming");
-    actions.classList.add("hidden");
 
-    let full = "";
+    // Agent 模式下先显示 thought
+    const cardsContainer = ensureAgentCards(row);
+
+    let finalText = "";
     let errorMessage = "";
     let errorCode = "";
     let reader = null;
-    let lastTokenTick = 0;
+    let runId = null;
+
+    // 如果有之前待审批的 run_id，先把它清除
+    if (options.resumeRunId) {
+      runId = options.resumeRunId;
+    }
+
+    const payload = {
+      message: text,
+      session_id: state.sessionId,
+      provider: state.modelProvider || undefined,
+      model: state.model || undefined,
+      mode: mode,
+      history: options.history || undefined,
+    };
+
+    let endpoint = "/api/agent/run";
+    if (options.resumeRunId) {
+      endpoint = "/api/agent/approve";
+    }
 
     try {
-      const resp = await fetch("/api/chat", {
+      const resp = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: payloadText,
-          session_id: state.sessionId,
-          model: state.model || undefined,
-          regenerate: !!options.regenerate,
-        }),
+        body: JSON.stringify(options.resumeRunId
+          ? { run_id: options.resumeRunId, decision: options.decision, edits: options.edits || {}, mode: mode }
+          : payload),
       });
 
       if (!resp.ok || !resp.body) {
-        let message = "对话请求失败（HTTP " + resp.status + "）";
+        let message = "Agent 请求失败（HTTP " + resp.status + "）";
         let code = "";
         try {
           const data = await resp.json();
           if (data && data.error) message = data.error;
           if (data && data.code) code = data.code;
-        } catch (_) {
-          /* 忽略解析失败 */
-        }
+        } catch (_) {}
         errorCode = code;
         throw new Error(message);
       }
 
       reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
 
-      readStream:
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+      for await (const event of parseSSE(reader)) {
+        if (!event || !event.event) continue;
 
-        let boundary;
-        while ((boundary = buffer.indexOf("\n\n")) !== -1) {
-          const frame = buffer.slice(0, boundary);
-          buffer = buffer.slice(boundary + 2);
-
-          for (const line of frame.split("\n")) {
-            if (!line.startsWith("data:")) continue;
-            const raw = line.slice(5).trim();
-            if (!raw) continue;
-
-            let event;
-            try {
-              event = JSON.parse(raw);
-            } catch (_) {
-              continue;
-            }
-
-            if (event.event === "chat_started") {
-              setSessionId(event.session_id || state.sessionId);
-            } else if (event.event === "token") {
-              full += event.content || "";
-              contentEl.textContent = full;
-              raw.text = full;
-              scrollToBottom();
-              const now = Date.now();
-              if (now - lastTokenTick > 150) {
-                lastTokenTick = now;
-                recalcSessionTokens();
-              }
-            } else if (event.event === "final") {
-              full = event.content || full;
-              raw.text = full;
-              setSessionId(event.session_id || state.sessionId);
-            } else if (event.event === "error") {
-              errorMessage = event.message || "对话失败";
-              errorCode = event.code || "";
-              break readStream;
+        if (event.event === "run_started") {
+          runId = event.run_id;
+          state.agentRunId = runId;
+        } else if (event.event === "plan") {
+          const card = createPlanCard(event.steps, event.raw);
+          cardsContainer.appendChild(card);
+          scrollToBottom();
+        } else if (event.event === "plan_progress") {
+          updatePlanDone(cardsContainer, event.done_count || 0);
+        } else if (event.event === "thought") {
+          // Agent 模式显示 thought 卡片；Chat 模式懒调用也显示（简化）
+          const card = createThoughtCard(event.content);
+          cardsContainer.appendChild(card);
+          scrollToBottom();
+        } else if (event.event === "tool_call") {
+          const card = createToolCallCard(event.tool, event.input, event.risk);
+          card.dataset.callId = event.call_id;
+          cardsContainer.appendChild(card);
+          scrollToBottom();
+        } else if (event.event === "tool_result") {
+          const card = cardsContainer.querySelector('.agent-tool-call-card[data-call-id="' + event.call_id + '"]') ||
+            (() => {
+              // 如果没找到对应 card，新建一个
+              const c = createToolCallCard(event.tool, null, event.risk);
+              c.dataset.callId = event.call_id;
+              cardsContainer.appendChild(c);
+              return c;
+            })();
+          const slot = card.querySelector(".tool-result");
+          if (slot) {
+            slot.classList.remove("hidden");
+            if (event.ok) {
+              slot.textContent = event.output || "（执行成功）";
+            } else {
+              slot.classList.add("error");
+              slot.textContent = "✗ " + (event.error || "执行失败");
             }
           }
-        }
-      }
-
-      if (errorMessage && reader) {
-        try {
-          await reader.cancel();
-        } catch (_) {
-          /* 忽略 */
+          scrollToBottom();
+        } else if (event.event === "approval_required") {
+          // 暂停等待用户审批
+          const pendingRunId = runId;
+          state.agentPendingRunId = pendingRunId;
+          const card = createApprovalCard(
+            event.tool, event.input, event.risk, event.reason,
+            () => handleApproval(pendingRunId, "approve", mode, row, cardsContainer),
+            () => handleApproval(pendingRunId, "reject", mode, row, cardsContainer)
+          );
+          card.dataset.callId = event.call_id;
+          cardsContainer.appendChild(card);
+          // 中止流：这里需要中断当前 SSE 等待
+          if (reader) { try { await reader.cancel(); } catch (_) {} }
+          reader = null;
+          scrollToBottom();
+          // 提前 return，等用户审批后 handleApproval 会重新调用 runAgent(resume)
+          return;
+        } else if (event.event === "final") {
+          finalText = event.content || "";
+          raw.text = finalText;
+          contentEl.innerHTML = renderMarkdown(finalText);
+          setSessionId(event.session_id || state.sessionId);
+        } else if (event.event === "aborted") {
+          const abortedCard = document.createElement("div");
+          abortedCard.className = "agent-card agent-aborted-card";
+          abortedCard.textContent = "⏹ " + (event.message || "任务已中止");
+          cardsContainer.appendChild(abortedCard);
+          scrollToBottom();
+        } else if (event.event === "max_turns") {
+          const mtCard = document.createElement("div");
+          mtCard.className = "agent-card agent-max-turns-card";
+          mtCard.textContent = "⟳ " + (event.message || "已达最大轮数");
+          cardsContainer.appendChild(mtCard);
+          scrollToBottom();
+        } else if (event.event === "compaction") {
+          // transcript 压缩事件，静默处理（不渲染给用户）
+        } else if (event.event === "token_usage") {
+          // token 用量事件，静默处理
+        } else if (event.event === "error") {
+          errorMessage = event.message || "Agent 运行错误";
+          cardsContainer.appendChild(createErrorCard(errorMessage));
         }
       }
     } catch (err) {
       errorMessage = err.message || String(err);
-      if (reader) {
-        try {
-          await reader.cancel();
-        } catch (_) {
-          /* 忽略 */
-        }
-      }
+      cardsContainer.appendChild(createErrorCard(errorMessage));
+      if (reader) { try { await reader.cancel(); } catch (_) {} }
     }
 
+    // 收尾
     contentEl.classList.remove("streaming");
-    if (full) {
-      contentEl.innerHTML = renderMarkdown(full);
-      raw.text = full;
-    } else if (!errorMessage) {
-      contentEl.innerHTML = renderMarkdown("（无回复）");
-      raw.text = "（无回复）";
-    }
-
-    if (errorMessage) {
-      const error = document.createElement("p");
-      error.className = "error-text";
-      error.textContent = errorMessage;
-      contentEl.appendChild(error);
-    } else {
-      // 正常结束，显示操作栏
-      actions.classList.remove("hidden");
-    }
-
+    state.agentRunId = null;
     setStreaming(false);
     recalcSessionTokens();
     scrollToBottom();
@@ -1311,6 +1845,68 @@
     }
 
     el.input.focus();
+  }
+
+  // ---------------- 审批处理 ----------------
+
+  async function handleApproval(pendingRunId, decision, mode, row, cardsContainer) {
+    // 找到审批卡片并禁用按钮
+    const approvalCard = cardsContainer.querySelector(".agent-approval-card");
+    if (approvalCard) {
+      approvalCard.classList.add("hidden");
+    }
+    state.agentPendingRunId = null;
+    await runAgent(null, {
+      resumeRunId: pendingRunId,
+      decision: decision,
+    }, mode, row);
+  }
+
+  async function abortAgent() {
+    if (!state.agentRunId && !state.agentPendingRunId) return;
+    const runId = state.agentRunId || state.agentPendingRunId;
+    try {
+      await fetch("/api/agent/abort", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: runId }),
+      });
+    } catch (err) {
+      console.warn("[Agent] abort 请求失败:", err);
+    }
+    state.agentRunId = null;
+    state.agentPendingRunId = null;
+    setStreaming(false);
+  }
+
+  // ---------------- 流式对话 ----------------
+
+  async function sendMessage(text, options) {
+    options = options || {};
+    if (state.streaming) return;
+    if (state.locked) {
+      showSetup();
+      return;
+    }
+
+    // 根据当前模式选择执行路径
+    const mode = getCurrentMode();
+
+    // 附件：气泡里只显示文件名，完整内容随请求发给后端
+    const attachNames = state.attachments.map((att) => att.name);
+    const payloadText = composeMessageWithAttachments(text);
+    const displayText = attachNames.length
+      ? "📎 " + attachNames.join("、") + (text ? "\n\n" + text : "")
+      : text;
+    clearAttachments();
+
+    if (mode === "agent") {
+      // Agent 模式：完整 ReAct 循环 + 审批流
+      await runAgent(displayText, { regenerate: !!options.regenerate }, "agent");
+    } else {
+      // Chat 模式（懒调用）：统一走 AgentLoop 但只暴露只读工具
+      await runAgent(displayText, { regenerate: !!options.regenerate }, "chat");
+    }
   }
 
   // ---------------- 预留接口：IDE 跳转 ----------------
@@ -1525,11 +2121,31 @@
     el.attachInput.value = "";
   });
   el.modelSelect?.addEventListener("change", () => {
-    state.model = el.modelSelect.value || null;
+    const val = el.modelSelect.value || "";
+    if (val.includes("::")) {
+      const idx = val.indexOf("::");
+      state.modelProvider = val.substring(0, idx);
+      state.model = val.substring(idx + 2);
+    } else {
+      state.model = val || null;
+      state.modelProvider = null;
+    }
   });
-  bindReservedToggle(el.approvalMode);
+  el.modelRefresh?.addEventListener("click", async () => {
+    const btn = el.modelRefresh;
+    btn.classList.add("refreshing");
+    // 先刷新 /api/providers 拿最新配置（后端会自动探测 models）
+    try {
+      await loadProviders();
+    } finally {
+      btn.classList.remove("refreshing");
+    }
+  });
+  el.approvalMode?.addEventListener("change", () => {
+    state.approvalMode = el.approvalMode.value;
+  });
   bindReservedToggle(el.orbiterMode);
-  bindReservedToggle(el.ttsMode);
+  bindReservedToggle(el.voiceInputMode);
   el.openIde?.addEventListener("click", openIde);
   el.setupBack.addEventListener("click", hideSetup);
   el.providerForm.addEventListener("submit", (event) => {

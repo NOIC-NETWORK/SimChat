@@ -40,6 +40,12 @@ _status_lock = threading.Lock()
 _status_cache = {}
 _STATUS_TTL = 5.0
 
+# models 探测结果独立缓存：比 status TTL 长一点，避免频繁打远端 /models，
+# 但又不跟 status 绑死——status 每 5 秒刷新时如果 models 缓存还新鲜就复用，
+# 过期了就重新探测。
+_MODELS_CACHE = {}
+_MODELS_TTL = 15.0
+
 # 自动拉起 ollama 的状态：同一进程只尝试一次，失败后进入冷却，避免反复引爆进程。
 _serve_lock = threading.Lock()
 _serve_state = {"process": None, "attempt_at": 0.0, "error": ""}
@@ -71,10 +77,30 @@ def _is_local_base(base):
     return host.lower() in _LOCAL_HOSTS
 
 
-def _ollama_tags(cfg, timeout=1.5):
+def _cache_get(key):
+    """从独立的 models 缓存取值。返回 (value_tuple, hit)；hit=False 表示过期或未命中。"""
+    now = time.monotonic()
+    entry = _MODELS_CACHE.get(key)
+    if entry and now - entry[0] < _MODELS_TTL:
+        return entry[1], True
+    return None, False
+
+
+def _cache_set(key, value):
+    _MODELS_CACHE[key] = (time.monotonic(), value)
+
+
+def _ollama_tags(cfg, timeout=1.5, skip_cache=False):
     """返回 (模型名列表, 错误消息)。服务不可达时列表为 None。"""
+    base = _ollama_base(cfg)
+    cache_key = "ollama:" + base
+    if not skip_cache:
+        cached, hit = _cache_get(cache_key)
+        if hit:
+            return cached
+
     try:
-        resp = requests.get(_ollama_base(cfg) + "/api/tags", timeout=timeout)
+        resp = requests.get(base + "/api/tags", timeout=timeout)
         resp.raise_for_status()
         data = resp.json()
     except Exception as error:
@@ -86,7 +112,20 @@ def _ollama_tags(cfg, timeout=1.5):
         if name and name not in names:
             names.append(name)
     names.sort()
-    return names, ""
+    result = (names, "")
+    _cache_set(cache_key, result)
+    return result
+
+
+def invalidate_models_cache(provider=None):
+    """手动失效 models 缓存。provider=None 时清全部，否则清对应 provider 的键前缀。"""
+    if provider is None:
+        _MODELS_CACHE.clear()
+        return
+    prefix = provider + ":"
+    for key in list(_MODELS_CACHE.keys()):
+        if key.startswith(prefix):
+            del _MODELS_CACHE[key]
 
 
 def _ollama_executable():
@@ -260,6 +299,13 @@ def _openai_probe(api_base, api_key, timeout=2.0):
     """轻量连通性预检：GET /models。
 
     返回 (ok, kind, message)，kind ∈ ok / auth / unsupported / unreachable / http。
+
+    404/405 的处理有个坑：有些真 API 端点确实不支持 /models 路径
+    （例如自研 LLM 服务只实现了 /chat/completions），
+    但也有可能是用户把 OSS 桶地址、静态 CDN、随机网页 URL 当成了 API Base。
+    我们用 Content-Type 区分：
+      - application/json → 是 API 端点，只是没有 /models → 判 ok（保守兼容）
+      - 其他（text/html、application/octet-stream...）→ 大概率不是 API → 判失败
     """
     try:
         resp = requests.get(
@@ -274,8 +320,126 @@ def _openai_probe(api_base, api_key, timeout=2.0):
     if resp.status_code in (401, 403):
         return False, "auth", "API Key 无效或权限不足（HTTP %s）" % resp.status_code
     if resp.status_code in (404, 405):
-        return True, "unsupported", "配置完整（端点不支持连接预检）"
+        # 看 Content-Type 判断是不是真 API 端点
+        ct = (resp.headers.get("Content-Type") or "").lower()
+        if ct.startswith("application/json"):
+            return True, "unsupported", "端点不支持 /models 预检，但 API Base 格式正确"
+        return False, "http", (
+            "API 端点返回 HTTP %s（Content-Type: %s）——"
+            "请检查 API Base 是否为合法的 /chat/completions 兼容端点"
+        ) % (resp.status_code, ct or "unknown")
     return False, "http", "API 端点返回 HTTP %s" % resp.status_code
+
+
+def _openai_models(api_base, api_key, timeout=3.0, skip_cache=False):
+    """调 GET /models 解析可用模型 ID 列表。
+
+    返回 (names, error_msg)。names 为空数组表示探测失败；error_msg 为空字符串表示成功。
+    兼容阿里云百炼、SiliconFlow、OneAPI、vLLM 等 OpenAI 协议端点。
+    """
+    # 用 api_base + api_key 的 hash 做缓存键（key 不直接拼进 URL 但能保证安全）
+    cache_key = "openai:" + hashlib.sha256(
+        (api_base.rstrip("/") + "|" + api_key).encode("utf-8")
+    ).hexdigest()[:16]
+
+    if not skip_cache:
+        cached, hit = _cache_get(cache_key)
+        if hit:
+            return cached
+
+    names = []
+    try:
+        resp = requests.get(
+            api_base.rstrip("/") + "/models",
+            headers={"Authorization": "Bearer " + api_key},
+            timeout=timeout,
+        )
+        if resp.status_code >= 300:
+            return [], "HTTP %s: %s" % (resp.status_code, _short(resp.text))
+        data = resp.json()
+    except Exception as error:
+        return [], "探测模型列表失败（%s）" % _short(error)
+
+    items = []
+    if isinstance(data, dict):
+        items = data.get("data") or []
+    elif isinstance(data, list):
+        items = data
+
+    seen = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id") or item.get("model") or item.get("name")
+        if not model_id:
+            continue
+        model_id = str(model_id).strip()
+        if model_id and model_id not in seen:
+            seen.add(model_id)
+            names.append(model_id)
+
+    # 按字母排序，但把包含常用关键词的放前面
+    def _sort_key(name):
+        lowered = name.lower()
+        priority = 5
+        for i, kw in enumerate(("max", "plus", "pro", "flash", "gpt-4", "gpt-3.5", "glm-4", "deepseek")):
+            if kw in lowered:
+                priority = i
+                break
+        return (priority, lowered)
+
+    names.sort(key=_sort_key)
+    result = (names, "")
+    _cache_set(cache_key, result)
+    return result
+
+
+def discover_models(provider, payload, current=None):
+    """前端手动触发的模型发现接口。返回 {ok, models, message}。
+
+    强制 skip_cache=True——用户点了"探测"就要最新的。
+    """
+    payload = dict(payload or {})
+    current = dict(current or {})
+
+    if provider == "ollama":
+        api_base = str(payload.get("base_url") or "").strip()
+        if api_base:
+            probe = {"ollama": dict(current.get("ollama") or {})}
+            probe["ollama"]["base_url"] = api_base
+        else:
+            probe = current
+        models, error = _ollama_tags(probe, timeout=3.0, skip_cache=True)
+        if models is None:
+            # 试自动拉起
+            started, auto_msg = ensure_ollama_serving(probe, wait=5.0)
+            if started:
+                models, error = _ollama_tags(probe, timeout=3.0, skip_cache=True)
+        if models is None:
+            return {"ok": False, "models": [], "message": "无法连接 Ollama 服务（%s）" % (error or "未知错误")}
+        if not models:
+            return {"ok": True, "models": [], "message": "已连接 Ollama，但未安装任何模型。用 `ollama pull <name>` 安装后重试。"}
+        return {"ok": True, "models": models, "message": "发现 %d 个已安装模型" % len(models)}
+
+    if provider == "openai_compat":
+        api_base = str(payload.get("api_base") or "").strip().rstrip("/")
+        api_key = str(payload.get("api_key") or "").strip()
+        if not api_base:
+            return {"ok": False, "models": [], "message": "请先填写 API Base"}
+        if not api_key:
+            prev_key = str((current.get("openai_compat") or {}).get("api_key") or "").strip()
+            if prev_key:
+                api_key = prev_key
+            else:
+                return {"ok": False, "models": [], "message": "请先填写 API Key"}
+        models, error = _openai_models(api_base, api_key, skip_cache=True)
+        if error:
+            return {"ok": False, "models": [], "message": "探测模型列表失败: %s" % error}
+        if not models:
+            return {"ok": True, "models": [], "message": "端点可访问，但未返回任何模型 ID（可能该端点不支持 /models）"}
+        return {"ok": True, "models": models, "message": "发现 %d 个可用模型" % len(models)}
+
+    return {"ok": False, "models": [], "message": "未知服务商: %s" % provider}
 
 
 def _verified_recently(conf):
@@ -302,6 +466,13 @@ def detect_openai_compat(cfg):
 
     available = not missing
     detail = "配置完整" if available else "缺少 " + "、".join(missing)
+
+    # 探测模型列表（api_base + api_key 都填了就试）
+    discovered_models = []
+    discover_error = ""
+    if api_base and api_key:
+        discovered_models, discover_error = _openai_models(api_base, api_key)
+
     if available:
         available, kind, detail = _openai_probe(api_base, api_key)
         if not available and kind == "unreachable" and _verified_recently(conf):
@@ -309,13 +480,26 @@ def detect_openai_compat(cfg):
             available = True
             detail = "已通过连接测试，预检暂时超时（稍后自动重试）"
 
+    # 把探测到的模型列表塞进 model_name 字段的 options
+    # 前端 renderProviderForm 会看到 field.options 然后自动渲染成 <select> 下拉
+    model_options = list(discovered_models) if discovered_models else None
+    # 确保当前已填的 model_name 在 options 里
+    if model_name and model_options and model_name not in model_options:
+        model_options.insert(0, model_name)
+
+    model_hint = "以服务商实际提供的模型 ID 为准"
+    if discovered_models:
+        model_hint = "探测到 %d 个可用模型，下拉选择或直接输入覆盖" % len(discovered_models)
+    elif discover_error:
+        model_hint = "暂未能自动探测模型（%s），请手动输入模型 ID" % discover_error
+
     return {
         "id": "openai_compat",
         "label": "OpenAI 兼容",
         "configured": bool(api_base or api_key or model_name),
         "available": available,
         "detail": detail,
-        "models": [],
+        "models": discovered_models,
         "has_api_key": bool(api_key),
         "fields": [
             {
@@ -343,7 +527,8 @@ def detect_openai_compat(cfg):
                 "required": True,
                 "value": model_name,
                 "placeholder": "gpt-4o-mini",
-                "hint": "以服务商实际提供的模型 ID 为准",
+                "options": model_options,  # 自动探测到的模型列表
+                "hint": model_hint,
             },
         ],
         "values": {"api_base": api_base, "model_name": model_name, "api_key": mask_key(api_key)},

@@ -67,7 +67,7 @@ AI 应用行业现在是反过来的——每个团队都在重造自己的 Agen
 
 ## 深度接入 GitHub 生态
 
-人民的力量是伟大的，请给网络平权投票。
+请给网络平权投票！
 
 MOD 的分发不走应用商店，走 Git：`simchat mod publish` 发布的是静态索引（`registry/index.json`），任何人都能搭自己的仓库。没有审核费，没有抽成，没有人能下架你。你的 MOD 值得一个 star，而不是一份入驻协议。
 
@@ -76,6 +76,8 @@ MOD 的分发不走应用商店，走 Git：`simchat mod publish` 发布的是�
 达里欧·阿莫迪和埃隆·马斯克都说过类似的话。
 
 泡沫的意思不是"AI 没用"，而是"押注某个模型会赢"没用。所以我们要自主研发底层逻辑：不绑死任何模型，不依赖任何厂商的良心，把会话、工具、权限、扩展这些真正长寿的层，攥在自己（和社区）手里。
+
+（注：其实我想说的是，你们这群调API的、搞提示词工程的人，整天就梦想着月入上万，这才是目前的创业环境最大的幻觉。）
 
 ## 我只是个卑微的双非本科生
 
@@ -96,6 +98,16 @@ python -m web   # 打开浏览器，接入你的第一个模型
 ```
 
 点右上角那个 ⭐ **Star**——它花不了你一秒，但能让一个双非本科生的 Harness 多被一个人看到。然后跑起来，写你的第一个 MOD，把世界造出来。
+
+## 最近更新
+
+**2026-10-29** — Web UI 多 provider 聚合 + 下拉交互修复 + OpenAI 预检强化
+
+- **模型下拉聚合所有 provider**：composer 里的模型选择器不再只显示 resolved 那一个 provider 的模型，而是用 `<optgroup>` 按 provider 分组列出所有已发现的模型（Ollama 本地 + OpenAI 兼容 + 未来其他）。切换模型时 provider 跟着走，请求 payload 同时带 `provider` 和 `model`。
+- **下拉菜单 hover 白字修复**：原生 `<select>` 在 Windows 上 `background: transparent` 会导致弹出面板的 option hover 时白底白字。加了全局 `select option` 明确兜底 `background-color` + `color`，深色模式独立适配。
+- **模型提供商存档固化**：新增 `providerStore` 模块（`window.SimChatProviderStore`），把后端返回的 providers + models 缓存到 `localStorage`（10 分钟过期）。刷新页面后模型下拉立即有数据，不用等后端重新 discover；后端不可用时继续用缓存兜底。
+- **OpenAI 预检 404 误判修复**：之前 `_openai_probe` 把 404/405 一律当作"端点只是不支持 /models 预检"，导致用户把 OSS 桶地址（`*.aliyuncs.com`）、CDN、甚至随机网页 URL 配成 API Base 时被误判为 available=True，实际调用才爆 404。现在加了 `Content-Type` 校验——只有 JSON 响应才保守判 OK，非 JSON 明确报错并提示检查 API Base。
+- 文件：`runtime/provider_config.py`、`web/static/css/chat.css`、`web/static/js/chat.js`、`web/templates/index.html`
 
 > 状态：**Phase 0-5 全部交付**（2026-10-28）。
 > 定位：SimChat 是 **LMBrewer 的开源底层框架**——它本身具备接入 LLM API 进行对话的完整能力（`runtime/providers.py` + `core.py` + `store.py`），同时提供 MOD SDK + 加载器 + 清单规范 + 沙箱运行时，让社区和团队以模块方式扩展认知能力。

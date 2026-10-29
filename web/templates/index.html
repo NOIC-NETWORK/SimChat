@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SimChat | Everything, Harnessed.</title>
 <link rel="icon" type="image/png" href="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261028g">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261028d">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261029a">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261029a">
 </head>
 <body data-logo="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
 <div class="app">
@@ -190,7 +190,7 @@
           <div aria-label="SimChat" class="welcome-logo"><img src="../static/sprites/logos/simChat-2.png" ></div>
           <span class="welcome-splash" id="welcome-splash">Everything Harnessed!</span>
         </div>
-        <p class="welcome-sub">SimChat 本体独立对话 · 会话自动保存在本地</p>
+        <p class="welcome-sub" id="welcome-sub">SimChat 本体独立对话 · 会话自动保存在本地</p>
         <div class="suggestions">
           <button class="suggestion" data-prompt="介绍一下 SimChat 的整体架构">介绍一下 SimChat 的整体架构</button>
           <button class="suggestion" data-prompt="SimChat 的 MOD 加载器是怎么工作的？">MOD 加载器是怎么工作的？</button>
@@ -218,14 +218,24 @@
           <input type="file" id="attach-input" hidden>
           <div class="model-select-wrap">
             <select class="model-select" id="model-select" title="选择模型" aria-label="选择模型"></select>
+            <button type="button" class="model-refresh-btn" id="model-refresh" title="刷新模型列表" aria-label="刷新模型列表">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            </button>
           </div>
           <span class="composer-spacer"></span>
-          <button type="button" class="composer-chip agent-only hidden" id="approval-mode" title="审批模式：Agent 执行敏感操作前需要人工确认（预留）">审批</button>
+          <div class="model-select-wrap agent-only hidden">
+            <select class="model-select" id="approval-mode" title="审批模式：Manual 逐项人工确认 / Auto 自动放行 / Off 关闭审批 / 自定义按配置" aria-label="审批模式">
+              <option value="manual">审批 · Manual</option>
+              <option value="auto">审批 · Auto</option>
+              <option value="off">审批 · Off</option>
+              <option value="custom">审批 · 自定义</option>
+            </select>
+          </div>
           <button type="button" class="composer-chip agent-only hidden" id="orbiter-mode" title="Orbiter：调用子 Agent 协同处理任务（预留）">Orbiter</button>
-          <button type="button" class="composer-btn" id="tts-mode" title="朗读回复（TTS，预留）" aria-label="朗读回复">
+          <button type="button" class="composer-btn" id="voice-input-mode" title="语音输入（预留）" aria-label="语音输入">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M11 5L6 9H2v6h4l5 4V5z"/>
-              <path class="tts-waves" d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/>
+              <rect x="9" y="2" width="6" height="12" rx="3"/>
+              <path class="voice-waves" d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3"/>
             </svg>
           </button>
           <button class="send-button" id="send" type="submit" aria-label="发送" disabled>
@@ -417,6 +427,6 @@
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261028i"></script>
+<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261029b"></script>
 </body>
 </html>
