@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SimChat | Everything, Harnessed.</title>
 <link rel="icon" type="image/png" href="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261029a">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261029a">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261030a">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261030a">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 </head>
 <body data-logo="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
 <div class="app">
@@ -75,9 +77,8 @@
           <h1 data-block="setup.title">连接一个服务商</h1>
           <p class="setup-sub" id="setup-subtitle" data-block="setup.subtitle">SimChat 需要一个可用的模型服务才能开始对话。API 信息只保存在本地。</p>
 
-          <!-- 服务商 -->
-          <div class="provider-tabs" id="provider-tabs" role="tablist"></div>
-          <p class="provider-detail" id="provider-detail"></p>
+          <!-- 服务商（折叠菜单） -->
+          <div class="provider-accordion" id="provider-accordion"></div>
 
           <form class="provider-form" id="provider-form" novalidate>
             <div class="provider-fields" id="provider-fields"></div>
@@ -285,6 +286,12 @@
         <button class="console-nav-item" data-section="debug" data-block="console.section.debug">调试</button>
         <button class="console-nav-item" data-section="logs" data-block="console.section.logs">日志</button>
       </div>
+      <div class="console-nav-group">
+        <h4 data-block="console.group.experiment">🧪 实验</h4>
+        <button class="console-nav-item" data-section="hippo" data-block="console.section.hippo">
+          <span class="nav-item-dot hippo-dot"></span>Hippo 系统
+        </button>
+      </div>
     </aside>
     <div class="console-content">
       <section class="setting-section" data-section="overview">
@@ -312,15 +319,114 @@
             <div class="stat-card-sub">磁盘内保存的会话</div>
           </div>
         </div>
+
+        <!-- ========== 网关概览 ========== -->
+        <h4 class="gateway-section-title">网关概览</h4>
+        <p class="section-desc" style="margin-bottom:14px;">IM 网关的握手连接状态与访问信息。</p>
+
+        <div class="gateway-grid">
+          <!-- 访问 -->
+          <div class="gateway-card" id="gateway-access">
+            <div class="gateway-card-header">
+              <span class="gateway-card-title">访问</span>
+              <span class="gateway-card-badge" id="gw-health-badge">检测中</span>
+            </div>
+            <div class="gateway-access-body">
+              <div class="gateway-field">
+                <label class="gateway-field-label">套接字 URL</label>
+                <div class="gateway-field-row">
+                  <input type="text" class="gateway-input" id="gw-socket-url" readonly placeholder="ws://…">
+                  <button class="gateway-btn ghost" id="gw-copy-url" title="复制 URL" aria-label="复制 URL">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="gateway-field">
+                <label class="gateway-field-label">访问令牌</label>
+                <div class="gateway-field-row">
+                  <input type="text" class="gateway-input" id="gw-access-token" readonly placeholder="加载中…">
+                  <button class="gateway-btn ghost" id="gw-copy-token" title="复制令牌" aria-label="复制令牌">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="gateway-field">
+                <label class="gateway-field-label">密码 <span class="gw-optional">（不保存）</span></label>
+                <input type="password" class="gateway-input" id="gw-password" placeholder="连接时临时输入" autocomplete="off">
+              </div>
+              <div class="gateway-field gateway-field-inline">
+                <div class="gateway-field-half">
+                  <label class="gateway-field-label">默认会话密钥</label>
+                  <input type="text" class="gateway-input" id="gw-session-key" readonly placeholder="—">
+                </div>
+                <div class="gateway-field-half">
+                  <label class="gateway-field-label">语言</label>
+                  <input type="text" class="gateway-input" id="gw-language" readonly placeholder="—">
+                </div>
+              </div>
+            </div>
+            <div class="gateway-actions">
+              <button class="gateway-btn primary" id="gw-connect">连接</button>
+              <button class="gateway-btn ghost" id="gw-refresh" title="刷新快照" aria-label="刷新">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                手动刷新
+              </button>
+              <span class="gateway-msg" id="gw-access-msg"></span>
+            </div>
+          </div>
+
+          <!-- 快照 -->
+          <div class="gateway-card" id="gateway-snapshot">
+            <div class="gateway-card-header">
+              <span class="gateway-card-title">快照</span>
+              <span class="gateway-card-sub" id="gw-handshake-time">—</span>
+            </div>
+            <div class="gateway-snapshot-body">
+              <div class="gateway-snapshot-grid">
+                <div class="gateway-snap-item">
+                  <span class="gateway-snap-label">健康状况</span>
+                  <span class="gateway-snap-value" id="gw-health">—</span>
+                </div>
+                <div class="gateway-snap-item">
+                  <span class="gateway-snap-label">运行时间</span>
+                  <span class="gateway-snap-value" id="gw-uptime">—</span>
+                </div>
+                <div class="gateway-snap-item">
+                  <span class="gateway-snap-label">刻度间隔</span>
+                  <span class="gateway-snap-value" id="gw-tick-interval">Not available</span>
+                </div>
+                <div class="gateway-snap-item">
+                  <span class="gateway-snap-label">最后频道刷新</span>
+                  <span class="gateway-snap-value" id="gw-channel-refresh">—</span>
+                </div>
+              </div>
+              <div class="gateway-channel-hint" id="gw-channel-hint">
+                <div class="gateway-channel-icon">📡</div>
+                <div class="gateway-channel-text">
+                  <strong>频道未接入</strong>
+                  <span>网关已就绪，但尚未建立 IM 频道连接。可用「通讯」模块连接 WhatsApp / Telegram 等。</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="setting-section" data-section="comms" hidden>
         <h3 data-block="console.section.comms">通讯</h3>
-        <p class="section-desc">即时通讯通道（WhatsApp / Telegram / 微信等）。</p>
-        <div class="state-card">
-          <div class="state-card-icon">📡</div>
-          <h4 class="state-card-title">该模块尚未接入</h4>
-          <p class="state-card-reason">通讯服务的统一接口需要 services/comms/ 目录，当前版本未实现。</p>
+        <p class="section-desc">即时通讯与邮件通道的接入配置。敏感字段在本机加密存储，永不明文回显。</p>
+
+        <!-- 通道选择（tab 串列，按钮由 JS 动态填充） -->
+        <div class="comm-channel-tabs" id="comm-channel-tabs"></div>
+
+        <!-- 动态表单区 -->
+        <div class="comm-form" id="comm-form"></div>
+
+        <!-- 表单操作栏 -->
+        <div class="comm-form-actions" id="comm-form-actions" style="display:none">
+          <button type="button" class="ghost-button" id="comm-clear">清除配置</button>
+          <span class="comm-form-msg" id="comm-form-msg"></span>
+          <button type="button" class="primary-button" id="comm-save">保存</button>
         </div>
       </section>
 
@@ -423,10 +529,99 @@
           <p class="state-card-reason">日志查看器需要 rotating handler，当前版本未实现。</p>
         </div>
       </section>
+
+      <!-- ================ 实验：Hippo 系统 ================ -->
+      <section class="setting-section exp-section" data-section="hippo" hidden>
+        <div class="exp-banner">
+          <span class="exp-banner-badge">🧪 实验中</span>
+          <span class="exp-banner-tag">Kirara / TeleVideo 自研</span>
+          <span class="exp-banner-sep">·</span>
+          <span class="exp-banner-status" id="hippo-status-badge">后端未接入</span>
+        </div>
+
+        <h3 class="exp-title">🦛 Hippo 系统 · 分层记忆架构</h3>
+        <p class="section-desc">模拟人类大脑的记忆机制，让 SimChat 拥有真正的"越聊越聪明"能力。来自 Kirara 项目的研究成果。</p>
+
+        <!-- 架构图 -->
+        <div class="exp-card exp-arch">
+          <div class="exp-card-header">
+            <span class="exp-card-title">架构流</span>
+          </div>
+<pre class="exp-arch-code" aria-label="Hippo 架构图">用户输入
+  ↓
+工作记忆（短期记忆）
+  ├─ 40 条 / 20 轮 · session 隔离
+  ├─ 话题转移检测（bigram recall < 0.2）
+  └─ 每 40 条自动触发海马体压缩
+  ↓
+海马体巩固
+  ├─ 事实性知识提取（主语-关系-宾语）
+  └─ 原始对话不再直写向量库
+  ↓
+长期记忆库（ChromaDB）
+  ├─ Embedding: all-MiniLM-L6-v2
+  ├─ Hybrid Search（向量 + 关键词 + RRF 融合）
+  ├─ 会话隔离 + 跨会话全局回退
+  └─ 艾宾浩斯遗忘曲线（90天/30天/14天 三档）
+  ↓
+回声过滤（bigram 覆盖率 > 60% → 剔除）
+  ↓
+记忆门控（相关性阈值 0.7）
+  ↓
+对话生成</pre>
+        </div>
+
+        <!-- 核心特性 -->
+        <div class="exp-card">
+          <div class="exp-card-header">
+            <span class="exp-card-title">核心特性</span>
+          </div>
+          <ul class="exp-features">
+            <li><strong>知识提取器</strong> — 不是简单摘要，而是提取事实三元组</li>
+            <li><strong>艾宾浩斯遗忘曲线</strong> — 定期清理过期记忆，不膨胀</li>
+            <li><strong>混合检索</strong> — 向量语义 + 关键词精确匹配 + RRF 融合</li>
+            <li><strong>会话持久化</strong> — 对话历史与摘要自动落盘，重启不丢</li>
+            <li><strong>记忆门控</strong> — 相关性阈值过滤，避免无关记忆干扰</li>
+            <li><strong>回声过滤</strong> — 近期对话原话自动剔除，阻断复读链</li>
+            <li><strong>幂等加载</strong> — SHA-1 作稳定 id，重启不产生副本</li>
+          </ul>
+        </div>
+
+        <!-- 研究来源 -->
+        <div class="exp-card exp-meta">
+          <div class="exp-card-header">
+            <span class="exp-card-title">研究来源</span>
+          </div>
+          <table class="exp-meta-table">
+            <tbody>
+              <tr><td>所属项目</td><td>Kirara TeleVideo</td></tr>
+              <tr><td>首次实现</td><td>2026-09</td></tr>
+              <tr><td>基底模型</td><td>JRVS-7B-1.2.2 "Puff"</td></tr>
+              <tr><td>向量库</td><td>ChromaDB</td></tr>
+              <tr><td>嵌入模型</td><td>Sentence Transformer · all-MiniLM-L6-v2</td></tr>
+              <tr><td>SimChat 移植状态</td><td><span class="exp-meta-pill offline">未启动</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 实验开关（localStorage 级预留） -->
+        <div class="exp-toggle-row">
+          <div class="exp-toggle-info">
+            <div class="exp-toggle-label">启用 Hippo 实验特性</div>
+            <div class="exp-toggle-hint">在对话中启用分层记忆、长期记忆召回与话题转移检测。后端模块未接入前此开关无实际效果。</div>
+          </div>
+          <div class="field-switch" id="hippo-toggle-wrap">
+            <div class="switch-track" id="hippo-toggle">
+              <div class="switch-thumb"></div>
+            </div>
+            <span class="switch-label" id="hippo-toggle-label">关闭</span>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261029b"></script>
+<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261030a"></script>
 </body>
 </html>

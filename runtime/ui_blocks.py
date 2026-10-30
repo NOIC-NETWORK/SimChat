@@ -43,6 +43,7 @@ _DEFAULT_BLOCKS = [
     {"id": "console.group.control", "label": "控制", "icon": "", "hint": "", "description": "", "order": 120},
     {"id": "console.group.agent", "label": "代理", "icon": "", "hint": "", "description": "", "order": 121},
     {"id": "console.group.config", "label": "配置", "icon": "", "hint": "", "description": "", "order": 122},
+    {"id": "console.group.experiment", "label": "实验", "icon": "🧪", "hint": "科研落地项目", "description": "由 Kirara / TeleVideo 研发的前沿特性，可能不稳定", "order": 123},
 
     # --- 控制台分区 ---
     {"id": "console.section.overview", "label": "概览", "icon": "", "hint": "", "description": "", "order": 200},
@@ -57,6 +58,9 @@ _DEFAULT_BLOCKS = [
     {"id": "console.section.system", "label": "配置", "icon": "", "hint": "", "description": "", "order": 290},
     {"id": "console.section.debug", "label": "调试", "icon": "", "hint": "", "description": "", "order": 300},
     {"id": "console.section.logs", "label": "日志", "icon": "", "hint": "", "description": "", "order": 310},
+
+    # --- 实验功能 ---
+    {"id": "console.section.hippo", "label": "Hippo 系统", "icon": "🦛", "hint": "分层记忆架构", "description": "模拟人类大脑记忆机制的长期记忆系统", "order": 320},
 
     # --- 通用状态 ---
     {"id": "console.state.empty", "label": "暂无数据", "icon": "", "hint": "", "description": "", "order": 400},

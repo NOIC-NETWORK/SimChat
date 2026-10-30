@@ -18,7 +18,7 @@ import zipfile
 
 # ---- 确保 simchat 根在 sys.path ----
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.path.dirname(os.path.dirname(_HERE))
+_ROOT = os.path.dirname(os.path.dirname(_HERE))  # cli/ → simchat 包根 → 父目录（供 import simchat.*）
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
@@ -33,7 +33,7 @@ from simchat.loader.keys import (  # noqa: E402
     load_public_keys,
     sign_payload,
 )
-from simchat.loader.manifest import validate_manifest  # noqa: E402
+from simchat.loader.manifest import MANIFEST_NAME, validate_manifest  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -588,6 +588,222 @@ def cmd_gen_key(args):
 
 
 # ---------------------------------------------------------------------------
+# list 子命令 —— 列出本地已安装 MOD + registry 远端索引
+# ---------------------------------------------------------------------------
+
+_SIMCHAT_ROOT = os.path.dirname(_HERE)  # cli/ → simchat 包根（e:\simchat）
+_DEFAULT_MODS_DIR = os.path.join(_SIMCHAT_ROOT, "mods")
+_DEFAULT_REGISTRY_PATH = os.path.join(_SIMCHAT_ROOT, "registry", "index.json")
+
+
+def _scan_local_mods(mods_dir):
+    """只读扫描本地 mods/ 目录，不执行加载、不触发 sandbox。
+
+    每个条目返回: {id, name, version, type, description, path, status, error, errors, warnings}
+    status 取值: ok (manifest 校验通过) / warn (有警告) / err (manifest 校验失败)
+    """
+    result = []
+    if not os.path.isdir(mods_dir):
+        return result
+    for name in sorted(os.listdir(mods_dir)):
+        if name.startswith("."):
+            continue
+        package_dir = os.path.join(mods_dir, name)
+        if not os.path.isdir(package_dir):
+            continue
+        manifest_path = os.path.join(package_dir, MANIFEST_NAME)
+        if not os.path.isfile(manifest_path):
+            continue
+        try:
+            with open(manifest_path, "r", encoding="utf-8-sig") as f:
+                manifest = json.load(f)
+        except Exception as e:
+            result.append({
+                "id": name, "name": name, "version": "?", "type": "?",
+                "description": "manifest 读取失败: %s" % e,
+                "path": package_dir, "status": "err", "error": str(e),
+                "errors": ["manifest 读取失败: %s" % e], "warnings": [],
+            })
+            continue
+        errors, warnings = validate_manifest(manifest)
+        if errors:
+            status = "err"
+        elif warnings:
+            status = "warn"
+        else:
+            status = "ok"
+        result.append({
+            "id": manifest.get("id", name),
+            "name": manifest.get("name", name),
+            "version": manifest.get("version", "?"),
+            "type": manifest.get("type", "?"),
+            "description": manifest.get("description", "")[:60],
+            "path": package_dir,
+            "status": status,
+            "error": "; ".join(errors) if errors else None,
+            "errors": errors,
+            "warnings": warnings,
+        })
+    return result
+
+
+def _scan_registry(registry_path):
+    """只读读取 registry/index.json。返回 entries 列表。"""
+    if not os.path.isfile(registry_path):
+        return None  # 区分空列表（有文件但 entries=[]）和无文件
+    try:
+        with open(registry_path, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+    except Exception as e:
+        return {"_error": "registry 读取失败: %s" % e}
+    entries = data.get("entries") or []
+    return {
+        "_meta": {
+            "version": data.get("version"),
+            "updated_at": data.get("updated_at"),
+            "abi": data.get("abi"),
+            "count": len(entries),
+        },
+        "entries": entries,
+    }
+
+
+def _type_label(t):
+    return {
+        "skill": "Skill",
+        "binary": "Binary",
+        "agent-config": "AgentConfig",
+        "automation": "Automation",
+    }.get(t, t or "?")
+
+
+def _status_icon(s):
+    return {"ok": "✓", "warn": "!", "err": "✗"}.get(s, "?")
+
+
+def cmd_list(args):
+    mods_dir = args.mods_dir or _DEFAULT_MODS_DIR
+    registry_path = args.registry or _DEFAULT_REGISTRY_PATH
+    mod_type = args.type
+    show_registry = args.registry is not None or args.all or args.with_registry
+
+    local = _scan_local_mods(mods_dir)
+    if mod_type:
+        local = [m for m in local if m["type"] == mod_type]
+
+    # 终端宽度自适应列宽
+    try:
+        term_w = shutil.get_terminal_size((120, 30)).columns
+    except Exception:
+        term_w = 120
+
+    def _trunc(s, n):
+        s = str(s or "")
+        return s if len(s) <= n else s[: max(0, n - 1)] + "…"
+
+    if args.json:
+        payload = {"local": local}
+        if show_registry:
+            payload["registry"] = _scan_registry(registry_path)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    # ---- 本地 MOD 表格 ----
+    print("=" * term_w)
+    print("本地 MOD 列表  (扫描目录: %s)" % mods_dir)
+    print("=" * term_w)
+
+    if not local:
+        print("  (空 — %s 下没有任何带 manifest.json 的子目录)" % mods_dir)
+    else:
+        # 计算列宽
+        id_w = max(max(len(m["id"]) for m in local), 8)
+        type_w = max(max(len(_type_label(m["type"])) for m in local), 11)
+        ver_w = max(max(len(m["version"]) for m in local), 7)
+        name_w = max(max(len(m["name"]) for m in local), 4)
+        desc_w = max(term_w - id_w - type_w - ver_w - name_w - 7, 10)
+
+        header = "  %-*s  %-*s  %-*s  %-*s  %s" % (
+            id_w, "MOD ID", type_w, "类型", ver_w, "版本", name_w, "名称", "描述")
+        print(header)
+        print("  " + "-" * (min(term_w - 2, len(header) - 2)))
+        for m in local:
+            icon = _status_icon(m["status"])
+            row = "  %s %-*s  %-*s  %-*s  %-*s  %s" % (
+                icon,
+                id_w, _trunc(m["id"], id_w),
+                type_w, _type_label(m["type"]),
+                ver_w, _trunc(m["version"], ver_w),
+                name_w, _trunc(m["name"], name_w),
+                _trunc(m["description"], desc_w),
+            )
+            print(row)
+            if m["warnings"] and args.verbose:
+                for w in m["warnings"]:
+                    print("    ! 警告: %s" % w)
+            if m["error"] and args.verbose:
+                print("    ✗ 错误: %s" % m["error"])
+
+        ok = sum(1 for m in local if m["status"] == "ok")
+        warn = sum(1 for m in local if m["status"] == "warn")
+        err = sum(1 for m in local if m["status"] == "err")
+        print("  -- 合计: %d 个  ✓%d  !%d  ✗%d" % (len(local), ok, warn, err))
+
+    # ---- registry 远端索引 ----
+    if show_registry:
+        print("")
+        print("=" * term_w)
+        reg = _scan_registry(registry_path)
+        if reg is None:
+            print("registry 文件不存在: %s" % registry_path)
+            print("  （simchat/registry/index.json 缺失 — 本地没有远端索引）")
+        elif isinstance(reg, dict) and reg.get("_error"):
+            print("registry 读取失败: %s" % reg["_error"])
+        else:
+            meta = reg["_meta"]
+            entries = reg["entries"]
+            if mod_type:
+                entries = [e for e in entries if e.get("type") == mod_type]
+
+            print("Registry 远端索引  (v%s, updated %s, ABI %s)" % (
+                meta.get("version", "?"), meta.get("updated_at", "?"), meta.get("abi", "?")))
+            print("=" * term_w)
+            if not entries:
+                print("  (空)")
+            else:
+                local_ids = {m["id"] for m in local}
+                # 计算列宽
+                eid_w = max(max(len(e.get("mod_id", "")) for e in entries), 8)
+                etype_w = max(max(len(_type_label(e.get("type"))) for e in entries), 11)
+                ever_w = 12  # 版本号较短
+                ename_w = max(max(len(e.get("name", "")) for e in entries), 4)
+                edesc_w = max(term_w - eid_w - etype_w - ever_w - ename_w - 15, 10)
+
+                header = "  %-*s  %-*s  %-*s  %-*s  %s  %s" % (
+                    eid_w, "MOD ID", etype_w, "类型", ever_w, "最新版本",
+                    ename_w, "名称", "描述", "本地")
+                print(header)
+                print("  " + "-" * (min(term_w - 2, len(header) - 2)))
+                for e in entries:
+                    mid = e.get("mod_id", "?")
+                    versions = e.get("versions") or []
+                    latest = versions[-1].get("version", "?") if versions else "?"
+                    installed = "已安装" if mid in local_ids else "未安装"
+                    row = "  %-*s  %-*s  %-*s  %-*s  %s  %s" % (
+                        eid_w, _trunc(mid, eid_w),
+                        etype_w, _type_label(e.get("type")),
+                        ever_w, _trunc(latest, ever_w),
+                        ename_w, _trunc(e.get("name", ""), ename_w),
+                        _trunc((e.get("description") or "")[:60], edesc_w),
+                        installed,
+                    )
+                    print(row)
+                print("  -- 合计: %d 个索引条目" % len(entries))
+
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # main —— argparse 主入口
 # ---------------------------------------------------------------------------
 
@@ -640,6 +856,23 @@ def build_parser():
     p_key = sub.add_parser("gen-key", help="生成 ed25519 密钥对")
     p_key.add_argument("--key-dir", help="密钥存放目录（默认 ~/.simchat）")
     p_key.set_defaults(func=cmd_gen_key)
+
+    # ---- list ----
+    p_list = sub.add_parser("list", help="列出本地已安装 MOD（+ registry 远端索引）")
+    p_list.add_argument("--mods-dir", help="本地 MOD 目录（默认 ./mods）")
+    p_list.add_argument("--registry", nargs="?", const=_DEFAULT_REGISTRY_PATH,
+                        help="同时显示 registry 远端索引（默认 ./registry/index.json）")
+    p_list.add_argument("--with-registry", action="store_true",
+                        help="等价于 --registry（别名）")
+    p_list.add_argument("--all", action="store_true",
+                        help="同时显示本地 + registry 远端索引（等价于 --registry）")
+    p_list.add_argument("--type", choices=list(INIT_HANDLERS.keys()),
+                        help="只显示指定类型的 MOD")
+    p_list.add_argument("--verbose", "-v", action="store_true",
+                        help="显示每个 MOD 的详细警告和错误")
+    p_list.add_argument("--json", action="store_true",
+                        help="JSON 格式输出（便于脚本消费）")
+    p_list.set_defaults(func=cmd_list)
 
     return parser
 

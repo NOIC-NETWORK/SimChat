@@ -13,11 +13,24 @@
   theme          system | light | dark
   font_scale     0.8 – 1.4
   quota          { limit: int, period: day|month, lock: bool }
+  character      { active: id, profiles: { id: { name, narration } } }
 """
 
 import json
 import os
 import threading
+
+# 可用角色及其默认名称 / 解说文字（前端只负责按 id 映射立绘）
+_CHARACTER_DEFAULTS = {
+    "televi": {
+        "name": "Televi",
+        "narration": "来自 UHF 时代的 CRT 电视机，TeleVideo 的吉祥物，象征着媒介革命。",
+    },
+    "derp": {
+        "name": "Mr.Derp",
+        "narration": "一只永远在傻笑、额角冒虚汗的家伙。别慌，一切尽在掌握。",
+    },
+}
 
 _DEFAULT_SETTINGS = {
     "max_history": 40,
@@ -29,6 +42,10 @@ _DEFAULT_SETTINGS = {
     "theme": "system",
     "font_scale": 1.0,
     "quota": {"limit": 0, "period": "day", "lock": False},
+    "character": {
+        "active": "televi",
+        "profiles": {cid: dict(profile) for cid, profile in _CHARACTER_DEFAULTS.items()},
+    },
 }
 
 _WRITE_LOCK = threading.Lock()
@@ -100,6 +117,25 @@ def validate(raw):
             q["lock"] = quota["lock"]
         out["quota"] = q
 
+    # 角色：active 必须是已知角色，profiles 按角色 id 逐字段校验
+    char = raw.get("character")
+    if isinstance(char, dict):
+        if char.get("active") in _CHARACTER_DEFAULTS:
+            out["character"]["active"] = char["active"]
+        profiles = char.get("profiles")
+        if isinstance(profiles, dict):
+            for cid in _CHARACTER_DEFAULTS:
+                entry = profiles.get(cid)
+                if not isinstance(entry, dict):
+                    continue
+                target = out["character"]["profiles"][cid]
+                name = entry.get("name")
+                if isinstance(name, str) and name.strip():
+                    target["name"] = name.strip()[:40]
+                narration = entry.get("narration")
+                if isinstance(narration, str) and narration.strip():
+                    target["narration"] = narration.strip()[:300]
+
     return out
 
 
@@ -118,6 +154,29 @@ def load(data_dir):
     return validate(raw)
 
 
+def _merge_updates(current, updates):
+    """浅合并顶层字段；character 段按角色子字段合并，避免局部提交丢字段。"""
+    merged = dict(current)
+    merged.update(updates)
+    if isinstance(updates.get("character"), dict) and isinstance(current.get("character"), dict):
+        merged["character"] = _merge_character(current["character"], updates["character"])
+    return merged
+
+
+def _merge_character(current, updates):
+    cur_profiles = current.get("profiles") if isinstance(current, dict) else None
+    new_profiles = updates.get("profiles") if isinstance(updates, dict) else None
+    profiles = {}
+    for cid in _CHARACTER_DEFAULTS:
+        base = dict((cur_profiles or {}).get(cid) or {})
+        base.update((new_profiles or {}).get(cid) or {})
+        profiles[cid] = base
+    return {
+        "active": updates.get("active", current.get("active")) if isinstance(updates, dict) else current.get("active"),
+        "profiles": profiles,
+    }
+
+
 def save(data_dir, current_settings, updates):
     """合并 updates 并原子写回 config.json 的 settings 段。返回新 settings。"""
     path = os.path.join(data_dir, "config.json")
@@ -129,7 +188,7 @@ def save(data_dir, current_settings, updates):
         except Exception:
             cfg = {}
 
-    merged = validate({**(current_settings or {}), **(updates or {})})
+    merged = validate(_merge_updates(current_settings or {}, updates or {}))
     cfg["settings"] = merged
 
     tmp = path + ".tmp"

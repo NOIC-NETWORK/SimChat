@@ -1,4 +1,4 @@
-/* SimChat Web — 会话侧边栏 + 服务商配置 + 流式对话 */
+﻿/* SimChat Web — 会话侧边栏 + 服务商配置 + 流式对话 */
 (() => {
   "use strict";
 
@@ -15,8 +15,7 @@
     setup: document.getElementById("setup"),
     setupBack: document.getElementById("setup-back"),
     setupMessage: document.getElementById("setup-message"),
-    providerTabs: document.getElementById("provider-tabs"),
-    providerDetail: document.getElementById("provider-detail"),
+    providerAccordion: document.getElementById("provider-accordion"),
     providerForm: document.getElementById("provider-form"),
     providerFields: document.getElementById("provider-fields"),
     providerPresets: document.getElementById("provider-presets"),
@@ -75,6 +74,38 @@
     ovListen: document.getElementById("ov-listen"),
     ovVersion: document.getElementById("ov-version"),
     ovSessions: document.getElementById("ov-sessions"),
+
+    // 网关概览
+    gwHealthBadge: document.getElementById("gw-health-badge"),
+    gwSocketUrl: document.getElementById("gw-socket-url"),
+    gwAccessToken: document.getElementById("gw-access-token"),
+    gwPassword: document.getElementById("gw-password"),
+    gwSessionKey: document.getElementById("gw-session-key"),
+    gwLanguage: document.getElementById("gw-language"),
+    gwConnect: document.getElementById("gw-connect"),
+    gwRefresh: document.getElementById("gw-refresh"),
+    gwCopyUrl: document.getElementById("gw-copy-url"),
+    gwCopyToken: document.getElementById("gw-copy-token"),
+    gwAccessMsg: document.getElementById("gw-access-msg"),
+    gwHandshakeTime: document.getElementById("gw-handshake-time"),
+    gwHealth: document.getElementById("gw-health"),
+    gwUptime: document.getElementById("gw-uptime"),
+    gwTickInterval: document.getElementById("gw-tick-interval"),
+    gwChannelRefresh: document.getElementById("gw-channel-refresh"),
+    gwChannelHint: document.getElementById("gw-channel-hint"),
+
+    // 通讯通道
+    commChannelTabs: document.getElementById("comm-channel-tabs"),
+    commForm: document.getElementById("comm-form"),
+    commFormActions: document.getElementById("comm-form-actions"),
+    commSave: document.getElementById("comm-save"),
+    commClear: document.getElementById("comm-clear"),
+    commFormMsg: document.getElementById("comm-form-msg"),
+
+    // 实验功能 · Hippo
+    hippoToggle: document.getElementById("hippo-toggle"),
+    hippoToggleLabel: document.getElementById("hippo-toggle-label"),
+    hippoStatusBadge: document.getElementById("hippo-status-badge"),
   };
 
   const state = {
@@ -109,6 +140,13 @@
     settings: null,
     settingsDirty: false,
     activeSection: "overview",
+
+    // 通讯通道缓存
+    comms: null,              // { active, channels: [...] }
+    commsActiveChannel: null,  // 当前选中渲染的 channel id（与后端 .active 无关）
+
+    // 实验功能
+    hippoEnabled: false,
   };
 
   // ---------------- 模型提供商存档（固化 + 全局可调用） ----------------
@@ -339,24 +377,43 @@
     })[ch]);
   }
 
-  /* 极简 Markdown 渲染：代码块 / 行内代码 / 粗体 / 无序与有序列表。
-     所有文本先转义，避免模型输出注入 HTML。 */
+  /* Markdown 渲染：优先使用 marked.js + DOMPurify（CDN 加载），降级到极简实现。 */
   function renderMarkdown(text) {
-    const codeBlocks = [];
-    let src = escapeHtml(text || "");
+    const src = String(text || "");
 
-    src = src.replace(/```[^\n]*\n?([\s\S]*?)```/g, (_, code) => {
+    // 优先路径：marked + DOMPurify
+    if (typeof marked !== "undefined" && typeof DOMPurify !== "undefined") {
+      try {
+        marked.setOptions({
+          breaks: true,        // 单个换行也渲染为 <br>
+          gfm: true,           // GitHub Flavored Markdown
+          headerIds: false,
+          mangle: false,
+        });
+        const rawHtml = marked.parse(src);
+        const clean = DOMPurify.sanitize(rawHtml, {
+          ADD_ATTR: ["target"],
+          FORBID_TAGS: ["iframe", "script", "style"],
+        });
+        return clean;
+      } catch (e) {
+        console.warn("[SimChat] marked 渲染失败，降级:", e);
+      }
+    }
+
+    // 降级：极简实现（兼容无网络环境）
+    const codeBlocks = [];
+    let escaped = escapeHtml(src);
+    escaped = escaped.replace(/```[^\n]*\n?([\s\S]*?)```/g, (_, code) => {
       const index = codeBlocks.length;
       codeBlocks.push(
         '<pre class="code-block"><code>' + code.replace(/\n$/, "") + "</code></pre>"
       );
       return "\u0000BLOCK" + index + "\u0000";
     });
-
-    src = src.replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>');
-    src = src.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
-
-    const html = src
+    escaped = escaped.replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>');
+    escaped = escaped.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+    const html = escaped
       .split(/\n{2,}/)
       .map((block) => {
         const lines = block.split("\n").filter((line) => line.trim() !== "");
@@ -379,7 +436,6 @@
         return "<p>" + lines.join("<br>") + "</p>";
       })
       .join("");
-
     return html.replace(/\u0000BLOCK(\d+)\u0000/g, (_, index) => codeBlocks[Number(index)]);
   }
 
@@ -421,7 +477,9 @@
 
   function renderSessions(sessions) {
     el.sessionList.innerHTML = "";
-    if (!sessions.length) {
+    // 过滤掉空会话（只有"+"按钮才能开新对话）
+    const valid = (sessions || []).filter((s) => (s.message_count || 0) > 0);
+    if (!valid.length) {
       const empty = document.createElement("div");
       empty.className = "session-empty";
       empty.textContent = "暂无会话";
@@ -429,7 +487,7 @@
       return;
     }
 
-    for (const session of sessions) {
+    for (const session of valid) {
       const item = document.createElement("div");
       item.className = "session-item" + (session.id === state.sessionId ? " active" : "");
       item.dataset.id = session.id;
@@ -440,20 +498,17 @@
       title.textContent = session.title || "新对话";
       item.appendChild(title);
 
-      // 空会话（一条消息都还没有）不提供删除——删除它没有意义，且容易误点
-      if ((session.message_count || 0) > 0) {
-        const remove = document.createElement("button");
-        remove.className = "session-delete";
-        remove.type = "button";
-        remove.title = "删除会话";
-        remove.setAttribute("aria-label", "删除会话");
-        remove.innerHTML = TRASH_ICON;
-        remove.addEventListener("click", (event) => {
-          event.stopPropagation();
-          removeSession(session.id);
-        });
-        item.appendChild(remove);
-      }
+      const remove = document.createElement("button");
+      remove.className = "session-delete";
+      remove.type = "button";
+      remove.title = "删除会话";
+      remove.setAttribute("aria-label", "删除会话");
+      remove.innerHTML = TRASH_ICON;
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        removeSession(session.id);
+      });
+      item.appendChild(remove);
 
       item.addEventListener("click", () => openSession(session.id));
       el.sessionList.appendChild(item);
@@ -613,8 +668,7 @@
     updateModelSelect();
 
     if (state.mode === "setup") {
-      renderProviderTabs();
-      renderProviderDetail();
+      renderProviderAccordion();
       renderProviderForm();
       renderPresets();
     }
@@ -635,6 +689,17 @@
 
     select.innerHTML = "";
 
+    // ------- Auto Model（第一个选项，默认选中） -------
+    const autoProvider = providers.find((p) => p.id === "auto");
+    const autoOpt = document.createElement("option");
+    autoOpt.value = "__auto__";
+    autoOpt.textContent = "⚡ Auto Model (自动选择最优)";
+    autoOpt.dataset.providerId = "auto";
+    if (autoProvider && autoProvider.resolved) {
+      autoOpt.textContent += `  [${autoProvider.resolved}]`;
+    }
+    select.appendChild(autoOpt);
+
     // 收集所有有模型的 provider（跳过 auto——它是虚拟 provider，没有自己的模型）
     const providersWithModels = [];
     for (const p of providers) {
@@ -652,14 +717,12 @@
     }
 
     if (!providersWithModels.length) {
-      select.disabled = true;
-      const opt = document.createElement("option");
-      opt.value = "";
-      opt.textContent = "无可用模型";
-      select.appendChild(opt);
+      select.disabled = false; // Auto 始终可选
       select.title = "选择模型";
+      // 默认 Auto
+      select.value = "__auto__";
       state.model = null;
-      state.modelProvider = null;
+      state.modelProvider = "auto";
       return;
     }
 
@@ -709,17 +772,24 @@
       select.appendChild(optgroup);
     }
 
-    // 最终兜底：还没选中就选第一个 group 的第一个 option
+    // 最终兜底：还没选中
     if (!currentKey) {
-      const firstOpt = select.querySelector("option");
-      if (firstOpt) {
-        firstOpt.selected = true;
-        currentKey = firstOpt.value;
+      // 如果 state 指向 auto 或压根没设，优先 Auto Model
+      const preferAuto = !state.modelProvider || state.modelProvider === "auto";
+      const targetOpt = preferAuto
+        ? select.querySelector('option[value="__auto__"]')
+        : select.querySelector("option");
+      if (targetOpt) {
+        targetOpt.selected = true;
+        currentKey = targetOpt.value;
       }
     }
 
     // 同步到 state
-    if (currentKey && currentKey.includes("::")) {
+    if (currentKey === "__auto__") {
+      state.model = null;
+      state.modelProvider = "auto";
+    } else if (currentKey && currentKey.includes("::")) {
       const idx = currentKey.indexOf("::");
       state.modelProvider = currentKey.substring(0, idx);
       state.model = currentKey.substring(idx + 2);
@@ -843,48 +913,99 @@
     }
   }
 
-  function renderProviderTabs() {
-    el.providerTabs.innerHTML = "";
+  function renderProviderAccordion() {
+    if (!el.providerAccordion) return; // 防御性检查
+    el.providerAccordion.innerHTML = "";
     for (const provider of state.providers) {
+      if (provider.id === "auto") continue; // Auto Model 不在这里配置
+
       const block = state.blocks["provider." + provider.id] || {};
-      const tab = document.createElement("button");
-      tab.type = "button";
-      tab.className = "provider-tab" + (provider.id === state.activeProvider ? " active" : "");
-      tab.setAttribute("role", "tab");
-      tab.setAttribute("aria-selected", provider.id === state.activeProvider ? "true" : "false");
+      const item = document.createElement("div");
+      item.className = "provider-accordion-item" + (provider.id === state.activeProvider ? " open" : "");
+      item.dataset.providerId = provider.id;
 
-      const dot = document.createElement("span");
-      dot.className = "dot" + (provider.available ? " available" : "");
-      tab.appendChild(dot);
+      // ------- Header -------
+      const header = document.createElement("div");
+      header.className = "provider-accordion-header";
+      header.setAttribute("role", "button");
+      header.tabIndex = 0;
+      header.setAttribute("aria-expanded", provider.id === state.activeProvider ? "true" : "false");
 
-      const label = document.createElement("span");
-      label.textContent = block.label || provider.label;
-      tab.appendChild(label);
+      const title = document.createElement("span");
+      title.className = "provider-accordion-title";
+      title.textContent = block.label || provider.label;
+      header.appendChild(title);
 
-      tab.title = block.hint || provider.detail || "";
-      tab.addEventListener("click", () => {
-        if (state.activeProvider === provider.id) return;
-        state.activeProvider = provider.id;
-        renderProviderTabs();
-        renderProviderDetail();
-        renderProviderForm();
-        // 切 tab 立即刷新 composer 下拉（即使 discover 还没返回，先用 state 里已有的）
-        updateModelSelect();
-        // 然后异步 discover 拿最新 models，成功后再刷新一次
-        if (provider.id !== "auto") {
+      // 状态徽章
+      const badge = document.createElement("span");
+      let badgeClass = "empty";
+      let badgeText = "未配置";
+      if (provider.available) {
+        badgeClass = "ok";
+        badgeText = "可用";
+      } else if (provider.last_test_error) {
+        badgeClass = "warn";
+        badgeText = "异常";
+      }
+      badge.className = "provider-accordion-badge " + badgeClass;
+      badge.innerHTML = '<span class="dot"></span>' + badgeText;
+      header.appendChild(badge);
+
+      const arrow = document.createElement("span");
+      arrow.className = "provider-accordion-arrow";
+      arrow.textContent = "▶";
+      header.appendChild(arrow);
+
+      // 切换展开/收起
+      const toggleExpand = () => {
+        const willOpen = !item.classList.contains("open");
+        // 关闭所有其他面板（accordion 行为）
+        document.querySelectorAll(".provider-accordion-item").forEach((el) => {
+          el.classList.remove("open");
+          el.querySelector(".provider-accordion-header")?.setAttribute("aria-expanded", "false");
+        });
+        if (willOpen) {
+          item.classList.add("open");
+          header.setAttribute("aria-expanded", "true");
+          state.activeProvider = provider.id;
+          renderProviderForm();
+          updateModelSelect();
+          // 异步 discover 拿最新 models
           const draft = state.drafts[provider.id] || {};
           const cfg = {};
           for (const f of provider.fields || []) cfg[f.name] = String(draft[f.name] || "").trim();
           scheduleDiscoverProvider(provider.id, cfg);
+        } else {
+          state.activeProvider = null;
+          updateModelSelect();
         }
-      });
-      el.providerTabs.appendChild(tab);
-    }
-  }
+      };
 
-  function renderProviderDetail() {
-    const provider = currentProvider();
-    el.providerDetail.textContent = provider ? provider.detail || "" : "没有可配置的服务商";
+      header.addEventListener("click", toggleExpand);
+      header.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleExpand(); }
+      });
+
+      item.appendChild(header);
+
+      // ------- Body -------
+      const body = document.createElement("div");
+      body.className = "provider-accordion-body";
+      const inner = document.createElement("div");
+      inner.className = "provider-accordion-body-inner";
+
+      if (provider.id === state.activeProvider) {
+        const detail = document.createElement("div");
+        detail.className = "provider-accordion-detail";
+        detail.textContent = provider.detail || "";
+        inner.appendChild(detail);
+      }
+
+      body.appendChild(inner);
+      item.appendChild(body);
+
+      el.providerAccordion.appendChild(item);
+    }
   }
 
   function renderProviderForm() {
@@ -1005,8 +1126,7 @@
         state.activeProvider = preset.provider;
         const draft = state.drafts[preset.provider] || (state.drafts[preset.provider] = {});
         Object.assign(draft, preset.values || {});
-        renderProviderTabs();
-        renderProviderDetail();
+      renderProviderAccordion();
         renderProviderForm();
         setSetupMessage("已填入预设：" + preset.label, "");
       });
@@ -1073,8 +1193,7 @@
       el.setupBack.style.display = state.locked ? "none" : "";
       document.body.style.overflow = "";
       if (prev !== "setup") {
-        renderProviderTabs();
-        renderProviderDetail();
+      renderProviderAccordion();
         renderProviderForm();
         renderPresets();
         loadSettings();
@@ -1879,6 +1998,98 @@
     setStreaming(false);
   }
 
+  // ---------------- 流式对话（Chat 模式） ----------------
+
+  async function sendChat(text, options) {
+    options = options || {};
+    setStreaming(true);
+    state.stickToBottom = true;
+    showWelcome(false);
+
+    addMessage("user", text);
+    const row = addMessage("assistant", "");
+    row._body.classList.add("streaming");
+    row._actions.classList.add("hidden");
+    const contentEl = row._body;
+    const raw = row._raw;
+
+    let accumulated = "";
+    let errorMessage = "";
+
+    const payload = {
+      message: text,
+      session_id: state.sessionId || undefined,
+      provider: state.modelProvider || undefined,
+      model: state.model || undefined,
+      regenerate: !!options.regenerate,
+    };
+
+    try {
+      const resp = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!resp.ok || !resp.body) {
+        let message = "对话请求失败（HTTP " + resp.status + "）";
+        let code = "";
+        try {
+          const data = await resp.json();
+          if (data && data.error) message = data.error;
+          if (data && data.code) code = data.code;
+        } catch (_) {}
+        if (code === "provider_unavailable") {
+          errorMessage = message;
+          await loadProviders();
+        } else {
+          errorMessage = message;
+        }
+        throw new Error(message);
+      }
+
+      const reader = resp.body.getReader();
+
+      for await (const event of parseSSE(reader)) {
+        if (!event || !event.event) continue;
+
+        if (event.event === "chat_started") {
+          // 后端创建/返回了 session_id，存下来
+          if (event.session_id) setSessionId(event.session_id);
+        } else if (event.event === "token") {
+          accumulated += event.content || "";
+          raw.text = accumulated;
+          contentEl.innerHTML = renderMarkdown(accumulated);
+          scrollToBottom();
+        } else if (event.event === "final") {
+          const finalText = event.content || accumulated;
+          raw.text = finalText;
+          contentEl.innerHTML = renderMarkdown(finalText);
+          if (event.session_id) setSessionId(event.session_id);
+        } else if (event.event === "error") {
+          errorMessage = event.message || "未知错误";
+          // 把错误也显示在气泡里（红色）
+          contentEl.innerHTML = '<p class="error-text">' + escapeHtml(errorMessage) + '</p>';
+          break;
+        }
+      }
+    } catch (err) {
+      if (!errorMessage) errorMessage = err.message || String(err);
+      if (!accumulated) {
+        contentEl.innerHTML = '<p class="error-text">' + escapeHtml(errorMessage) + '</p>';
+      }
+    }
+
+    // 收尾
+    row._body.classList.remove("streaming");
+    row._actions.classList.remove("hidden");
+    setStreaming(false);
+    recalcSessionTokens();
+    scrollToBottom();
+    await loadSessions();
+    el.input.focus();
+  }
+
   // ---------------- 流式对话 ----------------
 
   async function sendMessage(text, options) {
@@ -1904,8 +2115,8 @@
       // Agent 模式：完整 ReAct 循环 + 审批流
       await runAgent(displayText, { regenerate: !!options.regenerate }, "agent");
     } else {
-      // Chat 模式（懒调用）：统一走 AgentLoop 但只暴露只读工具
-      await runAgent(displayText, { regenerate: !!options.regenerate }, "chat");
+      // Chat 模式：简单流式对话（真正的 token-by-token 流式 + 自动 session 保存）
+      await sendChat(payloadText, options);
     }
   }
 
@@ -1949,7 +2160,7 @@
   }
 
   function readSettingsForm() {
-    return {
+    const form = {
       max_history: parseInt(el.setMaxHistory?.value, 10) || 40,
       temperature: parseFloat(el.setTemperature?.value) || 0.7,
       max_tokens: parseInt(el.setMaxTokens?.value, 10) || 4096,
@@ -1959,6 +2170,7 @@
       theme: document.querySelector("#set-theme .theme-card.active")?.dataset.theme || "system",
       font_scale: parseFloat(el.setFontScale?.value) || 1.0,
     };
+    return form;
   }
 
   function populateSettingsForm(s) {
@@ -2052,6 +2264,13 @@
     el.sections?.forEach((sec) => {
       sec.hidden = sec.dataset.section !== name;
     });
+
+    // 惰性加载：只在第一次切到某个分区时拉数据
+    if (name === "comms" && !state.comms) {
+      loadComms();
+    } else if (name === "comms") {
+      renderComms();
+    }
   }
 
   // ---------------- 概览渲染 ----------------
@@ -2097,8 +2316,319 @@
       if (el.ovSessions) {
         el.ovSessions.textContent = (sessions.sessions || []).length;
       }
+
+      // 网关概览
+      await renderGateway();
     } catch (err) {
       console.warn("[SimChat] 概览渲染失败:", err);
+    }
+  }
+
+  // ---------------- 网关概览渲染 ----------------
+
+  function _formatHealth(h) {
+    return { online: "在线", degraded: "降级", offline: "离线" }[h] || h || "—";
+  }
+
+  function _formatTimestamp(iso) {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString();
+    } catch (_) { return iso; }
+  }
+
+  function _setGatewayMsg(msg, type) {
+    if (!el.gwAccessMsg) return;
+    el.gwAccessMsg.textContent = msg || "";
+    el.gwAccessMsg.classList.remove("ok", "error");
+    if (type) el.gwAccessMsg.classList.add(type);
+  }
+
+  async function renderGateway() {
+    try {
+      const data = await api("/api/gateway");
+      const access = data.access || {};
+      const snap = data.snapshot || {};
+
+      // 访问字段
+      if (el.gwSocketUrl) el.gwSocketUrl.value = access.socket_url || "";
+      if (el.gwAccessToken) el.gwAccessToken.value = access.access_token || "";
+      if (el.gwSessionKey) el.gwSessionKey.value = access.session_key || "";
+      if (el.gwLanguage) el.gwLanguage.value = access.language || "";
+
+      // 顶部健康徽章
+      const h = snap.health || "offline";
+      if (el.gwHealthBadge) {
+        el.gwHealthBadge.textContent = _formatHealth(h);
+        el.gwHealthBadge.classList.remove("ok", "degraded", "offline");
+        if (h === "online") el.gwHealthBadge.classList.add("ok");
+        else if (h === "degraded") el.gwHealthBadge.classList.add("degraded");
+        else el.gwHealthBadge.classList.add("offline");
+      }
+
+      // 快照时间
+      if (el.gwHandshakeTime) {
+        el.gwHandshakeTime.textContent = "握手 " + _formatTimestamp(snap.handshake_at);
+      }
+
+      // 快照网格
+      if (el.gwHealth) {
+        el.gwHealth.textContent = _formatHealth(h);
+        el.gwHealth.classList.remove("health-online", "health-degraded", "health-offline");
+        el.gwHealth.classList.add("health-" + h);
+      }
+      if (el.gwUptime) {
+        el.gwUptime.textContent = formatUptime(snap.uptime_seconds || 0);
+      }
+      if (el.gwTickInterval) {
+        if (snap.tick_interval_ms != null) {
+          el.gwTickInterval.textContent = snap.tick_interval_ms + " ms";
+          el.gwTickInterval.classList.remove("na");
+        } else {
+          el.gwTickInterval.textContent = "Not available";
+          el.gwTickInterval.classList.add("na");
+        }
+      }
+      if (el.gwChannelRefresh) {
+        if (snap.channel_last_refresh) {
+          el.gwChannelRefresh.textContent = _formatTimestamp(snap.channel_last_refresh);
+          el.gwChannelRefresh.classList.remove("na");
+        } else {
+          el.gwChannelRefresh.textContent = "—";
+        }
+      }
+
+      // 频道提示
+      if (el.gwChannelHint) {
+        el.gwChannelHint.style.display = snap.channel_available ? "none" : "flex";
+      }
+    } catch (err) {
+      console.warn("[SimChat] 网关渲染失败:", err);
+      _setGatewayMsg("网关快照加载失败", "error");
+    }
+  }
+
+  async function connectGateway() {
+    _setGatewayMsg("连接中…");
+    try {
+      const data = await api("/api/gateway/connect", {
+        method: "POST",
+        body: JSON.stringify({ password: el.gwPassword?.value || null }),
+      });
+      if (data.ok) {
+        _setGatewayMsg(data.message || "握手成功", "ok");
+        await renderGateway();
+      } else {
+        _setGatewayMsg(data.error || "连接失败", "error");
+      }
+    } catch (err) {
+      _setGatewayMsg("连接请求失败", "error");
+    }
+  }
+
+  async function _copyToClipboard(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+    } catch (_) { /* 静默失败 */ }
+  }
+
+  // ---------------- 通讯通道 ----------------
+
+  function _setCommMsg(msg, kind) {
+    if (!el.commFormMsg) return;
+    el.commFormMsg.textContent = msg || "";
+    el.commFormMsg.classList.remove("ok", "error");
+    if (kind) el.commFormMsg.classList.add(kind);
+  }
+
+  async function loadComms() {
+    try {
+      const resp = await api("/api/console/comms");
+      state.comms = resp.data || null;
+      renderComms();
+    } catch (err) {
+      console.warn("[SimChat] 通讯通道加载失败:", err);
+      state.comms = { active: null, channels: [] };
+      if (el.commForm) el.commForm.innerHTML =
+        '<div class="state-card" style="border-style:solid"><div class="state-card-icon">⚠️</div>' +
+        '<h4 class="state-card-title">通讯通道加载失败</h4>' +
+        '<p class="state-card-reason">' + escapeHtml(err.message) + '</p></div>';
+      if (el.commFormActions) el.commFormActions.style.display = "none";
+    }
+  }
+
+  function renderComms() {
+    const data = state.comms;
+    if (!data || !data.channels || !data.channels.length) return;
+
+    // 决定当前选中的 tab
+    let currentId = state.commsActiveChannel;
+    if (!currentId || !data.channels.find((c) => c.id === currentId)) {
+      currentId = data.active || data.channels[0].id;
+    }
+    state.commsActiveChannel = currentId;
+
+    // 渲染 tab 按钮串列
+    if (el.commChannelTabs) {
+      el.commChannelTabs.innerHTML = "";
+      for (const ch of data.channels) {
+        const anyConfigured = (ch.fields || []).some((f) => f.configured);
+        const isBackendActive = data.active === ch.id;
+        const isSelected = ch.id === currentId;
+
+        const tab = document.createElement("button");
+        tab.type = "button";
+        tab.className = "comm-channel-tab" + (isSelected ? " is-active" : "");
+        tab.dataset.channelId = ch.id;
+        tab.title = ch.description || ch.label;
+
+        const indicator = document.createElement("span");
+        indicator.className = "comm-channel-tab-indicator" +
+          (isBackendActive ? " active" : (anyConfigured ? " configured" : ""));
+        indicator.title = isBackendActive ? "后端启用中" : (anyConfigured ? "已配置" : "未配置");
+
+        const label = document.createElement("span");
+        label.className = "comm-channel-tab-label";
+        label.textContent = ch.label;
+
+        tab.appendChild(indicator);
+        tab.appendChild(label);
+        tab.addEventListener("click", () => {
+          state.commsActiveChannel = ch.id;
+          renderComms();
+        });
+        el.commChannelTabs.appendChild(tab);
+      }
+    }
+
+    // 渲染当前选中通道的表单
+    const activeId = data.active;
+    const channel = data.channels.find((c) => c.id === currentId) || data.channels[0];
+    if (!channel) return;
+    renderCommForm(channel, currentId === activeId);
+  }
+
+  function renderCommForm(channel, isActive) {
+    if (!el.commForm) return;
+
+    // 顶部描述
+    let html = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">' +
+      escapeHtml(channel.description || "") + '</div>';
+
+    // 加密提示条（仅当有敏感字段时显示）
+    const hasSensitive = (channel.fields || []).some((f) => f.sensitive);
+    if (hasSensitive) {
+      html += '<div class="comm-form-secret-hint">🔒 敏感字段（AK / 授权码等）在本机加密存储，永不明文回显。' +
+        '留空敏感字段表示"保持不变"。</div>';
+    }
+
+    // 字段网格
+    html += '<div class="comm-form-grid">';
+    for (const field of (channel.fields || [])) {
+      const isBool = typeof field.default === "boolean";
+      const cls = "comm-field" + (field.sensitive ? " sensitive" : "") + (isBool ? "" : " full");
+
+      html += '<label class="' + cls + '" data-key="' + escapeHtml(field.key) + '">';
+      html += '<span class="comm-field-label">' + escapeHtml(field.label) + '</span>';
+
+      if (isBool) {
+        // 布尔用 switch
+        const checked = field.value === true || field.value === "true";
+        html += '<div class="field-switch" style="margin-top:2px" data-key="' + escapeHtml(field.key) + '">';
+        html += '<div class="switch-track' + (checked ? " on" : "") + '">';
+        html += '<div class="switch-thumb"></div></div>';
+        html += '<span class="switch-label">' + (checked ? "启用" : "关闭") + '</span>';
+        html += '</div>';
+      } else if (field.sensitive) {
+        // 敏感字段：type=password，值为 "********" 或 ""
+        html += '<input type="password" class="comm-field-input" data-key="' + escapeHtml(field.key) + '"' +
+          ' placeholder="' + (field.configured ? "已保存，留空保持不变" : escapeHtml(field.placeholder || "在此输入")) + '"' +
+          ' autocomplete="off" value="">';
+        if (field.configured) {
+          html += '<span class="comm-field-hint">当前已加密保存</span>';
+        } else if (field.placeholder) {
+          html += '<span class="comm-field-hint">' + escapeHtml(field.placeholder) + '</span>';
+        }
+      } else {
+        html += '<input type="text" class="comm-field-input" data-key="' + escapeHtml(field.key) + '"' +
+          ' placeholder="' + escapeHtml(field.placeholder || "") + '"' +
+          ' value="' + escapeHtml(String(field.value || "")) + '">';
+      }
+      html += '</label>';
+    }
+    html += '</div>';
+
+    el.commForm.innerHTML = html;
+    if (el.commFormActions) el.commFormActions.style.display = "";
+
+    _setCommMsg("");
+  }
+
+  function collectCommForm() {
+    if (!el.commForm) return {};
+    const payload = {};
+    el.commForm.querySelectorAll("[data-key]").forEach((el) => {
+      const key = el.dataset.key;
+      if (el.classList.contains("switch-track")) {
+        payload[key] = el.classList.contains("on");
+      } else if (el.type === "checkbox") {
+        payload[key] = el.checked;
+      } else {
+        payload[key] = el.value;
+      }
+    });
+    return payload;
+  }
+
+  async function saveCommChannel() {
+    const channelId = state.commsActiveChannel;
+    if (!channelId) return;
+    const payload = collectCommForm();
+    _setCommMsg("保存中…");
+    try {
+      const resp = await api("/api/console/comms/" + channelId, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      state.comms = resp.data || null;
+      renderComms();
+      _setCommMsg("已保存（敏感字段已加密）", "ok");
+      setTimeout(() => {
+        const sec = (state.comms?.channels || []).find((c) => c.id === channelId);
+        renderCommForm(sec, state.comms?.active === channelId);
+      }, 600);
+    } catch (err) {
+      _setCommMsg(err.message || "保存失败", "error");
+    }
+  }
+
+  async function clearCommChannel() {
+    const channelId = state.commsActiveChannel;
+    if (!channelId) return;
+    if (!confirm("确定要清除 " + channelId + " 的全部配置吗？此操作不可撤销。")) return;
+    _setCommMsg("清除中…");
+    try {
+      const resp = await api("/api/console/comms/" + channelId + "/clear", {
+        method: "POST",
+      });
+      state.comms = resp.data || null;
+      renderComms();
+      _setCommMsg("已清除", "ok");
+    } catch (err) {
+      _setCommMsg(err.message || "清除失败", "error");
     }
   }
 
@@ -2122,7 +2652,10 @@
   });
   el.modelSelect?.addEventListener("change", () => {
     const val = el.modelSelect.value || "";
-    if (val.includes("::")) {
+    if (val === "__auto__") {
+      state.model = null;
+      state.modelProvider = "auto";
+    } else if (val.includes("::")) {
       const idx = val.indexOf("::");
       state.modelProvider = val.substring(0, idx);
       state.model = val.substring(idx + 2);
@@ -2234,6 +2767,9 @@
     });
   });
 
+  // 角色切换 UI 已移除（架构先行）：后端 /api/settings 的 character 段保留，
+  // 前端在架构完成后以新页面形态重新接入。
+
   el.saveSettingsBtn?.addEventListener("click", saveSettings);
   el.resetSettingsBtn?.addEventListener("click", resetSettings);
   el.openConsole?.addEventListener("click", openConsole);
@@ -2244,6 +2780,53 @@
     nav.addEventListener("click", () => switchSection(nav.dataset.section));
   });
   el.consoleBack?.addEventListener("click", closeConsole);
+
+  // 网关概览事件绑定
+  el.gwConnect?.addEventListener("click", connectGateway);
+  el.gwRefresh?.addEventListener("click", async () => {
+    _setGatewayMsg("刷新中…");
+    try {
+      await renderGateway();
+      _setGatewayMsg("已刷新", "ok");
+    } catch (_) {
+      _setGatewayMsg("刷新失败", "error");
+    }
+  });
+  el.gwCopyUrl?.addEventListener("click", () => {
+    _copyToClipboard(el.gwSocketUrl?.value || "");
+    _setGatewayMsg("URL 已复制");
+    setTimeout(() => { if (el.gwAccessMsg?.textContent === "URL 已复制") _setGatewayMsg(""); }, 1500);
+  });
+  el.gwCopyToken?.addEventListener("click", () => {
+    _copyToClipboard(el.gwAccessToken?.value || "");
+    _setGatewayMsg("令牌已复制");
+    setTimeout(() => { if (el.gwAccessMsg?.textContent === "令牌已复制") _setGatewayMsg(""); }, 1500);
+  });
+
+  // 通讯通道事件绑定（tab 的 click 已在 renderComms 里动态绑定）
+  el.commSave?.addEventListener("click", saveCommChannel);
+  el.commClear?.addEventListener("click", clearCommChannel);
+
+  // 实验功能 · Hippo 开关（localStorage 级预留）
+  const HIPPO_TOGGLE_KEY = "simchat.experiment.hippo";
+  function initHippoToggle() {
+    let enabled = false;
+    try { enabled = localStorage.getItem(HIPPO_TOGGLE_KEY) === "1"; } catch (_) {}
+    state.hippoEnabled = enabled;
+    if (el.hippoToggle) el.hippoToggle.classList.toggle("on", enabled);
+    if (el.hippoToggleLabel) el.hippoToggleLabel.textContent = enabled ? "已启用（后端未接入）" : "关闭";
+  }
+  function toggleHippo() {
+    if (!el.hippoToggle) return;
+    state.hippoEnabled = !state.hippoEnabled;
+    el.hippoToggle.classList.toggle("on", state.hippoEnabled);
+    if (el.hippoToggleLabel) {
+      el.hippoToggleLabel.textContent = state.hippoEnabled ? "已启用（后端未接入）" : "关闭";
+    }
+    try { localStorage.setItem(HIPPO_TOGGLE_KEY, state.hippoEnabled ? "1" : "0"); } catch (_) {}
+  }
+  initHippoToggle();
+  el.hippoToggle?.addEventListener("click", toggleHippo);
 
   // 键盘：Esc 优先关 console，其次关 setup（locked 时不关 setup）
   document.addEventListener("keydown", (event) => {
@@ -2314,3 +2897,4 @@
     }
   })();
 })();
+

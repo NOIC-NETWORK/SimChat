@@ -8,7 +8,7 @@
 import json
 import os
 
-from . import provider_config, settings as settings_mod
+from . import provider_config, settings as settings_mod, profile as profile_mod
 from .providers import OllamaProvider, OpenAICompatProvider, ProviderError
 from .store import SessionStore
 
@@ -18,6 +18,13 @@ DEFAULT_CONFIG = {
     "openai_compat": {"api_base": "", "api_key": "", "model_name": ""},
     "system_prompt": "",
     "max_history": 40,
+    "agent": {
+        "max_turns": 10,
+        "workdir": "",
+        "approval_ttl": 600,
+        "shell_enabled": False,
+        "shell_timeout": 10,
+    },
 }
 
 
@@ -37,6 +44,7 @@ class SimChatCore:
         cfg = dict(DEFAULT_CONFIG)
         cfg["ollama"] = dict(DEFAULT_CONFIG["ollama"])
         cfg["openai_compat"] = dict(DEFAULT_CONFIG["openai_compat"])
+        cfg["agent"] = dict(DEFAULT_CONFIG["agent"])
         try:
             if os.path.exists(self.config_path):
                 with open(self.config_path, "r", encoding="utf-8") as f:
@@ -54,6 +62,31 @@ class SimChatCore:
         if name == "openai_compat":
             return OpenAICompatProvider(self.config.get("openai_compat"))
         return OllamaProvider(self.config.get("ollama"))
+
+    def resolve_provider(self, preferred=None):
+        """解析本次实际使用的服务商；返回 (provider_id, error_message)。
+
+        `preferred` 为 None 时读配置里的首选（可能是 auto）。
+        没有任何可用服务商、或显式指定的服务商不可用时返回 (None, 原因)。
+        """
+        status = provider_config.summarize(self.config)
+        # 只统计真实服务商；auto 是虚拟项，由 status["resolved"] 决定实际调用谁
+        available = [
+            item
+            for item in status["providers"]
+            if item["available"] and item["id"] != provider_config.AUTO_ID
+        ]
+        if not available:
+            return None, "尚未配置可用的服务商，请先完成服务商配置。"
+
+        chosen = preferred or self.config.get("provider") or provider_config.AUTO_ID
+        if chosen == provider_config.AUTO_ID or chosen not in [item["id"] for item in available]:
+            # Auto Model 或首选不可用：交给 summarize 给出的「当前最优」服务商
+            resolved = status.get("resolved") or available[0]["id"]
+            if preferred and preferred != provider_config.AUTO_ID and preferred != resolved:
+                return None, "服务商不可用: %s" % preferred
+            chosen = resolved
+        return chosen, None
 
     # ---------------- 会话 CRUD ----------------
 
@@ -94,6 +127,25 @@ class SimChatCore:
             )
         return result
 
+    def discover_provider(self, provider, payload):
+        """手动触发模型列表发现。用于前端填完 API Base + Key 后拉模型下拉。"""
+        return provider_config.discover_models(provider, payload, self.config)
+
+    # ---------------- 用户档案 ----------------
+
+    def has_profile(self):
+        """是否已有用户档案。启动时前端据此决定是否进注册页。"""
+        return profile_mod.has_profile(self.data_root)
+
+    def load_profile(self):
+        return profile_mod.load_profile(self.data_root)
+
+    def save_profile(self, payload):
+        try:
+            return profile_mod.save_profile(self.data_root, payload)
+        except ValueError as e:
+            raise ValueError(str(e))
+
     # ---------------- 基础设置 ----------------
 
     def load_settings(self):
@@ -105,6 +157,61 @@ class SimChatCore:
     def reset_settings(self, scope="settings"):
         return settings_mod.reset(self.data_root, scope=scope)
 
+    # ---------------- Agent 支持 ----------------
+
+    def agent_options(self):
+        """Agent 运行参数（config.json 的 agent 段；全部有安全边界）。"""
+        self.config = self._load_config()
+        raw = self.config.get("agent") or {}
+
+        def _int(value, default, low, high):
+            try:
+                return max(low, min(int(value), high))
+            except (TypeError, ValueError):
+                return default
+
+        workdir = str(raw.get("workdir") or "").strip()
+        if workdir and not os.path.isabs(workdir):
+            # 相对路径锚定到 simchat 根（runtime/core.py 上两级）
+            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            workdir = os.path.abspath(os.path.join(base, workdir))
+
+        return {
+            "max_turns": _int(raw.get("max_turns"), 10, 1, 25),
+            "workdir": workdir,
+            "approval_ttl": _int(raw.get("approval_ttl"), 600, 30, 86400),
+            "shell_enabled": bool(raw.get("shell_enabled")),
+            "shell_timeout": _int(raw.get("shell_timeout"), 10, 1, 30),
+        }
+
+    def generate(self, prompt, system_msg=None, provider=None, model=None,
+                 temperature=0.7, max_tokens=1024):
+        """Agent 模式使用的一次性生成：收集流式增量后返回完整文本。"""
+        self.config = self._load_config()
+        chosen, error = self.resolve_provider(provider)
+        if error:
+            raise ProviderError(error)
+
+        messages = []
+        if system_msg:
+            messages.append({"role": "system", "content": system_msg})
+        messages.append({"role": "user", "content": prompt})
+
+        prov = self._provider(chosen)
+        pieces = [
+            piece
+            for piece in prov.stream_chat(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        ]
+        text = "".join(pieces).strip()
+        if not text:
+            raise ProviderError("模型返回为空")
+        return text
+
     # ---------------- 对话 ----------------
 
     def chat_stream(self, message, session_id=None, provider=None, model=None,
@@ -113,33 +220,14 @@ class SimChatCore:
         """生成 SSE 事件 dict：chat_started → token* → final | error。"""
         self.config = self._load_config()  # 热加载，改配置免重启
 
-        status = provider_config.summarize(self.config)
-        # 只统计真实服务商；auto 是虚拟项，由 status["resolved"] 决定实际调用谁
-        available = [
-            item
-            for item in status["providers"]
-            if item["available"] and item["id"] != provider_config.AUTO_ID
-        ]
-        if not available:
+        chosen, error = self.resolve_provider(provider)
+        if error:
             yield {
                 "event": "error",
                 "code": "provider_unavailable",
-                "message": "尚未配置可用的服务商，请先完成服务商配置。",
+                "message": error,
             }
             return
-
-        chosen = provider or self.config.get("provider") or provider_config.AUTO_ID
-        if chosen == provider_config.AUTO_ID or chosen not in [item["id"] for item in available]:
-            # Auto Model 或首选不可用：交给 summarize 给出的「当前最优」服务商
-            resolved = status.get("resolved") or available[0]["id"]
-            if provider and chosen != provider_config.AUTO_ID and chosen != resolved:
-                yield {
-                    "event": "error",
-                    "code": "provider_unavailable",
-                    "message": "服务商不可用: %s" % provider,
-                }
-                return
-            chosen = resolved
 
         sess = self.store.get_or_create(session_id)
         sid = sess["id"]
