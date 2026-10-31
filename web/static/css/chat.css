@@ -164,6 +164,21 @@ textarea {
   text-overflow: ellipsis;
 }
 
+.session-mode {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  background: rgba(128, 128, 128, 0.14);
+}
+
+.session-mode--agent {
+  color: var(--accent);
+  background: rgba(217, 96, 138, 0.16);
+}
+
 .session-delete {
   display: grid;
   place-items: center;
@@ -205,9 +220,21 @@ textarea {
   display: flex;
   align-items: center;
   gap: 9px;
+  width: 100%;
   padding: 8px 10px;
+  border: none;
   border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
   font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.user-badge:hover {
+  background: var(--hover);
 }
 
 .user-avatar {
@@ -220,10 +247,22 @@ textarea {
   color: #fff;
   font-size: 12px;
   font-weight: 600;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .user-name {
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------------- 主区域 ---------------- */
@@ -1533,6 +1572,273 @@ select option {
   background: var(--accent-hover);
 }
 
+/* ---------------- 工作目录（workspace） ---------------- */
+
+.workspace-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex: 0 0 auto;
+}
+
+.workspace-chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.workspace-chip.is-set {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.workspace-chip svg {
+  flex-shrink: 0;
+}
+
+.workspace-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.workspace-modal.is-open {
+  display: flex;
+}
+
+.workspace-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: min(680px, 88vh);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--main-bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.workspace-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-dialog-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.workspace-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.workspace-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.workspace-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px 6px;
+}
+
+.workspace-up {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.workspace-up:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.workspace-up:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.workspace-current-path {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-manual-row {
+  display: flex;
+  gap: 8px;
+  padding: 6px 16px 10px;
+}
+
+.workspace-manual-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--composer-bg);
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+}
+
+.workspace-manual-input:focus {
+  border-color: var(--accent);
+}
+
+.workspace-roots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 8px;
+}
+
+.workspace-root-chip {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.workspace-root-chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.workspace-list {
+  flex: 1;
+  min-height: 160px;
+  overflow-y: auto;
+  padding: 2px 8px 8px;
+  border-top: 1px solid var(--border);
+}
+
+.workspace-entry {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-entry:hover {
+  background: var(--hover);
+}
+
+.workspace-entry.is-file {
+  color: var(--text-muted);
+  cursor: default;
+  opacity: 0.7;
+}
+
+.workspace-entry .workspace-entry-icon {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  display: inline-flex;
+}
+
+.workspace-entry.is-dir .workspace-entry-icon {
+  color: var(--accent);
+}
+
+.workspace-entry-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-list-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.workspace-message {
+  min-height: 18px;
+  padding: 0 16px 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.workspace-message.error {
+  color: var(--danger);
+}
+
+.workspace-message.ok {
+  color: var(--accent);
+}
+
+.workspace-dialog-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.workspace-footer-spacer {
+  flex: 1;
+}
+
 /* ---------------- Agent 模式卡片样式 ---------------- */
 
 .agent-cards {
@@ -1865,6 +2171,19 @@ select option {
 
   .topbar {
     padding: 0 10px;
+  }
+
+  .workspace-chip {
+    max-width: 92px;
+    padding: 6px;
+  }
+
+  .workspace-chip-name {
+    max-width: 60px;
+  }
+
+  .workspace-dialog {
+    max-height: 92vh;
   }
 
   .messages,

@@ -78,12 +78,12 @@ class SimChatAgentBackend:
 
     # ---------------- 记忆 ----------------
 
-    def save_memory(self, session_id, task, answer):
-        """只落「任务 + 最终答复」，工具过程不入库。"""
+    def save_memory(self, session_id, task, answer, mode="agent"):
+        """只落「任务 + 最终答复」，工具过程不入库；mode 标记会话来源。"""
         if not session_id:
             return
         try:
-            self.core.store.get_or_create(session_id)
+            self.core.store.get_or_create(session_id, mode=mode)
             self.core.store.append(session_id, "user", task)
             self.core.store.append(session_id, "assistant", answer)
         except Exception as error:

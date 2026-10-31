@@ -6,7 +6,7 @@
 from .core import SimChatCore
 from .providers import OLLAMA_AVAILABLE, ProviderError
 from .store import SessionStore
-from . import provider_config, ui_blocks, profile
+from . import provider_config, ui_blocks, profile, workspace
 
 __all__ = [
     "SimChatCore",
@@ -16,4 +16,5 @@ __all__ = [
     "provider_config",
     "ui_blocks",
     "profile",
+    "workspace",
 ]

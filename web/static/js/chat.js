@@ -25,7 +25,24 @@
     messages: document.getElementById("messages"),
     composer: document.getElementById("composer"),
     lockBanner: document.getElementById("lock-banner"),
+    lockText: document.getElementById("lock-text"),
     lockConfig: document.getElementById("lock-config"),
+
+    // 工作目录选择器
+    workspaceChip: document.getElementById("workspace-chip"),
+    workspaceChipName: document.getElementById("workspace-chip-name"),
+    workspaceModal: document.getElementById("workspace-modal"),
+    workspaceClose: document.getElementById("workspace-close"),
+    workspaceUp: document.getElementById("workspace-up"),
+    workspaceCurrentPath: document.getElementById("workspace-current-path"),
+    workspaceManualPath: document.getElementById("workspace-manual-path"),
+    workspaceManualOpen: document.getElementById("workspace-manual-open"),
+    workspaceRoots: document.getElementById("workspace-roots"),
+    workspaceList: document.getElementById("workspace-list"),
+    workspaceMessage: document.getElementById("workspace-message"),
+    workspaceClear: document.getElementById("workspace-clear"),
+    workspaceCancel: document.getElementById("workspace-cancel"),
+    workspaceConfirm: document.getElementById("workspace-confirm"),
     input: document.getElementById("input"),
     send: document.getElementById("send"),
     attachBtn: document.getElementById("attach-btn"),
@@ -106,6 +123,20 @@
     hippoToggle: document.getElementById("hippo-toggle"),
     hippoToggleLabel: document.getElementById("hippo-toggle-label"),
     hippoStatusBadge: document.getElementById("hippo-status-badge"),
+
+    // 用户个人中心
+    userBadge: document.getElementById("user-badge"),
+    userAvatar: document.getElementById("user-avatar"),
+    userName: document.getElementById("user-name"),
+    profileAvatarPreview: document.getElementById("profile-avatar-preview"),
+    profileAvatarInput: document.getElementById("profile-avatar-input"),
+    profileAvatarClear: document.getElementById("profile-avatar-clear"),
+    profileUsername: document.getElementById("profile-username"),
+    profileBirthday: document.getElementById("profile-birthday"),
+    profileEmergency: document.getElementById("profile-emergency"),
+    profileMeta: document.getElementById("profile-meta"),
+    profileMsg: document.getElementById("profile-msg"),
+    profileSave: document.getElementById("profile-save"),
   };
 
   const state = {
@@ -141,9 +172,17 @@
     settingsDirty: false,
     activeSection: "overview",
 
+    // 用户档案
+    profile: null,          // 后端返回的 profile.json 内容
+    profileAvatar: "",      // 编辑中的头像 data URL（保存后写回 profile）
+
     // 通讯通道缓存
     comms: null,              // { active, channels: [...] }
     commsActiveChannel: null,  // 当前选中渲染的 channel id（与后端 .active 无关）
+
+    // 工作目录（workspace）
+    workspace: null,         // { configured, exists, path, name }
+    workspaceBrowse: null,   // 最近一次目录浏览结果
 
     // 实验功能
     hippoEnabled: false,
@@ -498,6 +537,13 @@
       title.textContent = session.title || "新对话";
       item.appendChild(title);
 
+      // 模式标识符：区分 Agent 会话与对话会话
+      const mode = session.mode === "agent" ? "agent" : "chat";
+      const modeChip = document.createElement("span");
+      modeChip.className = "session-mode session-mode--" + mode;
+      modeChip.textContent = mode === "agent" ? "Agent" : "对话";
+      item.appendChild(modeChip);
+
       const remove = document.createElement("button");
       remove.className = "session-delete";
       remove.type = "button";
@@ -530,7 +576,8 @@
     }
   }
 
-  async function openSession(sid) {
+  async function openSession(sid, options) {
+    options = options || {};
     if (state.streaming) return;
     try {
       const data = await api("/api/sessions/" + encodeURIComponent(sid));
@@ -539,6 +586,9 @@
       state.stickToBottom = true;
       el.title.textContent = session.title || "新对话";
       el.messages.innerHTML = "";
+
+      // 按会话来源恢复对应模式，避免 Agent 会话以对话模式继续
+      setAgentMode(session.mode === "agent" ? "agent" : "chat");
 
       const history = session.messages || [];
       for (const message of history) addMessage(message.role, message.content, true);
@@ -554,6 +604,12 @@
       await loadSessions();
       if (!state.locked) el.input.focus();
     } catch (err) {
+      if (options.silent) {
+        // 启动时恢复的会话可能已被删除（或旧版本未落盘）：静默清理并回到新对话
+        saveSessionId(null);
+        startNewChat();
+        return;
+      }
       addMessage("assistant", "加载会话失败：" + err.message);
     }
   }
@@ -599,6 +655,7 @@
   /* 状态点提示：Auto Model 时显示自动选中的服务商，便于确认"记住了" */
   function connectionLabel() {
     if (state.locked) return "未配置可用服务商";
+    if (!workspaceReady()) return "未选择工作目录";
     if (state.streaming) return "生成中";
     const target = providerById(state.resolved);
     if (state.configured === "auto") {
@@ -632,13 +689,49 @@
     el.saveProvider.disabled = busy;
   }
 
+  function workspaceReady() {
+    const ws = state.workspace;
+    return !!(ws && ws.configured && ws.exists);
+  }
+
+  /* 服务商或工作目录任一缺失，输入区都保持锁定。 */
+  function interactionBlocked() {
+    return state.locked || !workspaceReady();
+  }
+
+  function renderLockBanner() {
+    if (state.locked) {
+      el.lockText.textContent = "尚未配置可用的服务商，无法对话。";
+      el.lockConfig.textContent = "配置服务商";
+      el.lockConfig.dataset.action = "provider";
+      return;
+    }
+    const ws = state.workspace;
+    if (!ws || !ws.configured) {
+      el.lockText.textContent = "尚未选择工作目录，选择后即可开始对话。";
+      el.lockConfig.textContent = "选择工作目录";
+      el.lockConfig.dataset.action = "workspace";
+      return;
+    }
+    el.lockText.textContent = "工作目录不存在：" + ws.path;
+    el.lockConfig.textContent = "重新选择";
+    el.lockConfig.dataset.action = "workspace";
+  }
+
+  function applyInteractionGate() {
+    const blocked = interactionBlocked();
+    el.lockBanner.classList.toggle("hidden", !blocked);
+    el.composer.classList.toggle("hidden", blocked);
+    el.tokenBar?.classList.toggle("hidden", blocked);
+    el.statusDot.classList.toggle("locked", blocked);
+    el.statusDot.classList.toggle("streaming", !blocked && state.streaming);
+    el.statusDot.title = connectionLabel();
+    renderLockBanner();
+    updateSendState();
+  }
+
   function setLocked(locked, keepSetup) {
     state.locked = locked;
-    el.lockBanner.classList.toggle("hidden", !locked);
-    el.composer.classList.toggle("hidden", locked);
-    el.tokenBar?.classList.toggle("hidden", locked);
-    el.statusDot.classList.toggle("locked", locked);
-    el.statusDot.classList.toggle("streaming", !locked && state.streaming);
     el.setupBack.classList.toggle("hidden", locked);
 
     if (locked) {
@@ -647,8 +740,7 @@
     } else {
       if (state.mode === "setup" && !keepSetup) hideSetup();
     }
-    el.statusDot.title = connectionLabel();
-    updateSendState();
+    applyInteractionGate();
   }
 
   function setProviderData(data, keepSetup) {
@@ -890,10 +982,10 @@
     return (el.agentToggle?.dataset.mode === "agent") ? "agent" : "chat";
   }
 
-  function toggleAgentMode() {
+  function setAgentMode(next) {
     const track = el.agentToggle;
-    const isAgent = track.dataset.mode === "agent";
-    const next = isAgent ? "chat" : "agent";
+    if (!track) return;
+    next = next === "agent" ? "agent" : "chat";
     track.dataset.mode = next;
     track.setAttribute("aria-pressed", String(next === "agent"));
     state.agents = next;
@@ -911,6 +1003,10 @@
         subEl.textContent = "SimChat 本体独立对话 · 会话自动保存在本地";
       }
     }
+  }
+
+  function toggleAgentMode() {
+    setAgentMode(getCurrentMode() === "agent" ? "chat" : "agent");
   }
 
   function renderProviderAccordion() {
@@ -1214,10 +1310,13 @@
     if (state.locked) return;
     enterMode("chat");
   }
-  function openConsole() {
+  function openConsole(section) {
     enterMode("console");
-    const saved = (localStorage.getItem(SECTION_KEY) || "overview").trim();
-    switchSection(saved);
+    // 支持直接打开指定分区（如点侧边栏用户徽章进个人中心）
+    const target = typeof section === "string" && section
+      ? section
+      : (localStorage.getItem(SECTION_KEY) || "overview").trim();
+    switchSection(target);
     renderOverview();
   }
   function closeConsole() {
@@ -1588,12 +1687,13 @@
     el.send.disabled =
       state.streaming ||
       state.locked ||
+      !workspaceReady() ||
       (!el.input.value.trim() && state.attachments.length === 0);
   }
 
   function setStreaming(streaming) {
     state.streaming = streaming;
-    el.statusDot.classList.toggle("streaming", streaming && !state.locked);
+    el.statusDot.classList.toggle("streaming", streaming && !interactionBlocked());
     el.statusDot.title = connectionLabel();
     updateSendState();
   }
@@ -1962,6 +2062,11 @@
       await loadProviders();
       return;
     }
+    if (errorCode === "workspace_required" || errorCode === "workspace_missing") {
+      await loadWorkspace();
+      openWorkspacePicker();
+      return;
+    }
 
     el.input.focus();
   }
@@ -2042,6 +2147,10 @@
         if (code === "provider_unavailable") {
           errorMessage = message;
           await loadProviders();
+        } else if (code === "workspace_required" || code === "workspace_missing") {
+          errorMessage = message;
+          await loadWorkspace();
+          openWorkspacePicker();
         } else {
           errorMessage = message;
         }
@@ -2099,6 +2208,10 @@
       showSetup();
       return;
     }
+    if (!workspaceReady()) {
+      openWorkspacePicker();
+      return;
+    }
 
     // 根据当前模式选择执行路径
     const mode = getCurrentMode();
@@ -2120,11 +2233,184 @@
     }
   }
 
-  // ---------------- 预留接口：IDE 跳转 ----------------
+  // ---------------- 工作目录（workspace） ----------------
+
+  const WS_FOLDER_ICON =
+    '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+  const WS_FILE_ICON =
+    '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+
+  function applyWorkspace(ws) {
+    state.workspace = ws || null;
+    const configured = !!(ws && ws.configured);
+    el.workspaceChip?.classList.toggle("is-set", configured);
+    if (el.workspaceChipName) {
+      el.workspaceChipName.textContent = configured ? (ws.name || ws.path) : "选择工作目录";
+    }
+    if (el.workspaceChip) {
+      el.workspaceChip.title = configured ? "工作目录：" + ws.path : "选择工作目录";
+    }
+    applyInteractionGate();
+  }
+
+  async function loadWorkspace() {
+    try {
+      const data = await api("/api/workspace");
+      applyWorkspace(data.workspace || null);
+    } catch (err) {
+      console.warn("[SimChat] 工作目录状态加载失败:", err);
+      applyWorkspace(null);
+    }
+  }
+
+  function _setWorkspaceMessage(text, kind) {
+    if (!el.workspaceMessage) return;
+    el.workspaceMessage.textContent = text || "";
+    el.workspaceMessage.className = "workspace-message" + (kind ? " " + kind : "");
+  }
+
+  function openWorkspacePicker() {
+    if (!el.workspaceModal) return;
+    el.workspaceModal.classList.add("is-open");
+    el.workspaceModal.setAttribute("aria-hidden", "false");
+    _setWorkspaceMessage("");
+    const start = state.workspace?.configured ? state.workspace.path : "";
+    browseWorkspace(start);
+  }
+
+  function closeWorkspacePicker() {
+    if (!el.workspaceModal) return;
+    el.workspaceModal.classList.remove("is-open");
+    el.workspaceModal.setAttribute("aria-hidden", "true");
+  }
+
+  async function browseWorkspace(path) {
+    el.workspaceConfirm.disabled = true;
+    _setWorkspaceMessage("加载目录…");
+    try {
+      const query = path ? "?path=" + encodeURIComponent(path) : "";
+      const data = await api("/api/workspace/browse" + query);
+      renderWorkspaceBrowse(data);
+      _setWorkspaceMessage("");
+    } catch (err) {
+      _setWorkspaceMessage(err.message || "目录读取失败", "error");
+    }
+  }
+
+  function renderWorkspaceBrowse(data) {
+    state.workspaceBrowse = data;
+    const current = data.path || "";
+    if (el.workspaceCurrentPath) el.workspaceCurrentPath.textContent = current || "请选择磁盘 / 根目录";
+    if (el.workspaceManualPath) el.workspaceManualPath.value = current;
+    if (el.workspaceUp) el.workspaceUp.disabled = !data.parent;
+    if (el.workspaceConfirm) el.workspaceConfirm.disabled = !current;
+
+    el.workspaceRoots.innerHTML = "";
+    (data.roots || []).forEach((root) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "workspace-root-chip";
+      chip.textContent = root;
+      chip.title = "浏览 " + root;
+      chip.addEventListener("click", () => browseWorkspace(root));
+      el.workspaceRoots.appendChild(chip);
+    });
+
+    el.workspaceList.innerHTML = "";
+    const entries = data.entries || [];
+    if (!entries.length) {
+      const empty = document.createElement("div");
+      empty.className = "workspace-list-empty";
+      empty.textContent = current ? "此目录为空" : "点击上方磁盘 / 根目录开始浏览";
+      el.workspaceList.appendChild(empty);
+      return;
+    }
+
+    entries.forEach((entry) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "workspace-entry " + (entry.is_dir ? "is-dir" : "is-file");
+      row.title = entry.path;
+
+      const icon = document.createElement("span");
+      icon.className = "workspace-entry-icon";
+      icon.innerHTML = entry.is_dir ? WS_FOLDER_ICON : WS_FILE_ICON;
+
+      const name = document.createElement("span");
+      name.className = "workspace-entry-name";
+      name.textContent = entry.name;
+
+      row.appendChild(icon);
+      row.appendChild(name);
+      if (entry.is_dir) {
+        row.addEventListener("click", () => browseWorkspace(entry.path));
+      }
+      el.workspaceList.appendChild(row);
+    });
+
+    if (data.truncated) {
+      _setWorkspaceMessage("目录条目过多，仅显示前 500 项", "");
+    }
+  }
+
+  async function confirmWorkspace() {
+    const path = state.workspaceBrowse?.path || "";
+    if (!path) return;
+    el.workspaceConfirm.disabled = true;
+    _setWorkspaceMessage("保存中…");
+    try {
+      const data = await api("/api/workspace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: path }),
+      });
+      applyWorkspace(data.workspace || null);
+      closeWorkspacePicker();
+      if (!state.locked) {
+        enterMode("chat");
+        el.input.focus();
+      }
+    } catch (err) {
+      _setWorkspaceMessage(err.message || "保存失败", "error");
+    } finally {
+      el.workspaceConfirm.disabled = !(state.workspaceBrowse && state.workspaceBrowse.path);
+    }
+  }
+
+  async function clearWorkspace() {
+    if (!state.workspace?.configured) {
+      closeWorkspacePicker();
+      return;
+    }
+    if (!window.confirm("确定清除工作目录吗？清除后将无法发起对话。")) return;
+    try {
+      const data = await api("/api/workspace", { method: "DELETE" });
+      applyWorkspace(data.workspace || null);
+      closeWorkspacePicker();
+    } catch (err) {
+      _setWorkspaceMessage(err.message || "清除失败", "error");
+    }
+  }
+
+  function workspaceGoUp() {
+    const parent = state.workspaceBrowse?.parent;
+    if (parent) browseWorkspace(parent);
+  }
+
+  function openManualWorkspacePath() {
+    const value = (el.workspaceManualPath?.value || "").trim();
+    if (!value) {
+      _setWorkspaceMessage("请输入目录绝对路径", "error");
+      return;
+    }
+    browseWorkspace(value);
+  }
+
+  // ---------------- IDE 界面跳转 ----------------
 
   function openIde() {
-    // TODO: 接入 IDE 跳转（Trae / VS Code / WebDAV 之一）
-    console.warn("[SimChat] IDE 跳转尚未配置。");
+    // IDE 界面由后端 /ide 路由提供（单文件演示页）
+    window.location.href = "/ide";
   }
 
   // ---------------- 主题应用 ----------------
@@ -2249,6 +2535,150 @@
     }
   }
 
+  // ---------------- 用户个人中心 ----------------
+
+  function profileInitials(name) {
+    const text = String(name || "").trim();
+    if (!text) return "U";
+    // Array.from 按码点切分，兼容中文与 emoji
+    return Array.from(text)[0].toUpperCase();
+  }
+
+  // 把头像渲染到指定圆形容器：有图显示图片，无图显示用户名首字母
+  function applyAvatar(target, avatar, name) {
+    if (!target) return;
+    if (avatar) {
+      target.innerHTML = '<img src="' + escapeHtml(avatar) + '" alt="用户头像">';
+    } else {
+      target.textContent = profileInitials(name);
+    }
+  }
+
+  function renderUserBadge() {
+    const p = state.profile || {};
+    const name = (p.username || "").trim() || "本地用户";
+    if (el.userName) el.userName.textContent = name;
+    applyAvatar(el.userAvatar, p.avatar, name);
+  }
+
+  function renderProfileForm() {
+    const p = state.profile || {};
+    state.profileAvatar = p.avatar || "";
+    if (el.profileUsername) el.profileUsername.value = p.username || "";
+    if (el.profileBirthday) el.profileBirthday.value = p.birthday || "";
+    if (el.profileEmergency) el.profileEmergency.value = p.emergency_contact || "";
+    applyAvatar(el.profileAvatarPreview, state.profileAvatar, p.username);
+
+    if (el.profileMeta) {
+      const parts = [];
+      if (p.created_at) parts.push("创建于 " + String(p.created_at).replace("T", " ").slice(0, 16));
+      if (p.updated_at) parts.push("最近更新 " + String(p.updated_at).replace("T", " ").slice(0, 16));
+      el.profileMeta.textContent = parts.join(" · ");
+    }
+    setProfileMsg("");
+  }
+
+  function setProfileMsg(text, kind) {
+    if (!el.profileMsg) return;
+    el.profileMsg.textContent = text || "";
+    el.profileMsg.className = "comm-form-msg" + (kind ? " " + kind : "");
+  }
+
+  async function loadProfile() {
+    try {
+      const data = await api("/api/profile");
+      state.profile = data.profile || {};
+      renderUserBadge();
+      renderProfileForm();
+    } catch (err) {
+      console.warn("[SimChat] 用户档案加载失败:", err);
+    }
+  }
+
+  // 本地图片 → 256px 正方形内等比缩放 → data URL
+  function readAvatarFile(file) {
+    return new Promise((resolve, reject) => {
+      if (!file) return reject(new Error("未选择图片"));
+      if (!/^image\/(png|jpeg|webp|gif)$/i.test(file.type)) {
+        return reject(new Error("只支持 PNG / JPEG / WEBP / GIF 图片"));
+      }
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("读取图片失败"));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("图片解析失败"));
+        img.onload = () => {
+          const size = 256;
+          const scale = Math.min(1, size / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return reject(new Error("浏览器不支持图片处理"));
+          ctx.drawImage(img, 0, 0, w, h);
+          // PNG 保留透明通道，其余统一转 JPEG 控制体积
+          const isPng = file.type === "image/png";
+          resolve(canvas.toDataURL(isPng ? "image/png" : "image/jpeg", 0.85));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function pickProfileAvatar() {
+    const file = el.profileAvatarInput?.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await readAvatarFile(file);
+      state.profileAvatar = dataUrl;
+      applyAvatar(el.profileAvatarPreview, dataUrl, el.profileUsername?.value || "");
+      setProfileMsg("头像已选择，点击「保存」后生效", "ok");
+    } catch (err) {
+      setProfileMsg(err.message, "error");
+    }
+    el.profileAvatarInput.value = "";
+  }
+
+  function clearProfileAvatar() {
+    state.profileAvatar = "";
+    applyAvatar(el.profileAvatarPreview, "", el.profileUsername?.value || "");
+    setProfileMsg("头像已移除，点击「保存」后生效", "");
+  }
+
+  async function saveProfile() {
+    const username = (el.profileUsername?.value || "").trim();
+    if (!username) {
+      setProfileMsg("用户名不能为空", "error");
+      el.profileUsername?.focus();
+      return;
+    }
+    if (el.profileSave) el.profileSave.disabled = true;
+    setProfileMsg("保存中…");
+    try {
+      const data = await api("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          birthday: (el.profileBirthday?.value || "").trim(),
+          emergency_contact: (el.profileEmergency?.value || "").trim(),
+          avatar: state.profileAvatar || "",
+        }),
+      });
+      state.profile = data.profile || {};
+      renderUserBadge();
+      renderProfileForm();
+      setProfileMsg("已保存", "ok");
+    } catch (err) {
+      setProfileMsg(err.message, "error");
+    } finally {
+      if (el.profileSave) el.profileSave.disabled = false;
+    }
+  }
+
   // ---------------- 控制台 ----------------
 
   const ADVANCED_KEY = "simchat.advanced";
@@ -2266,7 +2696,9 @@
     });
 
     // 惰性加载：只在第一次切到某个分区时拉数据
-    if (name === "comms" && !state.comms) {
+    if (name === "profile") {
+      renderProfileForm();
+    } else if (name === "comms" && !state.comms) {
       loadComms();
     } else if (name === "comms") {
       renderComms();
@@ -2638,7 +3070,29 @@
   el.toggleSidebar.addEventListener("click", openSidebar);
   el.backdrop.addEventListener("click", closeSidebar);
   el.openSetup.addEventListener("click", showSetup);
-  el.lockConfig.addEventListener("click", showSetup);
+  el.lockConfig.addEventListener("click", () => {
+    if (!workspaceReady()) openWorkspacePicker();
+    else showSetup();
+  });
+
+  // 工作目录选择器
+  el.workspaceChip?.addEventListener("click", openWorkspacePicker);
+  el.workspaceClose?.addEventListener("click", closeWorkspacePicker);
+  el.workspaceCancel?.addEventListener("click", closeWorkspacePicker);
+  el.workspaceConfirm?.addEventListener("click", confirmWorkspace);
+  el.workspaceUp?.addEventListener("click", workspaceGoUp);
+  el.workspaceManualOpen?.addEventListener("click", openManualWorkspacePath);
+  el.workspaceManualPath?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      openManualWorkspacePath();
+    }
+  });
+  el.workspaceClear?.addEventListener("click", clearWorkspace);
+  el.workspaceModal?.addEventListener("click", (event) => {
+    if (event.target === el.workspaceModal) closeWorkspacePicker();
+  });
+
   el.agentToggle?.addEventListener("click", toggleAgentMode);
   el.agentToggle?.addEventListener("keydown", (e) => {
     if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleAgentMode(); }
@@ -2691,6 +3145,10 @@
     event.preventDefault();
     const text = el.input.value.trim();
     if (!text || state.streaming || state.locked) return;
+    if (!workspaceReady()) {
+      openWorkspacePicker();
+      return;
+    }
     el.input.value = "";
     autoResize();
     updateInputTokens();
@@ -2774,6 +3232,16 @@
   el.resetSettingsBtn?.addEventListener("click", resetSettings);
   el.openConsole?.addEventListener("click", openConsole);
 
+  // ---------------- 个人中心事件绑定 ----------------
+
+  el.userBadge?.addEventListener("click", () => {
+    closeSidebar();
+    openConsole("profile");
+  });
+  el.profileAvatarInput?.addEventListener("change", pickProfileAvatar);
+  el.profileAvatarClear?.addEventListener("click", clearProfileAvatar);
+  el.profileSave?.addEventListener("click", saveProfile);
+
   // ---------------- 控制台事件绑定 ----------------
 
   el.navItems?.forEach((nav) => {
@@ -2831,7 +3299,9 @@
   // 键盘：Esc 优先关 console，其次关 setup（locked 时不关 setup）
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
-    if (el.settingsConsole?.classList.contains("is-open")) {
+    if (el.workspaceModal?.classList.contains("is-open")) {
+      closeWorkspacePicker();
+    } else if (el.settingsConsole?.classList.contains("is-open")) {
       closeConsole();
     } else if (el.setup?.classList.contains("is-open") && !state.locked) {
       hideSetup();
@@ -2859,15 +3329,15 @@
   updateSendState();
 
   (async function init() {
-    await Promise.all([loadSessions(), loadProviders(), loadSettings()]);
+    await Promise.all([loadSessions(), loadProviders(), loadSettings(), loadProfile(), loadWorkspace()]);
     // 永远不自动进 console——用户点齿轮 → 进 setup，点"高级" → 进 console，返回 → 退出。
     // localStorage["simchat.advanced"] 历史残留，清掉避免每次刷新卡壳。
     try { localStorage.removeItem("simchat.advanced"); } catch (_) {}
 
     const lastSid = loadSessionId();
     if (lastSid) {
-      // 恢复上次会话；若后端已删则静默回退到新对话
-      await openSession(lastSid).catch(() => saveSessionId(null));
+      // 恢复上次会话；若后端已删则静默回退到新对话（不弹出错误气泡）
+      await openSession(lastSid, { silent: true });
     }
     // Minecraft 风格随机 splash（subtitle.txt 已随静态资源发布）
     try {

@@ -8,6 +8,7 @@
 """
 
 import json
+import os
 import threading
 
 from flask import (
@@ -22,6 +23,13 @@ from flask import (
 __all__ = ["create_app"]
 
 _core_lock = threading.Lock()
+
+# IDE 界面演示页：项目根目录下的单文件 HTML（templates 之外，读文件原文返回）
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _ide_page_path():
+    return os.path.join(_PROJECT_ROOT, "ide-demo.html")
 
 
 def _get_core(app):
@@ -89,6 +97,19 @@ def create_app(core=None):
             return jsonify({"redirect": "/"}), 302
         return render_template("register.html")
 
+    @app.get("/ide")
+    def ide_page():
+        """IDE 界面（单文件演示页），与 / 的对话界面共用同一后端。"""
+        path = _ide_page_path()
+        if not os.path.isfile(path):
+            return "IDE 界面文件缺失：ide-demo.html", 404
+        with open(path, "r", encoding="utf-8") as f:
+            html = f.read()
+        resp = Response(html, mimetype="text/html")
+        # 开发期避免浏览器缓存旧版页面
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp
+
     # ---------------- 服务商配置 ----------------
 
     @app.get("/api/providers")
@@ -146,11 +167,15 @@ def create_app(core=None):
     def save_profile():
         data = request.get_json(silent=True) or {}
         try:
-            saved = _get_core(app).save_profile({
+            payload = {
                 "username": data.get("username", ""),
                 "birthday": data.get("birthday", ""),
                 "emergency_contact": data.get("emergency_contact", ""),
-            })
+            }
+            # 只有显式传 avatar 时才更新头像，避免旧客户端保存其他字段时把头像清空
+            if "avatar" in data:
+                payload["avatar"] = data.get("avatar", "")
+            saved = _get_core(app).save_profile(payload)
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
         return jsonify({"ok": True, "profile": saved})
@@ -192,6 +217,33 @@ def create_app(core=None):
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
         return jsonify({"settings": saved})
+
+    # ---------------- 工作目录（workspace） ----------------
+
+    @app.get("/api/workspace")
+    def get_workspace():
+        return jsonify({"workspace": _get_core(app).workspace_status()})
+
+    @app.post("/api/workspace")
+    def set_workspace():
+        data = request.get_json(silent=True) or {}
+        try:
+            status = _get_core(app).save_workspace(data.get("path") or "")
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        return jsonify({"ok": True, "workspace": status})
+
+    @app.delete("/api/workspace")
+    def clear_workspace():
+        return jsonify({"ok": True, "workspace": _get_core(app).clear_workspace()})
+
+    @app.get("/api/workspace/browse")
+    def browse_workspace():
+        try:
+            listing = _get_core(app).browse_workspace(request.args.get("path"))
+        except ValueError as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
+        return jsonify({"ok": True, **listing})
 
     # ---------------- 网关概览 ----------------
 
@@ -335,6 +387,17 @@ def create_app(core=None):
             return jsonify({
                 "error": "尚未配置可用的服务商，请先完成服务商配置。",
                 "code": "provider_unavailable",
+            }), 409
+        workspace = core.workspace_status()
+        if not workspace["configured"]:
+            return jsonify({
+                "error": "尚未选择工作目录，无法开始对话。",
+                "code": "workspace_required",
+            }), 409
+        if not workspace["exists"]:
+            return jsonify({
+                "error": "工作目录不存在或不可访问：%s" % workspace["path"],
+                "code": "workspace_missing",
             }), 409
 
         def generate():

@@ -101,6 +101,16 @@ python -m web   # 打开浏览器，接入你的第一个模型
 
 ## 最近更新
 
+**2026-10-31** — 工作目录门禁 + 个人中心 + Agent 会话落盘修复
+
+- **工作目录（workspace）成为对话与 Agent 的统一根目录**：未选择目录时 composer 只读锁定、发送被拦截并提示；顶栏 chip、欢迎页、侧栏均可重新配置；新增目录浏览选择器（逐级浏览 + 直接输入绝对路径），配置写入 `data/config.json`，Agent 沙箱的 `workdir` 随之切换。
+- **个人中心**：侧栏用户卡可点击进入设置页，支持用户名、生日、紧急联系人、头像（PNG / JPEG / WEBP / GIF，前端自动压缩到 256px），档案只存本机 `data/profile.json`。
+- **Agent 模式会话落盘修复**：`SessionStore.get_or_create()` 之前会忽略传入的 `agent_` 会话 id 并另建随机会话文件，导致 Agent 消息全部落空；现在按显式 id 建会话并正常写入，Agent 多轮对话会自动续接已落盘历史。
+- **会话模式标识符**：会话记录新增 `mode` 字段（`chat` / `agent`），Agent 会话固定 `agent_` 前缀；侧栏用「对话 / Agent」标签区分，打开会话自动切回对应模式，两种模式的上下文互不污染。
+- **启动恢复失败静默回退**：上次会话已被删除或旧版本未落盘时，刷新页面不再把「加载会话失败：会话不存在」渲染成助手消息，而是静默清理记录并回到新对话。
+- **IDE 界面演示页**：新增 `/ide` 单文件六区布局演示（`ide-demo.html`，无外链、无后端依赖），与 `/` 对话界面共用同一套 `/api/*`。
+- 文件：`runtime/workspace.py`、`runtime/store.py`、`runtime/agent/`、`web/agent.py`、`web/__init__.py`、`web/static/js/chat.js`、`web/static/css/chat.css`、`web/templates/index.html`、`ide-demo.html`
+
 **2026-10-29** — Web UI 多 provider 聚合 + 下拉交互修复 + OpenAI 预检强化
 
 - **模型下拉聚合所有 provider**：composer 里的模型选择器不再只显示 resolved 那一个 provider 的模型，而是用 `<optgroup>` 按 provider 分组列出所有已发现的模型（Ollama 本地 + OpenAI 兼容 + 未来其他）。切换模型时 provider 跟着走，请求 payload 同时带 `provider` 和 `model`。

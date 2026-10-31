@@ -9,6 +9,7 @@
 {
   "version": 1,
   "username": "User",           // 必填，之后 SimChat 用这个称呼用户
+  "avatar": "data:image/...",    // 可选，头像 data URL（base64，最大约 512KB）
   "birthday": "YYYY-MM-DD",     // 可选
   "emergency_contact": "...",   // 可选
   "created_at": "ISO8601",
@@ -29,9 +30,31 @@ _save_lock = threading.Lock()
 
 _REQUIRED_FIELDS = ("username",)
 
+# 头像以 data URL 形式随 profile.json 一起存放（本机单文件，不上 GitHub）。
+_AVATAR_PREFIXES = (
+    "data:image/png;base64,",
+    "data:image/jpeg;base64,",
+    "data:image/webp;base64,",
+    "data:image/gif;base64,",
+)
+_AVATAR_MAX_CHARS = 800_000  # base64 后约 585KB 二进制，足够 256px 头像
+
 
 def _iso_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _clean_avatar(value):
+    """校验头像 data URL，空值表示移除头像。"""
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    if not value.startswith(_AVATAR_PREFIXES):
+        raise ValueError("头像格式不支持，请上传 PNG / JPEG / WEBP / GIF 图片")
+    if len(value) > _AVATAR_MAX_CHARS:
+        raise ValueError("头像文件过大，请压缩到 512KB 以内")
+    return value
+
 
 
 def _path(data_root):
@@ -79,10 +102,16 @@ def save_profile(data_root, payload):
 
     existing = load_profile(data_root)
     created_at = existing.get("created_at") or now
+    # 未传 avatar 字段时保留原头像，传空字符串表示移除。
+    if "avatar" in payload:
+        avatar = _clean_avatar(payload.get("avatar"))
+    else:
+        avatar = existing.get("avatar") or ""
 
     profile = {
         "version": PROFILE_VERSION,
         "username": username,
+        "avatar": avatar,
         "birthday": str(payload.get("birthday") or existing.get("birthday") or "").strip(),
         "emergency_contact": str(payload.get("emergency_contact") or existing.get("emergency_contact") or "").strip(),
         "created_at": created_at,

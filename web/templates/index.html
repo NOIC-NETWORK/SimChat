@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SimChat | Everything, Harnessed.</title>
 <link rel="icon" type="image/png" href="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261030a">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261030a">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261031b">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261031b">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 </head>
@@ -29,10 +29,10 @@
     <nav class="session-list" id="session-list" aria-label="会话历史"></nav>
 
     <div class="sidebar-footer">
-      <div class="user-badge">
-        <span class="user-avatar">J</span>
-        <span class="user-name">本地对话</span>
-      </div>
+      <button class="user-badge" id="user-badge" type="button" title="打开个人中心" aria-label="打开个人中心">
+        <span class="user-avatar" id="user-avatar">U</span>
+        <span class="user-name" id="user-name">本地用户</span>
+      </button>
     </div>
   </aside>
 
@@ -44,6 +44,12 @@
         </svg>
       </button>
       <div class="topbar-title" id="chat-title">新对话</div>
+      <button class="workspace-chip" id="workspace-chip" type="button" title="选择工作目录" aria-label="选择工作目录">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        </svg>
+        <span class="workspace-chip-name" id="workspace-chip-name">选择工作目录</span>
+      </button>
       <div class="agent-toggle" title="切换 Agent 模式" role="group" aria-label="模式切换">
         <div class="agent-toggle-track" id="agent-toggle" data-mode="chat" aria-pressed="false" tabindex="0">
           <img class="agent-toggle-icon agent-toggle-icon--chat" src="{{ url_for('static', filename='sprites/logos/chatMode.png') }}" alt="对话模式">
@@ -204,7 +210,7 @@
 
     <div class="composer-wrap">
       <div class="lock-banner hidden" id="lock-banner">
-        <span>尚未配置可用的服务商，无法对话。</span>
+        <span id="lock-text">尚未配置可用的服务商，无法对话。</span>
         <button type="button" id="lock-config">配置服务商</button>
       </div>
       <form class="composer hidden" id="composer">
@@ -266,6 +272,10 @@
   <div class="console-body">
     <aside class="console-nav">
       <div class="console-nav-group">
+        <h4 data-block="console.group.account">账户</h4>
+        <button class="console-nav-item" data-section="profile" data-block="console.section.profile">个人中心</button>
+      </div>
+      <div class="console-nav-group">
         <h4 data-block="console.group.control">控制</h4>
         <button class="console-nav-item is-active" data-section="overview" data-block="console.section.overview">概览</button>
         <button class="console-nav-item" data-section="comms" data-block="console.section.comms">通讯</button>
@@ -294,6 +304,44 @@
       </div>
     </aside>
     <div class="console-content">
+      <section class="setting-section" data-section="profile" hidden>
+        <h3 data-block="console.section.profile">个人中心</h3>
+        <p class="section-desc">SimChat 会用这里的用户名和你打招呼。档案只保存在本机 data/profile.json，不会同步到任何服务器。</p>
+
+        <div class="profile-card">
+          <div class="profile-avatar-row">
+            <span class="profile-avatar-big" id="profile-avatar-preview">U</span>
+            <div class="profile-avatar-actions">
+              <label class="primary-button profile-upload" for="profile-avatar-input" title="选择本地图片作为头像">上传头像</label>
+              <input type="file" id="profile-avatar-input" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+              <button type="button" class="ghost-button" id="profile-avatar-clear">移除头像</button>
+              <span class="profile-avatar-hint">支持 PNG / JPEG / WEBP / GIF，会自动压缩到 256px</span>
+            </div>
+          </div>
+
+          <div class="settings-grid">
+            <label class="field">
+              <span class="field-label">用户名</span>
+              <input type="text" id="profile-username" class="field-input" maxlength="32" placeholder="你希望 SimChat 怎么称呼你" autocomplete="off">
+            </label>
+            <label class="field">
+              <span class="field-label">生日</span>
+              <input type="date" id="profile-birthday" class="field-input">
+            </label>
+            <label class="field full">
+              <span class="field-label">紧急联系人</span>
+              <input type="text" id="profile-emergency" class="field-input" placeholder="姓名 / 电话" autocomplete="off">
+            </label>
+          </div>
+
+          <div class="settings-actions">
+            <span class="profile-meta" id="profile-meta"></span>
+            <span class="comm-form-msg" id="profile-msg"></span>
+            <button type="button" class="primary-button" id="profile-save">保存</button>
+          </div>
+        </div>
+      </section>
+
       <section class="setting-section" data-section="overview">
         <h3 data-block="console.section.overview">概览</h3>
         <p class="section-desc">SimChat 网关的整体健康状况与入口点。</p>
@@ -618,10 +666,41 @@
           </div>
         </div>
       </section>
-    </main>
+    </div>
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261030a"></script>
+<!-- ======= 工作目录选择器 ======= -->
+<div class="workspace-modal" id="workspace-modal" aria-hidden="true">
+  <div class="workspace-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-modal-title">
+    <header class="workspace-dialog-header">
+      <h2 id="workspace-modal-title">选择工作目录</h2>
+      <button class="workspace-close" id="workspace-close" type="button" aria-label="关闭">×</button>
+    </header>
+
+    <div class="workspace-toolbar">
+      <button class="workspace-up" id="workspace-up" type="button" title="返回上一级">↑ 上一级</button>
+      <span class="workspace-current-path" id="workspace-current-path">未选择</span>
+    </div>
+
+    <div class="workspace-manual-row">
+      <input type="text" id="workspace-manual-path" class="workspace-manual-input" placeholder="或直接输入绝对路径，例如 E:\projects" autocomplete="off" spellcheck="false">
+      <button class="ghost-button" id="workspace-manual-open" type="button">打开</button>
+    </div>
+
+    <div class="workspace-roots" id="workspace-roots"></div>
+    <div class="workspace-list" id="workspace-list"></div>
+    <div class="workspace-message" id="workspace-message" aria-live="polite"></div>
+
+    <footer class="workspace-dialog-footer">
+      <button class="ghost-button" id="workspace-clear" type="button">清除工作目录</button>
+      <span class="workspace-footer-spacer"></span>
+      <button class="ghost-button" id="workspace-cancel" type="button">取消</button>
+      <button class="primary-button" id="workspace-confirm" type="button" disabled>使用此目录</button>
+    </footer>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261031b"></script>
 </body>
 </html>

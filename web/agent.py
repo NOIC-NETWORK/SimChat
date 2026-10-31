@@ -18,6 +18,7 @@
 import json
 import queue
 import threading
+import uuid
 
 from flask import (
     Blueprint,
@@ -40,6 +41,25 @@ from simchat.runtime.agent import (
     save_pending_state,
     ToolError,
 )
+
+
+AGENT_SESSION_PREFIX = "agent_"
+
+
+def _resolve_session_id(raw_sid, mode, run_id):
+    """按模式分配会话标识符：Agent 会话固定 agent_ 前缀，对话会话用普通 id。
+
+    客户端若把另一种模式的会话 id 传进来（例如在 Agent 模式里沿用对话会话），
+    这里会改派一个新 id，保证两种模式的上下文互不污染。
+    """
+    raw = (raw_sid or "").strip()
+    if mode == "agent":
+        if raw.startswith(AGENT_SESSION_PREFIX):
+            return raw
+        return AGENT_SESSION_PREFIX + run_id[:12]
+    if raw and not raw.startswith(AGENT_SESSION_PREFIX):
+        return raw
+    return uuid.uuid4().hex[:12]
 
 
 def _get_core():
@@ -151,6 +171,17 @@ def create_agent_blueprint(name="agent"):
                 "error": "尚未配置可用的服务商，请先完成服务商配置。",
                 "code": "provider_unavailable",
             }), 409
+        workspace = core.workspace_status()
+        if not workspace["configured"]:
+            return jsonify({
+                "error": "尚未选择工作目录，无法运行 Agent。",
+                "code": "workspace_required",
+            }), 409
+        if not workspace["exists"]:
+            return jsonify({
+                "error": "工作目录不存在或不可访问：%s" % workspace["path"],
+                "code": "workspace_missing",
+            }), 409
 
         # 模式："chat"（懒调用）| "agent"（完整 ReAct + 审批流）
         mode = (data.get("mode") or "agent").strip().lower()
@@ -164,8 +195,12 @@ def create_agent_blueprint(name="agent"):
             return jsonify({"error": str(e)}), 400
 
         run_id = agent_runs.create()
+        session_id = _resolve_session_id(data.get("session_id"), mode, run_id)
         history = data.get("history") or []
-        session_id = (data.get("session_id") or "").strip() or ("agent_" + run_id[:12])
+        if not history and session_id.startswith(AGENT_SESSION_PREFIX):
+            # 会话已落盘时自动续接上下文，保证 Agent 多轮对话可继续追问
+            stored = core.get_session(session_id) or {}
+            history = stored.get("messages") or []
         system_prompt = _system_prompt(core, data)
         backend = _make_backend(core, data)
         max_turns = options["max_turns"]
@@ -266,12 +301,12 @@ def create_agent_blueprint(name="agent"):
 
     @bp.get("/tasks")
     def agent_tasks():
-        """列出 agent_ 前缀的任务会话（按更新时间倒序）。"""
+        """列出 Agent 会话（agent_ 前缀 / mode=agent，按更新时间倒序）。"""
         core = _get_core()
         tasks = []
         for item in core.list_sessions():
             sid = item.get("id") or ""
-            if not sid.startswith("agent_"):
+            if not sid.startswith(AGENT_SESSION_PREFIX) and item.get("mode") != "agent":
                 continue
             session = core.get_session(sid) or {}
             messages = session.get("messages") or []
@@ -283,6 +318,7 @@ def create_agent_blueprint(name="agent"):
                 "session_id": sid,
                 "message": (first_user or "")[:80],
                 "message_count": len(messages),
+                "mode": session.get("mode") or "agent",
                 "title": session.get("title") or "",
                 "mtime": int(session.get("updated_at") or 0),
             })
@@ -291,8 +327,8 @@ def create_agent_blueprint(name="agent"):
 
     @bp.delete("/tasks/<path:sid>")
     def agent_task_delete(sid):
-        """删除任务会话；仅允许 agent_ 前缀（防误删 Chat 会话）。"""
-        if not sid.startswith("agent_"):
+        """删除任务会话；仅允许 Agent 会话（agent_ 前缀，防误删对话会话）。"""
+        if not sid.startswith(AGENT_SESSION_PREFIX):
             return jsonify({"error": "非法 session_id（仅允许 agent_ 前缀）"}), 400
         core = _get_core()
         if not core.delete_session(sid):

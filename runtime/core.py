@@ -8,7 +8,12 @@
 import json
 import os
 
-from . import provider_config, settings as settings_mod, profile as profile_mod
+from . import (
+    provider_config,
+    settings as settings_mod,
+    profile as profile_mod,
+    workspace as workspace_mod,
+)
 from .providers import OllamaProvider, OpenAICompatProvider, ProviderError
 from .store import SessionStore
 
@@ -157,6 +162,25 @@ class SimChatCore:
     def reset_settings(self, scope="settings"):
         return settings_mod.reset(self.data_root, scope=scope)
 
+    # ---------------- 工作目录（workspace） ----------------
+
+    def workspace_status(self):
+        return workspace_mod.load(self.data_root)
+
+    def save_workspace(self, path):
+        return workspace_mod.save(self.data_root, path)
+
+    def clear_workspace(self):
+        return workspace_mod.clear(self.data_root)
+
+    def browse_workspace(self, path=None):
+        return workspace_mod.browse(path)
+
+    def is_workspace_ready(self):
+        """已选择工作目录且目录仍存在，才允许对话 / Agent 运行。"""
+        status = self.workspace_status()
+        return bool(status["configured"] and status["exists"])
+
     # ---------------- Agent 支持 ----------------
 
     def agent_options(self):
@@ -175,6 +199,11 @@ class SimChatCore:
             # 相对路径锚定到 simchat 根（runtime/core.py 上两级）
             base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             workdir = os.path.abspath(os.path.join(base, workdir))
+
+        # 工作目录与 Agent 沙箱耦合：用户在前端选择的 workspace 优先作为工具根目录
+        ws = workspace_mod.load(self.data_root)
+        if ws["configured"] and ws["exists"]:
+            workdir = ws["path"]
 
         return {
             "max_turns": _int(raw.get("max_turns"), 10, 1, 25),
@@ -229,7 +258,10 @@ class SimChatCore:
             }
             return
 
-        sess = self.store.get_or_create(session_id)
+        sess = self.store.get_or_create(session_id, mode="chat")
+        # 会话模式隔离：对话模式不复用 Agent 会话，避免两种上下文互相污染
+        if sess.get("mode") != "chat":
+            sess = self.store.create(mode="chat")
         sid = sess["id"]
         if regenerate:
             self.store.trim_last_assistant(sid)

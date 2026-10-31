@@ -346,6 +346,70 @@
   font-size: 13px;
 }
 
+/* ---------------- 个人中心 ---------------- */
+
+.profile-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--sidebar-bg);
+}
+
+.profile-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.profile-avatar-big {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 26px;
+  font-weight: 600;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.profile-avatar-big img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.profile-avatar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-upload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profile-avatar-hint {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+.profile-meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
 /* ---------------- 未接入态 ---------------- */
 
 .state-card {

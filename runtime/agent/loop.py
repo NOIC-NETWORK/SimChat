@@ -256,7 +256,7 @@ class AgentLoop:
         try:
             sid = (self.run_ctx or {}).get('session_id')
             if sid:
-                self.backend.save_memory(sid, task, final_answer)
+                self.backend.save_memory(sid, task, final_answer, mode=self.mode)
         except Exception as e:
             print(f"[Agent] 写入记忆失败（不影响任务返回）: {e}")
 
