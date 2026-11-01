@@ -101,6 +101,15 @@ python -m web   # 打开浏览器，接入你的第一个模型
 
 ## 最近更新
 
+**2026-11-01** — 群机器人：OneBot v11 与 QQ 官方 API 双接入（真实收发）
+
+- 设置控制台新增「群机器人」分组，两种接入方式**按钮分开**：`Python 库（OneBot v11）` 与 `QQ 官方 API`，各自有独立的启动 / 停止 / 测试连接 / 测试发送与运行面板（连接方式、收发计数、最近错误、Webhook 回调地址一键复制、最近活跃群点选）。
+- **OneBot v11**：正向 WebSocket（断线指数退避重连）或 HTTP 反向 Webhook 收消息；`get_login_info` 做连通性自检，`send_group_msg` 发送；支持群白名单、必须 @、前缀触发。
+- **QQ 官方 API**：`getAppAccessToken` + Gateway WebSocket（Hello / Identify / 心跳 / 重连）或 Webhook（Ed25519 验签 + op13 回调校验）；群消息走 `/v2/groups/{openid}/messages`，单聊（C2C）走 `/v2/users/{openid}/messages`，被动回复携带 `msg_id` / `msg_seq`。
+- 群消息进入 `SimChatCore.chat_stream()` 生成回复，以 `im-<mode>-<会话>` 隔离上下文：按消息 ID 去重、每会话串行、两个 QQ 通道互斥；外部文本按不可信输入处理（截断 + 安全约束）。
+- 每个通道可独立指定「模型服务商 / 模型」，自动回复、白名单、触发规则、系统提示词均**实时读取**，保存即生效；AccessToken / AppSecret 等敏感字段 Fernet 加密，前端只回显掩码。
+- 文件：`runtime/im_bots.py`、`runtime/comms.py`、`web/__init__.py`、`web/static/js/chat.js`、`web/static/css/settings.css`、`web/templates/index.html`、`scripts/requirements-simchat.txt`（新增 `websocket-client>=1.6.0`）
+
 **2026-10-31** — 工作目录门禁 + 个人中心 + Agent 会话落盘修复
 
 - **工作目录（workspace）成为对话与 Agent 的统一根目录**：未选择目录时 composer 只读锁定、发送被拦截并提示；顶栏 chip、欢迎页、侧栏均可重新配置；新增目录浏览选择器（逐级浏览 + 直接输入绝对路径），配置写入 `data/config.json`，Agent 沙箱的 `workdir` 随之切换。
@@ -150,7 +159,10 @@ simchat/
 ├── runtime/                   # 本体独立对话运行时（Phase 2 最小承压切片）
 │   ├── core.py                   # SimChatCore.chat_stream 编排（92 行）
 │   ├── providers.py              # Ollama 流式 + OpenAI 兼容 SSE（96 行）
-│   └── store.py                  # sessions 落盘 + 滑动窗口记忆（94 行）
+│   ├── store.py                  # sessions 落盘 + 滑动窗口记忆（94 行）
+│   ├── comms.py                  # 通讯通道注册表（Fernet 加密敏感字段）
+│   ├── crypto.py                 # Fernet 加解密
+│   └── im_bots.py                # 群机器人运行时（OneBot v11 / QQ 官方 API）
 ├── sdk/python/simchat_mod/    # MOD SDK（ABI：lmbrew-mod/1）
 │   ├── __init__.py               # ModApi + ModeSpec + ToolSpec + @hook + register_tool()（177 行）
 │   └── skill_base.py             # skill MOD 基类 BaseSkill（47 行）
@@ -207,6 +219,22 @@ SimChat 把"平台"拆成三层，每一层只做一件事：
 | `noic.skill-screenshot-recognition` | skill | `agent.tool` | Phase 2.4 |
 | `noic.skill-areyoutrouble` | skill | `agent.tool` | Phase 2.4 |
 | `noic.skill-realitycheck` | skill | `agent.tool` | Phase 2.4 |
+
+## 群机器人（IM 接入）
+
+把群聊接进本体对话：外部消息 → `SimChatCore.chat_stream()` → 回复。入口在 **设置控制台 → 通讯 → 群机器人**，两种接入方式按钮分开。
+
+| 接入方式 | 适合 | 收消息 | 发消息 | 连通性自检 |
+|---|---|---|---|---|
+| Python 库（OneBot v11） | NapCat / Lagrange / go-cqhttp / nonebot2 | 正向 WebSocket 或 HTTP 反向 Webhook | `send_group_msg` | `get_login_info` |
+| QQ 官方 API | QQ 开放平台机器人 | Gateway WebSocket 或 Webhook（Ed25519 验签） | `/v2/groups/{openid}/messages`、`/v2/users/{openid}/messages` | `/users/@me` |
+
+使用：填参数 → 保存 → 启动。Webhook 模式面板会显示可复制的回调地址 `/api/console/comms/<channel>/webhook`。
+
+- 两个 QQ 通道互斥，同一时间只运行一个；按消息 ID 去重、每会话串行，上下文以 `im-<mode>-<会话>` 隔离。
+- 每个通道可独立指定模型服务商 / 模型名，以及群聊系统提示词；自动回复、白名单、触发规则实时读取，保存即生效。
+- QQ 官方 API 默认只能被动回复：先让机器人在群里被 @ 一次，面板「最近活跃群」出现后即可测试发送。
+- 敏感字段（AccessToken / AppSecret）Fernet 加密，前端只回显 `********`，留空表示保持不变。
 
 ## ABI
 

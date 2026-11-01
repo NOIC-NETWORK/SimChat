@@ -2,3 +2,5 @@
 flask>=3.0.0
 cryptography>=41.0.0
 requests>=2.31.0
+# 群机器人 WebSocket 模式（OneBot 正向 WS / QQ 官方 Gateway）
+websocket-client>=1.6.0

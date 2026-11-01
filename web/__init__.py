@@ -46,6 +46,33 @@ def _get_core(app):
     return core
 
 
+def _get_bot_manager(app):
+    """群机器人运行时管理器（进程级单例）。"""
+    manager = app.extensions.get("simchat_bots")
+    if manager is None:
+        from simchat.runtime import im_bots
+
+        manager = im_bots.BotManager(_get_core(app))
+        app.extensions["simchat_bots"] = manager
+    return manager
+
+
+def _comms_payload(app, core):
+    """通讯通道视图 + 群机器人运行状态。"""
+    from simchat.runtime import comms as comms_mod
+
+    data = comms_mod.list_channels(core.data_root)
+    try:
+        summary = _get_bot_manager(app).summary()
+    except Exception:
+        summary = {}
+    for channel in data["channels"]:
+        channel["runtime"] = summary.get(channel["id"])
+        if channel.get("runtime_supported"):
+            channel["webhook_path"] = "/api/console/comms/%s/webhook" % channel["id"]
+    return data
+
+
 def create_app(core=None):
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.jinja_env.auto_reload = True  # 改了模板立即生效，避免旧进程缓存旧 HTML
@@ -312,13 +339,20 @@ def create_app(core=None):
 
     @app.get("/api/console/comms")
     def list_comms():
-        from simchat.runtime import comms as comms_mod
         core = _get_core(app)
         return jsonify({
             "available": True,
             "generated_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
             "reason": "",
-            "data": comms_mod.list_channels(core.data_root),
+            "data": _comms_payload(app, core),
+        })
+
+    @app.get("/api/console/comms/runtime")
+    def comms_runtime():
+        return jsonify({
+            "available": True,
+            "generated_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+            "data": _get_bot_manager(app).summary(),
         })
 
     @app.post("/api/console/comms/<channel_id>")
@@ -327,30 +361,111 @@ def create_app(core=None):
         data = request.get_json(silent=True) or {}
         core = _get_core(app)
         try:
-            result = comms_mod.save_channel(core.data_root, channel_id, data)
+            comms_mod.save_channel(core.data_root, channel_id, data)
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
-        return jsonify({"ok": True, "data": result})
+        return jsonify({"ok": True, "data": _comms_payload(app, core)})
 
     @app.post("/api/console/comms/<channel_id>/activate")
     def activate_comm_channel(channel_id):
         from simchat.runtime import comms as comms_mod
         core = _get_core(app)
         try:
-            result = comms_mod.set_active(core.data_root, channel_id)
+            comms_mod.set_active(core.data_root, channel_id)
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
-        return jsonify({"ok": True, "data": result})
+        return jsonify({"ok": True, "data": _comms_payload(app, core)})
 
     @app.post("/api/console/comms/<channel_id>/clear")
     def clear_comm_channel(channel_id):
         from simchat.runtime import comms as comms_mod
         core = _get_core(app)
         try:
-            result = comms_mod.clear_channel(core.data_root, channel_id)
+            if channel_id in ("qq_group_onebot", "qq_group_official"):
+                _get_bot_manager(app).stop(channel_id)
+            comms_mod.clear_channel(core.data_root, channel_id)
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
-        return jsonify({"ok": True, "data": result})
+        return jsonify({"ok": True, "data": _comms_payload(app, core)})
+
+    # ---------------- 群机器人运行时 ----------------
+
+    @app.post("/api/console/comms/<channel_id>/start")
+    def start_comm_bot(channel_id):
+        from simchat.runtime.im_bots import ImBotError
+        try:
+            runtime = _get_bot_manager(app).start(channel_id)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        except ImBotError as error:
+            return jsonify({"error": str(error)}), error.status
+        core = _get_core(app)
+        return jsonify({"ok": True, "runtime": runtime, "data": _comms_payload(app, core)})
+
+    @app.post("/api/console/comms/<channel_id>/stop")
+    def stop_comm_bot(channel_id):
+        try:
+            runtime = _get_bot_manager(app).stop(channel_id)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        core = _get_core(app)
+        return jsonify({"ok": True, "runtime": runtime, "data": _comms_payload(app, core)})
+
+    @app.post("/api/console/comms/<channel_id>/test-connection")
+    def test_comm_bot_connection(channel_id):
+        from simchat.runtime.im_bots import ImBotError
+        try:
+            detail, runtime = _get_bot_manager(app).test_connection(channel_id)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        except ImBotError as error:
+            return jsonify({"error": str(error)}), error.status
+        return jsonify({"ok": True, "detail": detail, "runtime": runtime})
+
+    @app.post("/api/console/comms/<channel_id>/test")
+    def test_comm_bot_send(channel_id):
+        from simchat.runtime.im_bots import ImBotError
+        payload = request.get_json(silent=True) or {}
+        try:
+            result, runtime = _get_bot_manager(app).test_send(
+                channel_id,
+                payload.get("group_id") or "",
+                payload.get("message") or "",
+                payload.get("msg_id") or None,
+            )
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        except ImBotError as error:
+            return jsonify({"error": str(error)}), error.status
+        return jsonify({"ok": True, "detail": result, "runtime": runtime})
+
+    @app.post("/api/console/comms/qq_group_onebot/webhook")
+    def onebot_webhook():
+        """OneBot v11 反向 HTTP 事件入口；?token= 或 Authorization 头校验。"""
+        from simchat.runtime.im_bots import ImBotError
+        token = request.args.get("token") or ""
+        auth = request.headers.get("Authorization") or ""
+        if not token and auth:
+            token = auth[7:].strip() if auth.lower().startswith("bearer ") else auth.strip()
+        payload = request.get_json(silent=True) or {}
+        try:
+            result = _get_bot_manager(app).handle_onebot_event(payload, token)
+        except ImBotError as error:
+            return jsonify({"ok": False, "error": str(error)}), error.status
+        return jsonify(result)
+
+    @app.post("/api/console/comms/qq_group_official/webhook")
+    def official_webhook():
+        """QQ 官方机器人 Webhook 回调入口（Ed25519 验签 + op 13 地址验证）。"""
+        from simchat.runtime.im_bots import ImBotError
+        raw_body = request.get_data()
+        try:
+            body, status = _get_bot_manager(app).handle_official_webhook(
+                request.headers, raw_body
+            )
+        except ImBotError as error:
+            return jsonify({"error": str(error)}), error.status
+        return jsonify(body), status
 
     # ---------------- 会话 CRUD ----------------
 

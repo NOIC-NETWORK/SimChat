@@ -6,7 +6,7 @@
 <title>SimChat | Everything, Harnessed.</title>
 <link rel="icon" type="image/png" href="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261031b">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261031b">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261101b">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 </head>
@@ -462,7 +462,7 @@
 
       <section class="setting-section" data-section="comms" hidden>
         <h3 data-block="console.section.comms">通讯</h3>
-        <p class="section-desc">即时通讯与邮件通道的接入配置。敏感字段在本机加密存储，永不明文回显。</p>
+        <p class="section-desc">即时通讯与邮件通道的接入配置。「群机器人」提供两种独立接入方式：Python 库（OneBot v11）与 QQ 官方 API，各自拥有独立的启动按钮与运行时状态。敏感字段在本机加密存储，永不明文回显。</p>
 
         <!-- 通道选择（tab 串列，按钮由 JS 动态填充） -->
         <div class="comm-channel-tabs" id="comm-channel-tabs"></div>
@@ -701,6 +701,6 @@
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261031b"></script>
+<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261101b"></script>
 </body>
 </html>

@@ -179,6 +179,8 @@
     // 通讯通道缓存
     comms: null,              // { active, channels: [...] }
     commsActiveChannel: null,  // 当前选中渲染的 channel id（与后端 .active 无关）
+    commsPollTimer: null,     // 群机器人运行时状态轮询
+    commsRuntimeMsg: null,    // { channelId, text, kind } 运行面板临时提示
 
     // 工作目录（workspace）
     workspace: null,         // { configured, exists, path, name }
@@ -2703,6 +2705,7 @@
     } else if (name === "comms") {
       renderComms();
     }
+    updateCommRuntimePolling();
   }
 
   // ---------------- 概览渲染 ----------------
@@ -2901,6 +2904,53 @@
     }
   }
 
+  function _commRuntimeOf(channel) {
+    return (channel && (channel.runtime || null)) || null;
+  }
+
+  function _commTabIndicatorClass(ch) {
+    const runtime = _commRuntimeOf(ch);
+    if (runtime && runtime.running) return " running";
+    if ((ch.fields || []).some((f) => f.configured)) return " configured";
+    return "";
+  }
+
+  function _commTabIndicatorTitle(ch) {
+    const runtime = _commRuntimeOf(ch);
+    if (runtime && runtime.running) {
+      return runtime.connected ? "运行中且已连接" : "运行中，等待事件";
+    }
+    if ((ch.fields || []).some((f) => f.configured)) return "已配置";
+    return "未配置";
+  }
+
+  function _makeCommTab(ch, currentId) {
+    const isSelected = ch.id === currentId;
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = "comm-channel-tab" + (isSelected ? " is-active" : "");
+    tab.dataset.channelId = ch.id;
+    tab.title = ch.description || ch.label;
+
+    const indicator = document.createElement("span");
+    const indicatorClass = _commTabIndicatorClass(ch);
+    indicator.className = "comm-channel-tab-indicator" + indicatorClass;
+    indicator.title = _commTabIndicatorTitle(ch);
+
+    const label = document.createElement("span");
+    label.className = "comm-channel-tab-label";
+    label.textContent = ch.label;
+
+    tab.appendChild(indicator);
+    tab.appendChild(label);
+    tab.addEventListener("click", () => {
+      state.commsActiveChannel = ch.id;
+      state.commsRuntimeMsg = null;
+      renderComms();
+    });
+    return tab;
+  }
+
   function renderComms() {
     const data = state.comms;
     if (!data || !data.channels || !data.channels.length) return;
@@ -2912,44 +2962,42 @@
     }
     state.commsActiveChannel = currentId;
 
-    // 渲染 tab 按钮串列
+    // 按 group 分组渲染（群机器人是一个分组，两种接入方式是组内两个独立按钮）
     if (el.commChannelTabs) {
       el.commChannelTabs.innerHTML = "";
+      const groups = [];
+      const byKey = {};
       for (const ch of data.channels) {
-        const anyConfigured = (ch.fields || []).some((f) => f.configured);
-        const isBackendActive = data.active === ch.id;
-        const isSelected = ch.id === currentId;
-
-        const tab = document.createElement("button");
-        tab.type = "button";
-        tab.className = "comm-channel-tab" + (isSelected ? " is-active" : "");
-        tab.dataset.channelId = ch.id;
-        tab.title = ch.description || ch.label;
-
-        const indicator = document.createElement("span");
-        indicator.className = "comm-channel-tab-indicator" +
-          (isBackendActive ? " active" : (anyConfigured ? " configured" : ""));
-        indicator.title = isBackendActive ? "后端启用中" : (anyConfigured ? "已配置" : "未配置");
-
-        const label = document.createElement("span");
-        label.className = "comm-channel-tab-label";
-        label.textContent = ch.label;
-
-        tab.appendChild(indicator);
-        tab.appendChild(label);
-        tab.addEventListener("click", () => {
-          state.commsActiveChannel = ch.id;
-          renderComms();
-        });
-        el.commChannelTabs.appendChild(tab);
+        const key = ch.group || "__single__";
+        if (!byKey[key]) {
+          byKey[key] = { label: ch.group_label || "", channels: [] };
+          groups.push(byKey[key]);
+        }
+        byKey[key].channels.push(ch);
+      }
+      for (const group of groups) {
+        const groupEl = document.createElement("div");
+        groupEl.className = "comm-channel-group";
+        if (group.label) {
+          const head = document.createElement("div");
+          head.className = "comm-channel-group-head";
+          head.textContent = group.label;
+          groupEl.appendChild(head);
+        }
+        const row = document.createElement("div");
+        row.className = "comm-channel-group-tabs";
+        for (const ch of group.channels) {
+          row.appendChild(_makeCommTab(ch, currentId));
+        }
+        groupEl.appendChild(row);
+        el.commChannelTabs.appendChild(groupEl);
       }
     }
 
     // 渲染当前选中通道的表单
-    const activeId = data.active;
     const channel = data.channels.find((c) => c.id === currentId) || data.channels[0];
     if (!channel) return;
-    renderCommForm(channel, currentId === activeId);
+    renderCommForm(channel, currentId === data.active);
   }
 
   function renderCommForm(channel, isActive) {
@@ -2958,6 +3006,11 @@
     // 顶部描述
     let html = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">' +
       escapeHtml(channel.description || "") + '</div>';
+
+    // 群机器人运行面板（启动 / 停止 / 测试 / Webhook 地址）
+    if (channel.runtime_supported) {
+      html += renderCommRuntimeHtml(channel);
+    }
 
     // 加密提示条（仅当有敏感字段时显示）
     const hasSensitive = (channel.fields || []).some((f) => f.sensitive);
@@ -2970,19 +3023,33 @@
     html += '<div class="comm-form-grid">';
     for (const field of (channel.fields || [])) {
       const isBool = typeof field.default === "boolean";
+      const isSelect = field.type === "select";
+      const isTextarea = field.type === "textarea";
       const cls = "comm-field" + (field.sensitive ? " sensitive" : "") + (isBool ? "" : " full");
 
       html += '<label class="' + cls + '" data-key="' + escapeHtml(field.key) + '">';
       html += '<span class="comm-field-label">' + escapeHtml(field.label) + '</span>';
 
       if (isBool) {
-        // 布尔用 switch
-        const checked = field.value === true || field.value === "true";
-        html += '<div class="field-switch" style="margin-top:2px" data-key="' + escapeHtml(field.key) + '">';
-        html += '<div class="switch-track' + (checked ? " on" : "") + '">';
+        // 未保存过时按默认值显示，避免默认开启的开关显示成关闭
+        const rawValue = String(field.value ?? "").trim().toLowerCase();
+        const checked = field.value === true || rawValue === "true" || rawValue === "1" ||
+          (rawValue === "" && field.default === true);
+        html += '<div class="field-switch" style="margin-top:2px">';
+        html += '<div class="switch-track' + (checked ? " on" : "") + '" data-key="' + escapeHtml(field.key) + '">';
         html += '<div class="switch-thumb"></div></div>';
         html += '<span class="switch-label">' + (checked ? "启用" : "关闭") + '</span>';
         html += '</div>';
+      } else if (isSelect) {
+        const current = String(field.value || field.default || "");
+        html += '<select class="comm-field-input" data-key="' + escapeHtml(field.key) + '">';
+        for (const choice of (field.choices || [])) {
+          const value = String(choice[0]);
+          const selected = value === current ? " selected" : "";
+          html += '<option value="' + escapeHtml(value) + '"' + selected + '>' +
+            escapeHtml(String(choice[1] || value)) + '</option>';
+        }
+        html += '</select>';
       } else if (field.sensitive) {
         // 敏感字段：type=password，值为 "********" 或 ""
         html += '<input type="password" class="comm-field-input" data-key="' + escapeHtml(field.key) + '"' +
@@ -2993,6 +3060,10 @@
         } else if (field.placeholder) {
           html += '<span class="comm-field-hint">' + escapeHtml(field.placeholder) + '</span>';
         }
+      } else if (isTextarea) {
+        html += '<textarea class="comm-field-input" rows="3" data-key="' + escapeHtml(field.key) + '"' +
+          ' placeholder="' + escapeHtml(field.placeholder || "") + '">' +
+          escapeHtml(String(field.value || "")) + '</textarea>';
       } else {
         html += '<input type="text" class="comm-field-input" data-key="' + escapeHtml(field.key) + '"' +
           ' placeholder="' + escapeHtml(field.placeholder || "") + '"' +
@@ -3005,7 +3076,350 @@
     el.commForm.innerHTML = html;
     if (el.commFormActions) el.commFormActions.style.display = "";
 
+    // 布尔开关：点击切换并在保存时随表单一起提交
+    el.commForm.querySelectorAll(".field-switch").forEach((row) => {
+      row.addEventListener("click", () => {
+        const track = row.querySelector(".switch-track");
+        if (!track) return;
+        track.classList.toggle("on");
+        const label = row.querySelector(".switch-label");
+        if (label) label.textContent = track.classList.contains("on") ? "启用" : "关闭";
+      });
+    });
+
+    if (channel.runtime_supported) bindCommRuntime(channel);
     _setCommMsg("");
+  }
+
+  // ---------------- 群机器人运行面板 ----------------
+
+  function _commRuntimeStatus(channel) {
+    const runtime = _commRuntimeOf(channel) || {};
+    const transport = runtime.transport || "";
+    if (!runtime.running) return { text: "未运行", cls: "idle" };
+    if (runtime.connected) return { text: "运行中 · 已连接", cls: "on" };
+    if (transport === "http" || transport === "webhook") {
+      return { text: "运行中 · 等待回调", cls: "warn" };
+    }
+    return { text: "运行中 · 连接中", cls: "warn" };
+  }
+
+  function _commTransportLabel(channel, transport) {
+    for (const field of (channel.fields || [])) {
+      if (field.key !== "transport") continue;
+      for (const choice of (field.choices || [])) {
+        if (String(choice[0]) === transport) return String(choice[1] || transport);
+      }
+    }
+    return transport || "—";
+  }
+
+  function _commWebhookUrl(channel) {
+    if (!channel.webhook_path) return "";
+    return location.origin + channel.webhook_path;
+  }
+
+  function renderCommRuntimeHtml(channel) {
+    const runtime = _commRuntimeOf(channel) || {};
+    const status = _commRuntimeStatus(channel);
+    const counts = "收 " + (runtime.messages_in || 0) + " / 发 " + (runtime.replies_out || 0);
+    const transport = runtime.transport || _commTransportValue(channel);
+    const isOneBot = channel.id === "qq_group_onebot";
+    const webhookVisible = isOneBot ? transport === "http" : transport === "webhook";
+    const groupPlaceholder = isOneBot ? "群号，例如 123456789" : "群 OpenID（group_openid）";
+    const msg = state.commsRuntimeMsg && state.commsRuntimeMsg.channelId === channel.id
+      ? state.commsRuntimeMsg : null;
+
+    let html = '<div class="comm-runtime" data-runtime-channel="' + escapeHtml(channel.id) + '">';
+    html += '<div class="comm-runtime-head">';
+    html += '<span class="comm-runtime-dot ' + status.cls + '" data-role="dot"></span>';
+    html += '<strong class="comm-runtime-title">群机器人运行时</strong>';
+    html += '<span class="comm-runtime-state" data-role="state">' + escapeHtml(status.text) + '</span>';
+    html += '<span class="comm-runtime-counters" data-role="counters">' + counts + '</span>';
+    html += '</div>';
+    html += '<div class="comm-runtime-meta" data-role="meta">' + escapeHtml(_commRuntimeMeta(channel, runtime)) + '</div>';
+    html += '<div class="comm-runtime-error" data-role="error"' +
+      (runtime.last_error ? "" : ' style="display:none"') + '>' +
+      escapeHtml(runtime.last_error || "") + '</div>';
+    html += '<div class="comm-runtime-actions">';
+    html += '<button type="button" class="primary-button" data-role="start"' +
+      (runtime.running ? " disabled" : "") + '>启动</button>';
+    html += '<button type="button" class="ghost-button" data-role="stop"' +
+      (runtime.running ? "" : " disabled") + '>停止</button>';
+    html += '<button type="button" class="ghost-button" data-role="testconn">测试连接</button>';
+    html += '</div>';
+    html += '<div class="comm-runtime-groups" data-role="groups"></div>';
+    html += '<div class="comm-runtime-webhook" data-role="webhook"' +
+      (webhookVisible ? "" : ' style="display:none"') + '>';
+    html += '<span class="comm-runtime-webhook-label">回调地址</span>';
+    html += '<code data-role="webhook-url">' + escapeHtml(_commWebhookUrl(channel)) + '</code>';
+    html += '<button type="button" class="ghost-button" data-role="copy-webhook">复制</button>';
+    html += '</div>';
+    html += '<div class="comm-test-send">';
+    html += '<input type="text" class="comm-field-input" data-role="test-group" placeholder="' +
+      escapeHtml(groupPlaceholder) + '">';
+    html += '<input type="text" class="comm-field-input" data-role="test-msg" placeholder="测试消息内容">';
+    html += '<button type="button" class="ghost-button" data-role="testsend">发送测试</button>';
+    html += '</div>';
+    if (!isOneBot) {
+      html += '<div class="comm-runtime-tip">官方 API 默认只能被动回复：先在群里 @ 机器人一次，' +
+        '再点「发送测试」，会自动使用该群最近一条消息的 ID。</div>';
+    }
+    html += '<div class="comm-runtime-msg" data-role="msg"></div>';
+    html += '</div>';
+    return html;
+  }
+
+  function _commRuntimeMeta(channel, runtime) {
+    const transport = runtime.transport || _commTransportValue(channel);
+    const parts = [];
+    parts.push("连接方式：" + _commTransportLabel(channel, transport));
+    if (runtime.started_at) parts.push("启动于 " + runtime.started_at);
+    if (runtime.last_message_at) parts.push("最近收消息 " + runtime.last_message_at);
+    if (runtime.last_reply_at) parts.push("最近回复 " + runtime.last_reply_at);
+    const groupCount = (runtime.groups || []).length;
+    if (groupCount) parts.push("已发现 " + groupCount + " 个群");
+    return parts.join(" · ");
+  }
+
+  function _renderCommGroups(panel, channel, runtime) {
+    const node = panel.querySelector('[data-role="groups"]');
+    if (!node) return;
+    const groups = runtime.groups || [];
+    if (!groups.length) {
+      node.innerHTML = '<span class="comm-runtime-groups-empty">还没有发现群：' +
+        '把机器人拉进群，或在群里 @ 它一次，这里会出现可点选的群标识。</span>';
+      return;
+    }
+    node.innerHTML = '<span class="comm-runtime-groups-label">最近活跃群（点击填入）</span>';
+    for (const group of groups) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "comm-runtime-group-chip";
+      chip.dataset.group = group.id;
+      chip.textContent = group.id;
+      chip.title = "点击填入测试发送的群标识";
+      node.appendChild(chip);
+    }
+  }
+
+  function _commTransportValue(channel) {
+    const field = (channel.fields || []).find((f) => f.key === "transport");
+    if (!field) return "";
+    return String(field.value || field.default || "");
+  }
+
+  function _setRuntimeMsg(channelId, text, kind) {
+    state.commsRuntimeMsg = text ? { channelId, text, kind: kind || "" } : null;
+    const panel = el.commForm?.querySelector('[data-runtime-channel="' + channelId + '"]');
+    if (!panel) return;
+    const node = panel.querySelector('[data-role="msg"]');
+    if (!node) return;
+    node.textContent = text || "";
+    node.classList.remove("ok", "error");
+    if (kind) node.classList.add(kind);
+  }
+
+  function applyCommRuntime(channel) {
+    const panel = el.commForm?.querySelector('[data-runtime-channel="' + channel.id + '"]');
+    if (!panel) return;
+    const runtime = _commRuntimeOf(channel) || {};
+    const status = _commRuntimeStatus(channel);
+    const dot = panel.querySelector('[data-role="dot"]');
+    if (dot) dot.className = "comm-runtime-dot " + status.cls;
+    const stateNode = panel.querySelector('[data-role="state"]');
+    if (stateNode) stateNode.textContent = status.text;
+    const counters = panel.querySelector('[data-role="counters"]');
+    if (counters) counters.textContent =
+      "收 " + (runtime.messages_in || 0) + " / 发 " + (runtime.replies_out || 0);
+    const meta = panel.querySelector('[data-role="meta"]');
+    if (meta) meta.textContent = _commRuntimeMeta(channel, runtime);
+    const error = panel.querySelector('[data-role="error"]');
+    if (error) {
+      error.textContent = runtime.last_error || "";
+      error.style.display = runtime.last_error ? "" : "none";
+    }
+    const startBtn = panel.querySelector('[data-role="start"]');
+    if (startBtn) startBtn.disabled = !!runtime.running;
+    const stopBtn = panel.querySelector('[data-role="stop"]');
+    if (stopBtn) stopBtn.disabled = !runtime.running;
+    _renderCommGroups(panel, channel, runtime);
+    _updateCommWebhookVisibility(channel);
+  }
+
+  function _updateCommWebhookVisibility(channel) {
+    const panel = el.commForm?.querySelector('[data-runtime-channel="' + channel.id + '"]');
+    if (!panel) return;
+    const select = el.commForm?.querySelector('[data-key="transport"]');
+    const transport = select ? String(select.value || "") : _commTransportValue(channel);
+    const isOneBot = channel.id === "qq_group_onebot";
+    const row = panel.querySelector('[data-role="webhook"]');
+    if (!row) return;
+    const visible = isOneBot ? transport === "http" : transport === "webhook";
+    row.style.display = visible ? "" : "none";
+    const urlNode = row.querySelector('[data-role="webhook-url"]');
+    if (urlNode) urlNode.textContent = _commWebhookUrl(channel);
+  }
+
+  function _commChannelNow(channelId) {
+    return (state.comms?.channels || []).find((c) => c.id === channelId) || null;
+  }
+
+  function bindCommRuntime(channel) {
+    const panel = el.commForm?.querySelector('[data-runtime-channel="' + channel.id + '"]');
+    if (!panel) return;
+    _renderCommGroups(panel, channel, _commRuntimeOf(channel) || {});
+    _updateCommWebhookVisibility(channel);
+
+    // 群标识 chip 用事件委托，轮询刷新后依然有效
+    panel.querySelector('[data-role="groups"]')?.addEventListener("click", (event) => {
+      const chip = event.target.closest("[data-group]");
+      if (!chip) return;
+      const target = panel.querySelector('[data-role="test-group"]');
+      if (target) target.value = chip.dataset.group;
+      _setRuntimeMsg(channel.id, "已填入群标识，点「发送测试」即可");
+    });
+
+    const select = el.commForm?.querySelector('[data-key="transport"]');
+    if (select) {
+      select.addEventListener("change", () => _updateCommWebhookVisibility(channel));
+    }
+
+    const startBtn = panel.querySelector('[data-role="start"]');
+    startBtn?.addEventListener("click", () => startCommBot(channel.id));
+    const stopBtn = panel.querySelector('[data-role="stop"]');
+    stopBtn?.addEventListener("click", () => stopCommBot(channel.id));
+    const testConn = panel.querySelector('[data-role="testconn"]');
+    testConn?.addEventListener("click", () => testCommConnection(channel.id));
+    const copyBtn = panel.querySelector('[data-role="copy-webhook"]');
+    copyBtn?.addEventListener("click", () => {
+      _copyToClipboard(panel.querySelector('[data-role="webhook-url"]')?.textContent || "");
+      _setRuntimeMsg(channel.id, "回调地址已复制");
+      setTimeout(() => _setRuntimeMsg(channel.id, ""), 1500);
+    });
+    const testSend = panel.querySelector('[data-role="testsend"]');
+    testSend?.addEventListener("click", () => {
+      const group = panel.querySelector('[data-role="test-group"]')?.value || "";
+      const message = panel.querySelector('[data-role="test-msg"]')?.value || "";
+      testCommSend(channel.id, group, message);
+    });
+  }
+
+  async function _saveCommSilent(channelId) {
+    const payload = collectCommForm();
+    const resp = await api("/api/console/comms/" + channelId, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (resp.data) state.comms = resp.data;
+    return resp;
+  }
+
+  async function _refreshCommsFromServer() {
+    const resp = await api("/api/console/comms");
+    state.comms = resp.data || null;
+  }
+
+  async function startCommBot(channelId) {
+    _setRuntimeMsg(channelId, "正在保存配置并启动…");
+    try {
+      await _saveCommSilent(channelId);
+      const resp = await api("/api/console/comms/" + channelId + "/start", { method: "POST" });
+      if (resp.data) state.comms = resp.data;
+      state.commsRuntimeMsg = { channelId, text: "群机器人已启动", kind: "ok" };
+      renderComms();
+    } catch (err) {
+      _setRuntimeMsg(channelId, err.message || "启动失败", "error");
+    }
+  }
+
+  async function stopCommBot(channelId) {
+    _setRuntimeMsg(channelId, "正在停止…");
+    try {
+      const resp = await api("/api/console/comms/" + channelId + "/stop", { method: "POST" });
+      if (resp.data) state.comms = resp.data;
+      state.commsRuntimeMsg = { channelId, text: "群机器人已停止", kind: "ok" };
+      renderComms();
+    } catch (err) {
+      _setRuntimeMsg(channelId, err.message || "停止失败", "error");
+    }
+  }
+
+  async function testCommConnection(channelId) {
+    _setRuntimeMsg(channelId, "正在测试连接…");
+    try {
+      await _saveCommSilent(channelId);
+      const resp = await api("/api/console/comms/" + channelId + "/test-connection", { method: "POST" });
+      const channel = _commChannelNow(channelId);
+      if (channel && resp.runtime) channel.runtime = resp.runtime;
+      if (channel) applyCommRuntime(channel);
+      _setRuntimeMsg(channelId, resp.detail || "连接成功", "ok");
+    } catch (err) {
+      _setRuntimeMsg(channelId, err.message || "连接失败", "error");
+    }
+  }
+
+  async function testCommSend(channelId, group, message) {
+    if (!group.trim()) {
+      _setRuntimeMsg(channelId, "请先填写群号 / 群 OpenID", "error");
+      return;
+    }
+    if (!message.trim()) {
+      _setRuntimeMsg(channelId, "请先填写测试消息", "error");
+      return;
+    }
+    _setRuntimeMsg(channelId, "正在发送测试消息…");
+    try {
+      await _saveCommSilent(channelId);
+      const resp = await api("/api/console/comms/" + channelId + "/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_id: group.trim(), message: message.trim() }),
+      });
+      const channel = _commChannelNow(channelId);
+      if (channel && resp.runtime) channel.runtime = resp.runtime;
+      if (channel) applyCommRuntime(channel);
+      _setRuntimeMsg(channelId, "测试消息已发送", "ok");
+    } catch (err) {
+      _setRuntimeMsg(channelId, err.message || "发送失败", "error");
+    }
+  }
+
+  function updateCommRuntimePolling() {
+    if (state.activeSection === "comms") {
+      if (!state.commsPollTimer) {
+        state.commsPollTimer = setInterval(refreshCommRuntime, 8000);
+      }
+    } else if (state.commsPollTimer) {
+      clearInterval(state.commsPollTimer);
+      state.commsPollTimer = null;
+    }
+  }
+
+  async function refreshCommRuntime() {
+    if (state.activeSection !== "comms" || !state.comms?.channels) return;
+    try {
+      const resp = await api("/api/console/comms/runtime");
+      const runtimeMap = resp.data || {};
+      for (const channel of state.comms.channels) {
+        if (runtimeMap[channel.id]) channel.runtime = runtimeMap[channel.id];
+      }
+      // 更新当前面板 + 所有 tab 指示点
+      const current = _commChannelNow(state.commsActiveChannel);
+      if (current?.runtime_supported) applyCommRuntime(current);
+      if (el.commChannelTabs) {
+        for (const tab of el.commChannelTabs.querySelectorAll(".comm-channel-tab")) {
+          const channel = _commChannelNow(tab.dataset.channelId);
+          const dot = tab.querySelector(".comm-channel-tab-indicator");
+          if (!channel || !dot) continue;
+          dot.className = "comm-channel-tab-indicator" + _commTabIndicatorClass(channel);
+          dot.title = _commTabIndicatorTitle(channel);
+        }
+      }
+    } catch (_) {
+      /* 轮询失败静默 */
+    }
   }
 
   function collectCommForm() {

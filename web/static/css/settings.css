@@ -753,9 +753,35 @@
 
 .comm-channel-tabs {
   display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* 分组：同一组的通道渲染成一组按钮（群机器人 = Python 库 + QQ 官方 API） */
+.comm-channel-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.comm-channel-group-head::before {
+  content: "";
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.comm-channel-group-tabs {
+  display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 16px;
 }
 
 .comm-channel-tab {
@@ -907,6 +933,184 @@
 
 .comm-form-msg.ok { color: #22c55e; }
 .comm-form-msg.error { color: #ef4444; }
+
+/* ---------------- 群机器人运行时面板 ---------------- */
+
+.comm-runtime {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--main-bg);
+}
+
+.comm-runtime-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.comm-runtime-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.comm-runtime-dot.on {
+  background: #22c55e;
+  opacity: 1;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}
+
+.comm-runtime-dot.warn {
+  background: #f59e0b;
+  opacity: 1;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+}
+
+.comm-runtime-title {
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.comm-runtime-state {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.comm-runtime-counters {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.comm-runtime-meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.comm-runtime-error {
+  padding: 6px 10px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+  font-size: 11.5px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.comm-runtime-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.comm-runtime-webhook {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: rgba(217, 96, 138, 0.03);
+}
+
+.comm-runtime-webhook-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.comm-runtime-webhook code {
+  flex: 1 1 180px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.comm-runtime-groups {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  line-height: 1.6;
+}
+
+.comm-runtime-groups-label,
+.comm-runtime-groups-empty {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.comm-runtime-groups-empty {
+  opacity: 0.8;
+}
+
+.comm-runtime-group-chip {
+  max-width: 100%;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--sidebar-bg);
+  color: var(--text);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.comm-runtime-group-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.comm-runtime-tip {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.comm-test-send {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.comm-test-send .comm-field-input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.comm-runtime-msg {
+  min-height: 16px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.comm-runtime-msg.ok { color: #22c55e; }
+.comm-runtime-msg.error { color: #ef4444; }
+
+.comm-runtime-actions .primary-button,
+.comm-runtime-actions .ghost-button,
+.comm-runtime-webhook .ghost-button,
+.comm-test-send .ghost-button {
+  padding: 6px 12px;
+  font-size: 12px;
+}
 
 /* ---------------- 实验功能板块 ---------------- */
 

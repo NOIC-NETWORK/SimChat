@@ -18,7 +18,66 @@ _WRITE_LOCK = threading.Lock()
 # ---- 通道注册表 ----
 # fields: [(key, label, placeholder, default), ...]
 # sensitive_fields: 需要加密的字段名列表，前端拿到的是脱敏值（"********"）
+# group / group_label: 前端把同一组通道渲染成一组按钮（群机器人有两种接入方式）
+# field_types / choices: 非文本控件（textarea / select）
+# runtime_supported: 该通道有真实收发运行时（启动/停止/测试/Webhook）
 CHANNELS = {
+    "qq_group_onebot": {
+        "id": "qq_group_onebot",
+        "label": "Python 库（OneBot v11）",
+        "description": "接入 NapCatQQ / Lagrange / go-cqhttp 等 OneBot v11 实现（nonebot2 / aiocqhttp 生态）。"
+                       "WebSocket 模式由 SimChat 主动连接；HTTP 模式则接收反向 Webhook。",
+        "group": "qq_group",
+        "group_label": "群机器人",
+        "runtime_supported": True,
+        "fields": [
+            ("transport", "连接方式", None, "ws"),
+            ("ws_url", "OneBot WebSocket 地址", "ws://127.0.0.1:3001", "ws://127.0.0.1:3001"),
+            ("http_url", "OneBot HTTP API 地址", "http://127.0.0.1:3000", "http://127.0.0.1:3000"),
+            ("access_token", "Access Token", "OneBot 端配置的 access_token", ""),
+            ("self_qq", "机器人 QQ 号", "与 OneBot 端登录的账号一致", ""),
+            ("group_whitelist", "群号白名单", "逗号/换行分隔；留空 = 所有群", ""),
+            ("require_at", "@ 触发", None, True),
+            ("prefix", "触发前缀", "可选，例如 /ai；留空表示不要求前缀", ""),
+            ("auto_reply", "自动回复", None, True),
+            ("system_prompt", "群聊系统提示词", "留空则使用全局系统提示词", ""),
+            ("provider", "模型服务商", None, ""),
+            ("model", "模型（可覆盖）", "留空跟随服务商默认，例如 qwen-max", ""),
+        ],
+        "sensitive_fields": ["access_token"],
+        "field_types": {"transport": "select", "system_prompt": "textarea", "provider": "select"},
+        "choices": {
+            "transport": [["ws", "WebSocket（主动连接）"], ["http", "HTTP（反向 Webhook）"]],
+            "provider": [["", "跟随全局（Auto）"], ["openai_compat", "OpenAI 兼容"], ["ollama", "Ollama（本地）"]],
+        },
+    },
+    "qq_group_official": {
+        "id": "qq_group_official",
+        "label": "QQ 官方 API",
+        "description": "接入 QQ 机器人开放平台 OpenAPI（AppID + AppSecret）。"
+                       "WebSocket 模式免公网，Webhook 模式需公网 HTTPS（端口 80/443/8080/8443）。",
+        "group": "qq_group",
+        "group_label": "群机器人",
+        "runtime_supported": True,
+        "fields": [
+            ("transport", "连接方式", None, "ws"),
+            ("app_id", "AppID", "开放平台机器人 AppID", ""),
+            ("app_secret", "AppSecret", "开放平台机器人密钥", ""),
+            ("api_base", "API Base", "https://api.bot.qq.com", "https://api.bot.qq.com"),
+            ("token_url", "AccessToken 地址", "https://api.bot.qq.com/app/getAppAccessToken", "https://api.bot.qq.com/app/getAppAccessToken"),
+            ("group_whitelist", "群 OpenID 白名单", "逗号/换行分隔；留空 = 所有群", ""),
+            ("auto_reply", "自动回复", None, True),
+            ("system_prompt", "群聊系统提示词", "留空则使用全局系统提示词", ""),
+            ("provider", "模型服务商", None, ""),
+            ("model", "模型（可覆盖）", "留空跟随服务商默认，例如 qwen-max", ""),
+        ],
+        "sensitive_fields": ["app_secret"],
+        "field_types": {"transport": "select", "system_prompt": "textarea", "provider": "select"},
+        "choices": {
+            "transport": [["ws", "WebSocket（免公网）"], ["webhook", "Webhook（需公网 HTTPS）"]],
+            "provider": [["", "跟随全局（Auto）"], ["openai_compat", "OpenAI 兼容"], ["ollama", "Ollama（本地）"]],
+        },
+    },
     "smtp": {
         "id": "smtp",
         "label": "SMTP 邮箱（只读）",
@@ -69,25 +128,27 @@ def _write_config(data_dir, cfg):
 def _sanitize_for_frontend(channel_id, stored_channel, data_dir):
     """把存储态通道数据转为前端可读的脱敏视图。
 
-    - 敏感字段：已加密则显示 "********"；明文（遗留）也显示 "********"；空则 ""
+    - 敏感字段：有值则显示 "********"；空则 ""
     - 非敏感字段：解密后返回明文（如果存的是密文）
-    - 额外标记 ``configured``：敏感字段是否已有值
+    - 额外标记 ``_configured``：该字段是否已有值（敏感字段用此判断「已保存」）
     """
     meta = CHANNELS.get(channel_id, {})
     sensitive = set(meta.get("sensitive_fields", []))
     out = {}
-    any_secret = False
+    configured = set()
     for key, value in (stored_channel or {}).items():
         if key in sensitive:
             if value:
-                any_secret = True
+                configured.add(key)
                 out[key] = "********"  # 脱敏
             else:
                 out[key] = ""
         else:
             # 非敏感字段也可能因为历史 bug 带密文前缀，尝试解密
             out[key] = crypto.decrypt(value, data_dir) if crypto.is_encrypted(value) else value or ""
-    out["_configured"] = any_secret
+            if out[key]:
+                configured.add(key)
+    out["_configured"] = configured
     return out
 
 
@@ -105,19 +166,27 @@ def list_channels(data_dir):
     for cid, meta in CHANNELS.items():
         stored = stored_channels.get(cid) or {}
         frontend = _sanitize_for_frontend(cid, stored, data_dir)
+        configured = frontend.get("_configured") or set()
+        field_types = meta.get("field_types") or {}
+        choices = meta.get("choices") or {}
         result["channels"].append({
             "id": cid,
             "label": meta["label"],
             "description": meta["description"],
+            "group": meta.get("group"),
+            "group_label": meta.get("group_label"),
+            "runtime_supported": bool(meta.get("runtime_supported")),
             "fields": [
                 {
                     "key": key,
                     "label": label,
                     "placeholder": placeholder or "",
                     "default": default,
+                    "type": field_types.get(key, "text"),
+                    "choices": choices.get(key) or [],
                     "sensitive": key in meta.get("sensitive_fields", []),
                     "value": frontend.get(key, ""),
-                    "configured": frontend.get("_configured", False),
+                    "configured": key in configured,
                 }
                 for key, label, placeholder, default in meta["fields"]
             ],
@@ -164,6 +233,49 @@ def save_channel(data_dir, channel_id, payload):
     _write_config(data_dir, cfg)
 
     return list_channels(data_dir)
+
+
+def _coerce(value, default):
+    """按字段默认值的类型把存储态值转回 Python 类型。"""
+    if isinstance(default, bool):
+        if isinstance(value, bool):
+            return value
+        return str(value or "").strip().lower() in ("1", "true", "yes", "on", "是", "启用")
+    if isinstance(default, int):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+    text = "" if value is None else str(value)
+    if not text and default:
+        return default
+    return text
+
+
+def get_channel_config(data_dir, channel_id):
+    """读取并解密某个通道的完整配置（仅后端运行时使用，绝不返回给前端）。
+
+    返回的 dict 按字段默认值做类型转换：布尔转 bool，整数转 int，空字符串回落到默认。
+    """
+    if channel_id not in CHANNELS:
+        raise ValueError("未知通道: %s" % channel_id)
+    meta = CHANNELS[channel_id]
+    sensitive = set(meta.get("sensitive_fields", []))
+    stored = ((_read_config(data_dir).get("comms") or {}).get("channels") or {}).get(channel_id) or {}
+    out = {}
+    for key, _label, _placeholder, default in meta["fields"]:
+        raw = stored.get(key)
+        if key in sensitive:
+            value = crypto.decrypt(raw, data_dir) if raw else ""
+        else:
+            if raw is None:
+                value = default
+            elif crypto.is_encrypted(raw):
+                value = crypto.decrypt(raw, data_dir)
+            else:
+                value = raw
+        out[key] = _coerce(value, default)
+    return out
 
 
 def set_active(data_dir, channel_id):
