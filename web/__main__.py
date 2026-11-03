@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import signal
 import socket
 import threading
 import time
@@ -53,6 +54,37 @@ def open_browser_when_ready(url, port, timeout=_OPEN_TIMEOUT):
     return False
 
 
+def _install_lifecycle_hooks(host, port):
+    """登记服务信息，并把 Ctrl+C / SIGTERM 标记成「用户主动停止」。
+
+    守护进程看到这个标记后只退出、不拉起；异常崩溃（无标记）才会被复原。
+    """
+    try:
+        from simchat.runtime import lifecycle
+
+        lifecycle.note_server_start(host, port)
+    except Exception:
+        pass
+
+    def _handler(signum, frame):
+        try:
+            from simchat.runtime import lifecycle
+
+            lifecycle.mark_intentional_stop()
+        except Exception:
+            pass
+        raise KeyboardInterrupt
+
+    for name in ("SIGINT", "SIGTERM"):
+        sig = getattr(signal, name, None)
+        if sig is None:
+            continue
+        try:
+            signal.signal(sig, _handler)
+        except (OSError, ValueError):
+            pass
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="python -m simchat.web",
@@ -77,6 +109,7 @@ def main(argv=None):
     )
 
     app = create_app()
+    _install_lifecycle_hooks(args.host, args.port)
     print("[SimChat] Web 界面已启动: %s" % (url or "http://%s:%s" % (args.host, args.port)))
     if should_open:
         threading.Thread(

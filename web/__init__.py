@@ -8,13 +8,16 @@
 """
 
 import json
+import logging
 import os
 import threading
 import time
+from collections import deque
 
 from flask import (
     Flask,
     Response,
+    g,
     jsonify,
     render_template,
     request,
@@ -24,6 +27,39 @@ from flask import (
 __all__ = ["create_app"]
 
 _core_lock = threading.Lock()
+
+# 进程启动时间（调试面板展示 uptime 用）
+_WEB_STARTED_AT = time.time()
+
+# 最近 API 事件环形缓冲（调试面板展示用，无持久化）
+_EVENTS = deque(maxlen=300)
+_EVENTS_LOCK = threading.Lock()
+_EVENT_SKIP_PATHS = {"/api/instances/heartbeat", "/api/console/debug/events"}
+_request_log = logging.getLogger("simchat.web")
+
+
+def _record_event(kind, detail=None):
+    try:
+        item = {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "kind": kind,
+            "detail": detail or {},
+        }
+        with _EVENTS_LOCK:
+            _EVENTS.appendleft(item)
+    except Exception:
+        pass
+
+
+def _ensure_logging(data_root, level=None):
+    try:
+        from simchat.runtime import logs as logs_mod
+
+        logs_mod.setup(data_root)
+        if level:
+            logs_mod.set_level(data_root, level)
+    except Exception:
+        pass
 
 # IDE 界面演示页：项目根目录下的单文件 HTML（templates 之外，读文件原文返回）
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -44,6 +80,7 @@ def _get_core(app):
 
                 core = SimChatCore()
                 app.extensions["simchat_core"] = core
+                _ensure_logging(core.data_root)
     return core
 
 
@@ -79,6 +116,7 @@ def create_app(core=None):
     app.jinja_env.auto_reload = True  # 改了模板立即生效，避免旧进程缓存旧 HTML
     if core is not None:
         app.extensions["simchat_core"] = core
+        _ensure_logging(core.data_root)
 
     # Agent 模式（ReAct 循环）：/api/agent 与冻结 fixture 使用的 /api/simchat/agent
     from .agent import create_agent_blueprint
@@ -87,6 +125,31 @@ def create_app(core=None):
     app.register_blueprint(
         create_agent_blueprint("simchat_agent"), url_prefix="/api/simchat/agent"
     )
+
+    @app.before_request
+    def _mark_request_start():
+        g.simchat_started = time.time()
+
+    @app.after_request
+    def _track_request_events(resp):
+        """把 API 请求写入调试事件环 + 运行日志（静态资源与心跳除外）。"""
+        path = request.path
+        if path.startswith("/api/") and path not in _EVENT_SKIP_PATHS:
+            started = getattr(g, "simchat_started", None)
+            duration = int((time.time() - started) * 1000) if started else 0
+            detail = {
+                "method": request.method,
+                "path": path,
+                "status": resp.status_code,
+                "duration_ms": duration,
+                "ip": request.remote_addr or "",
+            }
+            _record_event("http", detail)
+            if path != "/api/instances" and not path.startswith("/api/console/debug"):
+                _request_log.info(
+                    "%s %s -> %s (%sms)", request.method, path, resp.status_code, duration
+                )
+        return resp
 
     # 开发期 anti-cache：避免浏览器缓存旧版 JS/CSS 导致"改了啥也不生效"
     @app.after_request
@@ -632,6 +695,420 @@ def create_app(core=None):
             "instances": items,
         })
 
+    # ---------------- AI 实例（Agent）CRUD ----------------
+
+    def _agents_mod():
+        from simchat.runtime import agents as agents_mod
+
+        return agents_mod
+
+    @app.get("/api/agents")
+    def list_agents():
+        agents_mod = _agents_mod()
+        core = _get_core(app)
+        # 首次访问时自动创建默认实例
+        agents_mod._default(core.data_root)
+        return jsonify({
+            "agents": agents_mod.list_all(core.data_root),
+            "engine_presets": agents_mod.list_presets(),
+        })
+
+    @app.post("/api/agents")
+    def create_agent():
+        agents_mod = _agents_mod()
+        data = request.get_json(silent=True) or {}
+        try:
+            agent = agents_mod.create(_get_core(app).data_root, data)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        return jsonify({"agent": agent})
+
+    @app.get("/api/agents/<agent_id>")
+    def get_agent(agent_id):
+        agents_mod = _agents_mod()
+        try:
+            agent = agents_mod.get(_get_core(app).data_root, agent_id)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 404
+        return jsonify({"agent": agent})
+
+    @app.put("/api/agents/<agent_id>")
+    def update_agent(agent_id):
+        agents_mod = _agents_mod()
+        data = request.get_json(silent=True) or {}
+        try:
+            agent = agents_mod.update(_get_core(app).data_root, agent_id, data)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        return jsonify({"agent": agent})
+
+    @app.delete("/api/agents/<agent_id>")
+    def delete_agent(agent_id):
+        agents_mod = _agents_mod()
+        try:
+            agents_mod.delete(_get_core(app).data_root, agent_id)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 404
+        return jsonify({"ok": True})
+
+    @app.post("/api/agents/reset")
+    def reset_agents():
+        """删除所有自定义实例，重置为默认实例。"""
+        agents_mod = _agents_mod()
+        agent = agents_mod.reset_to_defaults(_get_core(app).data_root)
+        return jsonify({"agent": agent})
+
+    # ---------------- 控制台：网关节点 ----------------
+
+    def _peer_mod():
+        from simchat.runtime import gateway_peers
+
+        return gateway_peers
+
+    @app.get("/api/gateway/peers")
+    def gateway_peers_list():
+        core = _get_core(app)
+        host = request.host or "127.0.0.1:5000"
+        scheme = "https" if request.is_secure else "http"
+        return jsonify({
+            "ok": True,
+            "self": {
+                "name": "本机 SimChat",
+                "url": "%s://%s" % (scheme, host),
+                "health": "online",
+                "pid": os.getpid(),
+                "uptime_seconds": int(time.time() - _WEB_STARTED_AT),
+            },
+            "peers": _peer_mod().list_peers(core.data_root),
+        })
+
+    @app.post("/api/gateway/peers")
+    def gateway_peer_add():
+        core = _get_core(app)
+        data = request.get_json(silent=True) or {}
+        try:
+            peer = _peer_mod().add_peer(core.data_root, data)
+        except ValueError as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
+        _record_event("gateway.add", {"id": peer["id"], "url": peer["url"]})
+        return jsonify({"ok": True, "peer": peer})
+
+    @app.put("/api/gateway/peers/<peer_id>")
+    def gateway_peer_update(peer_id):
+        core = _get_core(app)
+        data = request.get_json(silent=True) or {}
+        try:
+            peer = _peer_mod().update_peer(core.data_root, peer_id, data)
+        except ValueError as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
+        return jsonify({"ok": True, "peer": peer})
+
+    @app.delete("/api/gateway/peers/<peer_id>")
+    def gateway_peer_remove(peer_id):
+        core = _get_core(app)
+        try:
+            _peer_mod().remove_peer(core.data_root, peer_id)
+        except ValueError as error:
+            return jsonify({"ok": False, "error": str(error)}), 404
+        _record_event("gateway.remove", {"id": peer_id})
+        return jsonify({"ok": True})
+
+    @app.post("/api/gateway/peers/<peer_id>/probe")
+    def gateway_peer_probe(peer_id):
+        core = _get_core(app)
+        try:
+            result = _peer_mod().probe_peer(core.data_root, peer_id)
+        except ValueError as error:
+            return jsonify({"ok": False, "error": str(error)}), 404
+        return jsonify({"ok": True, "probe": result})
+
+    @app.post("/api/gateway/peers/probe")
+    def gateway_peer_probe_draft():
+        """新增节点前先测连通性（不落盘）。"""
+        data = request.get_json(silent=True) or {}
+        result = _peer_mod().probe(data.get("url"), data.get("token"))
+        return jsonify({"ok": result.get("ok", False), "probe": result})
+
+    # ---------------- 控制台：MOD / 技能 ----------------
+
+    def _mods_snapshot():
+        from simchat.runtime import mods_index
+
+        return mods_index.snapshot()
+
+    @app.get("/api/console/mods")
+    def console_mods():
+        try:
+            return jsonify({"available": True, "reason": "", "data": _mods_snapshot()})
+        except Exception as error:
+            return jsonify({"available": False, "reason": str(error), "data": None}), 500
+
+    @app.post("/api/console/mods/<mod_id>/toggle")
+    def console_mod_toggle(mod_id):
+        data = request.get_json(silent=True) or {}
+        enabled = data.get("enabled")
+        if not isinstance(enabled, bool):
+            return jsonify({"ok": False, "error": "enabled 必须是布尔值"}), 400
+        from simchat.runtime import mods_index
+
+        mods_index.set_enabled(mod_id, enabled)
+        _record_event("mod.toggle", {"mod_id": mod_id, "enabled": enabled})
+        return jsonify({"ok": True, "data": _mods_snapshot()})
+
+    @app.get("/api/console/skills")
+    def console_skills():
+        try:
+            snapshot = _mods_snapshot()
+        except Exception as error:
+            return jsonify({"available": False, "reason": str(error), "data": None}), 500
+        items = [item for item in snapshot["local"] if item["type"] == "skill"]
+        return jsonify({
+            "available": True,
+            "reason": "",
+            "data": {
+                "mods_dir": snapshot["mods_dir"],
+                "items": items,
+                "counts": {
+                    "total": len(items),
+                    "enabled": sum(1 for item in items if item["enabled"]),
+                    "error": sum(1 for item in items if item["status"] == "err"),
+                },
+            },
+        })
+
+    # ---------------- 控制台：节点（客户端 + 网关节点） ----------------
+
+    @app.get("/api/console/nodes")
+    def console_nodes():
+        core = _get_core(app)
+        now = time.time()
+        clients = []
+        with _instances_lock:
+            stale = [d for d, v in _instances.items() if now - v["last_heartbeat"] > 600]
+            for device_id in stale:
+                del _instances[device_id]
+            for device_id, value in _instances.items():
+                info = value.get("info") or {}
+                clients.append({
+                    "kind": "client",
+                    "id": device_id,
+                    "name": info.get("browser") or info.get("platform") or "浏览器客户端",
+                    "platform": " ".join(
+                        part for part in (info.get("os"), info.get("arch")) if part
+                    ),
+                    "tabs": len(value.get("tab_ids") or set()),
+                    "online": (now - value["last_heartbeat"]) < INSTANCE_OFFLINE_THRESHOLD,
+                    "remote_ip": value.get("remote_ip") or "",
+                    "last_seen_ago_seconds": int(now - value["last_heartbeat"]),
+                })
+        clients.sort(key=lambda item: (not item["online"], -item["last_seen_ago_seconds"]))
+
+        peers = []
+        for peer in _peer_mod().list_peers(core.data_root):
+            last = peer.get("last_probe") or {}
+            peers.append({
+                "kind": "gateway",
+                "id": peer["id"],
+                "name": peer["name"],
+                "url": peer["url"],
+                "note": peer.get("note") or "",
+                "online": bool(last.get("ok")),
+                "latency_ms": last.get("latency_ms"),
+                "checked_at": last.get("checked_at") or "",
+            })
+
+        return jsonify({
+            "available": True,
+            "reason": "",
+            "data": {
+                "self": {
+                    "kind": "self",
+                    "name": "本机 SimChat",
+                    "url": "%s://%s" % ("https" if request.is_secure else "http", request.host),
+                    "pid": os.getpid(),
+                },
+                "clients": clients,
+                "peers": peers,
+                "counts": {
+                    "clients": len(clients),
+                    "clients_online": sum(1 for item in clients if item["online"]),
+                    "peers": len(peers),
+                    "peers_online": sum(1 for item in peers if item["online"]),
+                },
+            },
+        })
+
+    # ---------------- 控制台：系统配置 ----------------
+
+    @app.get("/api/console/system")
+    def console_system():
+        core = _get_core(app)
+        from simchat.runtime import system_config
+
+        return jsonify({"available": True, "reason": "", "data": system_config.environment(core.data_root)})
+
+    @app.post("/api/console/system")
+    def console_system_save():
+        core = _get_core(app)
+        data = request.get_json(silent=True) or {}
+        from simchat.runtime import logs as logs_mod
+        from simchat.runtime import system_config
+
+        try:
+            state = system_config.save_state(core.data_root, data)
+            logs_mod.set_level(core.data_root, state["log_level"])
+        except ValueError as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
+        _record_event("system.update", {"log_level": state["log_level"]})
+        return jsonify({"ok": True, "data": system_config.environment(core.data_root)})
+
+    # ---------------- 控制台：调试 ----------------
+
+    @app.get("/api/console/debug/snapshot")
+    def console_debug_snapshot():
+        core = _get_core(app)
+        from simchat.runtime import system_config
+
+        data = system_config.debug_snapshot(core.data_root)
+        runs_dir = os.path.join(core.data_root, "agent_runs")
+        runs = 0
+        if os.path.isdir(runs_dir):
+            runs = sum(1 for name in os.listdir(runs_dir) if not name.startswith("."))
+
+        try:
+            sessions = len(core.list_sessions())
+        except Exception:
+            sessions = 0
+
+        with _instances_lock:
+            instance_count = len(_instances)
+        with _EVENTS_LOCK:
+            event_count = len(_EVENTS)
+
+        data.update({
+            "uptime_seconds": int(time.time() - _WEB_STARTED_AT),
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(_WEB_STARTED_AT)),
+            "counts": {
+                "sessions": sessions,
+                "agent_runs": runs,
+                "instances": instance_count,
+                "gateway_peers": len(_peer_mod().list_peers(core.data_root)),
+                "events": event_count,
+            },
+        })
+        return jsonify({"available": True, "reason": "", "data": data})
+
+    @app.get("/api/console/debug/events")
+    def console_debug_events():
+        try:
+            limit = max(10, min(int(request.args.get("limit", 60)), len(_EVENTS) or 60, 300))
+        except (TypeError, ValueError):
+            limit = 60
+        with _EVENTS_LOCK:
+            events = list(_EVENTS)
+        return jsonify({
+            "available": True,
+            "reason": "",
+            "data": {"total": len(events), "events": events[:limit]},
+        })
+
+    # ---------------- 控制台：日志 ----------------
+
+    @app.get("/api/console/logs")
+    def console_logs():
+        core = _get_core(app)
+        from simchat.runtime import logs as logs_mod
+
+        return jsonify({
+            "available": True,
+            "reason": "",
+            "data": {
+                "log_dir": logs_mod.log_dir(core.data_root),
+                "files": logs_mod.list_files(core.data_root),
+            },
+        })
+
+    @app.get("/api/console/logs/<name>")
+    def console_log_tail(name):
+        core = _get_core(app)
+        from simchat.runtime import logs as logs_mod
+
+        try:
+            payload = logs_mod.tail(core.data_root, name, request.args.get("lines", 200))
+        except ValueError as error:
+            return jsonify({"available": False, "reason": str(error), "data": None}), 404
+        return jsonify({"available": True, "reason": "", "data": payload})
+
+    # ---------------- 控制台：自动化 ----------------
+
+    @app.get("/api/console/automation")
+    def console_automation():
+        try:
+            snapshot = _mods_snapshot()
+        except Exception as error:
+            return jsonify({"available": False, "reason": str(error), "data": None}), 500
+        items = [item for item in snapshot["local"] if item["type"] == "automation"]
+        return jsonify({
+            "available": True,
+            "reason": "",
+            "data": {
+                "engine": "not_started",
+                "engine_note": "自动化引擎由宿主启动器提供；Web 控制台只做流程只读展示。",
+                "mods_dir": snapshot["mods_dir"],
+                "items": [
+                    {
+                        "id": item["id"],
+                        "name": item["name"],
+                        "version": item["version"],
+                        "description": item["description"],
+                        "enabled": item["enabled"],
+                        "status": item["status"],
+                        "error": item["error"],
+                        "flow": item.get("automation"),
+                    }
+                    for item in items
+                ],
+                "counts": {
+                    "total": len(items),
+                    "enabled": sum(1 for item in items if item["enabled"]),
+                },
+            },
+        })
+
+    # ---------------- 控制台：代理（Agent 运行时） ----------------
+
+    @app.get("/api/console/agent")
+    def console_agent():
+        core = _get_core(app)
+        agents_mod = _agents_mod()
+        agents_mod._default(core.data_root)
+        try:
+            snapshot = _mods_snapshot()
+            skill_mods = [item for item in snapshot["local"] if item["type"] == "skill"]
+        except Exception:
+            skill_mods = []
+
+        return jsonify({
+            "available": True,
+            "reason": "",
+            "data": {
+                "agents": agents_mod.list_all(core.data_root),
+                "engine_presets": agents_mod.list_presets(),
+                "options": core.agent_options(),
+                "skill_mods": [
+                    {
+                        "id": item["id"],
+                        "name": item["name"],
+                        "version": item["version"],
+                        "enabled": item["enabled"],
+                        "hooks": item["hooks"],
+                        "status": item["status"],
+                    }
+                    for item in skill_mods
+                ],
+            },
+        })
+
     # ---------------- 会话 CRUD ----------------
 
     @app.get("/api/sessions")
@@ -695,16 +1172,51 @@ def create_app(core=None):
                 "code": "workspace_missing",
             }), 409
 
+        # 激活的实例：用它的神经引擎预设参数与系统提示词
+        agent = None
+        agent_id = (data.get("agent_id") or "").strip()
+        if agent_id:
+            try:
+                agent = _agents_mod().get(core.data_root, agent_id)
+            except ValueError:
+                agent = None
+        engine_params = _agents_mod().resolve_engine_params(agent) if agent else None
+        system = data.get("system")
+        if not system and agent:
+            system = agent.get("system_prompt") or None
+
         def generate():
-            for event in core.chat_stream(
-                message,
-                session_id=data.get("session_id"),
-                provider=data.get("provider"),
-                model=data.get("model"),
-                system=data.get("system"),
-                regenerate=bool(data.get("regenerate")),
-            ):
-                yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+            kwargs = {}
+            if engine_params:
+                kwargs = {
+                    "temperature": engine_params["temperature"],
+                    "max_tokens": engine_params["max_tokens"],
+                    "top_p": engine_params["top_p"],
+                    "repetition_penalty": engine_params["repetition_penalty"],
+                }
+            _record_event("chat.start", {
+                "session_id": data.get("session_id") or "",
+                "agent_id": agent_id,
+                "provider": data.get("provider") or "",
+                "model": data.get("model") or "",
+                "chars": len(message),
+            })
+            try:
+                for event in core.chat_stream(
+                    message,
+                    session_id=data.get("session_id"),
+                    provider=data.get("provider"),
+                    model=data.get("model"),
+                    system=system,
+                    regenerate=bool(data.get("regenerate")),
+                    **kwargs,
+                ):
+                    yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+            except Exception as error:
+                _record_event("chat.error", {"error": str(error)[:200]})
+                raise
+            finally:
+                _record_event("chat.end", {"session_id": data.get("session_id") or ""})
 
         resp = Response(stream_with_context(generate()), mimetype="text/event-stream")
         resp.headers["Cache-Control"] = "no-cache"

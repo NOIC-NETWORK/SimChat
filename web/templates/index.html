@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SimChat | Everything, Harnessed.</title>
 <link rel="icon" type="image/png" href="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261031b">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261103c">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261103a">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
@@ -38,40 +38,90 @@
 
   <main class="main">
     <header class="topbar">
-      <button class="icon-button mobile-only" id="toggle-sidebar" aria-label="打开会话列表">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <path d="M4 6h16M4 12h16M4 18h16"/>
-        </svg>
-      </button>
-      <div class="topbar-title" id="chat-title">新对话</div>
-      <button class="workspace-chip" id="workspace-chip" type="button" title="选择工作目录" aria-label="选择工作目录">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-        </svg>
-        <span class="workspace-chip-name" id="workspace-chip-name">选择工作目录</span>
-      </button>
-      <div class="agent-toggle" title="切换 Agent 模式" role="group" aria-label="模式切换">
-        <div class="agent-toggle-track" id="agent-toggle" data-mode="chat" aria-pressed="false" tabindex="0">
-          <img class="agent-toggle-icon agent-toggle-icon--chat" src="{{ url_for('static', filename='sprites/logos/chatMode.png') }}" alt="对话模式">
-          <img class="agent-toggle-icon agent-toggle-icon--agent" src="{{ url_for('static', filename='sprites/logos/agentMode.png') }}" alt="Agent 模式">
-          <div class="agent-toggle-thumb"><img src="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}" alt=""></div>
-        </div>
-        <span class="agent-toggle-label" id="agent-toggle-label">对话</span>
+      <!-- 左侧：移动端菜单 + 标题 -->
+      <div class="topbar-left">
+        <button class="icon-button mobile-only" id="toggle-sidebar" aria-label="打开会话列表">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+        </button>
+        <div class="topbar-title" id="chat-title">新对话</div>
       </div>
-      <button class="icon-button open-ide" id="open-ide" title="在 IDE 中打开项目" aria-label="在 IDE 中打开项目">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-          <polyline points="15 3 21 3 21 9"/>
-          <line x1="10" y1="14" x2="21" y2="3"/>
-        </svg>
-      </button>
-      <button class="icon-button" id="open-setup" title="设置" aria-label="设置">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-      </button>
-      <span class="status-dot" id="status-dot" title="空闲"></span>
+
+      <!-- 中间：导航按钮组 -->
+      <div class="nav-menu" role="group" aria-label="SimChat 导航">
+        <button class="nav-btn" id="mc-singleplayer" type="button" title="自定义 AI 实例列表">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+          <span>AI 实例</span>
+        </button>
+        <button class="nav-btn" id="mc-multiplayer" type="button" title="连接到其他 SimChat 网关">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="2" y1="12" x2="22" y2="12"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+          <span>网关连接</span>
+        </button>
+        <button class="nav-btn" id="mc-mods" type="button" title="MOD 管理">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+          </svg>
+          <span>MOD</span>
+        </button>
+        <button class="nav-btn" id="mc-realms" type="button" title="论坛和分享中心（即将推出）" disabled>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+          <span>论坛</span>
+        </button>
+      </div>
+
+      <!-- 右侧：原有功能按钮 -->
+      <div class="topbar-right">
+        <button class="workspace-chip" id="workspace-chip" type="button" title="选择工作目录" aria-label="选择工作目录">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          </svg>
+          <span class="workspace-chip-name" id="workspace-chip-name">选择工作目录</span>
+        </button>
+        <div class="agent-toggle" title="切换 Agent 模式" role="group" aria-label="模式切换">
+          <div class="agent-toggle-track" id="agent-toggle" data-mode="chat" aria-pressed="false" tabindex="0">
+            <img class="agent-toggle-icon agent-toggle-icon--chat" src="{{ url_for('static', filename='sprites/logos/chatMode.png') }}" alt="对话模式">
+            <img class="agent-toggle-icon agent-toggle-icon--agent" src="{{ url_for('static', filename='sprites/logos/agentMode.png') }}" alt="Agent 模式">
+            <div class="agent-toggle-thumb"><img src="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}" alt=""></div>
+          </div>
+          <span class="agent-toggle-label" id="agent-toggle-label">对话</span>
+        </div>
+        <button class="icon-button open-ide" id="open-ide" title="在 IDE 中打开项目" aria-label="在 IDE 中打开项目">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+        </button>
+        <button class="icon-button" id="open-setup" title="选项" aria-label="选项">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+        <!-- 退出：强制关闭后端 -->
+        <button class="nav-btn nav-btn--danger" id="mc-eject" type="button" title="退出 — 强制关闭后端模型服务" aria-label="退出">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
+            <line x1="12" y1="2" x2="12" y2="12"/>
+          </svg>
+          <span>退出</span>
+        </button>
+        <span class="status-dot" id="status-dot" title="空闲"></span>
+      </div>
     </header>
 
     <div class="conversation" id="conversation">
@@ -270,6 +320,122 @@
       <p class="disclaimer">SimChat 含有人工智能生成内容，请核查重要信息。</p>
     </div>
   </main>
+</div>
+
+<!-- ======= AI 实例列表（全屏蒙版） ======= -->
+<div class="agent-console" id="agent-list">
+  <header class="console-header">
+    <button class="back-button" id="agent-list-back" type="button">← 返回对话</button>
+    <h2>AI 实例</h2>
+    <span class="settings-status-pill" id="agent-list-count">0 个实例</span>
+  </header>
+
+  <div class="agent-console-body">
+    <!-- 左侧：可滚动列表 -->
+    <div class="agent-console-list-wrap" id="agent-list-scroll">
+      <!-- JS 动态渲染 agent-card -->
+    </div>
+
+    <!-- 空态 -->
+    <div class="agent-list-empty hidden" id="agent-list-empty">
+      <div class="agent-list-empty-icon">🤖</div>
+      <div class="agent-list-empty-title">还没有 AI 实例</div>
+      <div class="agent-list-empty-desc">创建一个实例，给它独特的系统提示词和模型偏好。</div>
+      <button class="primary-button" id="agent-create-empty" type="button" style="margin-top:14px;">+ 创建新实例</button>
+    </div>
+
+    <!-- 右侧：底部按钮栏 -->
+    <div class="agent-console-actions">
+      <div class="agent-console-actions-left">
+        <button class="ghost-button" id="agent-activate" type="button">进入选中的实例</button>
+        <button class="ghost-button" id="agent-edit" type="button">编辑</button>
+        <button class="ghost-button agent-danger" id="agent-delete" type="button">删除</button>
+      </div>
+      <div class="agent-console-actions-right">
+        <button class="ghost-button" id="agent-reset" type="button" title="重置为默认实例">重置</button>
+        <button class="primary-button" id="agent-create" type="button">+ 创建新实例</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======= 网关连接 ======= -->
+<div class="agent-console" id="gateway-console">
+  <header class="console-header">
+    <button class="back-button" id="gateway-back" type="button">← 返回对话</button>
+    <h2>网关连接</h2>
+    <span class="settings-status-pill" id="gateway-status">检测中…</span>
+  </header>
+  <div class="agent-console-body gateway-console-body">
+    <div class="console-toolbar">
+      <span class="console-toolbar-hint">维护可访问的 SimChat 节点地址；探活通过对方的 /api/health 完成，不发送任何对话内容。</span>
+      <div class="console-toolbar-actions">
+        <button class="ghost-button" id="peer-refresh" type="button">刷新</button>
+        <button class="primary-button" id="peer-add-toggle" type="button">+ 添加节点</button>
+      </div>
+    </div>
+
+    <form class="peer-form hidden" id="peer-form">
+      <div class="peer-form-grid">
+        <label class="console-field">节点名称
+          <input id="peer-name" maxlength="60" placeholder="例如：客厅主机">
+        </label>
+        <label class="console-field">节点地址
+          <input id="peer-url" placeholder="http://192.168.1.10:5000" required>
+        </label>
+        <label class="console-field">访问令牌（可选）
+          <input id="peer-token" type="password" placeholder="Bearer Token">
+        </label>
+        <label class="console-field">备注
+          <input id="peer-note" maxlength="200" placeholder="可选">
+        </label>
+      </div>
+      <div class="peer-form-actions">
+        <button class="ghost-button" id="peer-test" type="button">测试连接</button>
+        <button class="primary-button" id="peer-save" type="submit">保存节点</button>
+        <button class="ghost-button" id="peer-cancel" type="button">取消</button>
+        <span class="console-msg" id="peer-form-msg"></span>
+      </div>
+    </form>
+
+    <div class="peer-self-card" id="peer-self-card"></div>
+    <div class="peer-list" id="peer-list"></div>
+    <div class="agent-list-empty hidden" id="peer-empty">
+      <div class="agent-list-empty-icon">🌐</div>
+      <div class="agent-list-empty-title">还没有登记其他节点</div>
+      <div class="agent-list-empty-desc">点右上角「+ 添加节点」，填入对方 SimChat 的地址即可保存并探活。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ======= MOD 管理 ======= -->
+<div class="agent-console" id="mod-console">
+  <header class="console-header">
+    <button class="back-button" id="mod-back" type="button">← 返回对话</button>
+    <h2>MOD 管理</h2>
+    <span class="settings-status-pill" id="mod-status">扫描中…</span>
+  </header>
+  <div class="agent-console-body mod-console-body">
+    <div class="console-toolbar">
+      <input class="console-search" id="mod-search" placeholder="搜索名称 / ID / 描述">
+      <select class="console-select" id="mod-type-filter">
+        <option value="">全部类型</option>
+        <option value="skill">Skill</option>
+        <option value="binary">Binary</option>
+        <option value="agent-config">AgentConfig</option>
+        <option value="automation">Automation</option>
+      </select>
+      <button class="ghost-button" id="mod-refresh" type="button">重新扫描</button>
+      <span class="console-toolbar-hint">只读扫描 manifest.json，不执行 MOD 代码</span>
+    </div>
+    <div class="mod-layout">
+      <div class="mod-list" id="mod-list"></div>
+      <aside class="mod-detail" id="mod-detail">
+        <div class="mod-detail-empty">选择一个 MOD 查看 manifest 详情</div>
+      </aside>
+    </div>
+    <div class="mod-registry" id="mod-registry"></div>
+  </div>
 </div>
 
 <!-- ======= 高级控制台 ======= -->
@@ -654,42 +820,60 @@
 
       <section class="setting-section" data-section="automation" hidden>
         <h3 data-block="console.section.automation">自动化</h3>
-        <p class="section-desc">定时任务、触发器与工作流（需 MOD）。</p>
-        <div class="state-card">
-          <div class="state-card-icon">⏰</div>
-          <h4 class="state-card-title">该模块尚未接入</h4>
-          <p class="state-card-reason">自动化由 automation MOD 提供；未安装时此分区保持空态。</p>
+        <p class="section-desc">扫描 automation MOD 的流程定义；调度引擎由宿主启动器负责，此处只读展示。</p>
+        <div class="console-toolbar">
+          <span class="console-toolbar-hint" id="automation-summary">加载中…</span>
+          <div class="console-toolbar-actions">
+            <button class="ghost-button" type="button" id="automation-refresh">刷新</button>
+          </div>
+        </div>
+        <div class="automation-list" id="automation-list"></div>
+        <div class="agent-list-empty hidden" id="automation-empty">
+          <div class="agent-list-empty-icon">⏰</div>
+          <div class="agent-list-empty-title">没有发现自动化 MOD</div>
+          <div class="agent-list-empty-desc">把带 automation 段的 MOD 放进 mods/ 目录后刷新即可看到流程定义。</div>
         </div>
       </section>
 
       <section class="setting-section" data-section="agent" hidden>
         <h3 data-block="console.section.agent">代理</h3>
-        <p class="section-desc">Agent 模式的系统提示词、工具白名单与工作范围。</p>
-        <div class="state-card">
-          <div class="state-card-icon">🤖</div>
-          <h4 class="state-card-title">该模块尚未接入</h4>
-          <p class="state-card-reason">Agent 模式本体未落地；工具白名单与代理设置将在后续阶段实现。</p>
+        <p class="section-desc">Agent 运行参数、可用实例与技能来源（只读）。</p>
+        <div class="console-toolbar">
+          <span class="console-toolbar-hint" id="agent-overview-summary">加载中…</span>
+          <div class="console-toolbar-actions">
+            <button class="ghost-button" type="button" id="agent-overview-refresh">刷新</button>
+          </div>
         </div>
+        <div class="agent-overview" id="agent-overview"></div>
       </section>
 
       <section class="setting-section" data-section="skills" hidden>
         <h3 data-block="console.section.skills">技能</h3>
-        <p class="section-desc">已安装技能的开关与参数。</p>
-        <div class="state-card">
-          <div class="state-card-icon">✨</div>
-          <h4 class="state-card-title">该模块尚未接入</h4>
-          <p class="state-card-reason">技能开关持久化需要 data/state/skills.json，当前版本未实现。</p>
+        <p class="section-desc">Skill MOD 的启停开关，写入 mods/.simchat_state.json，重启后生效。</p>
+        <div class="console-toolbar">
+          <span class="console-toolbar-hint" id="skills-summary">加载中…</span>
+          <div class="console-toolbar-actions">
+            <button class="ghost-button" type="button" id="skills-refresh">刷新</button>
+          </div>
+        </div>
+        <div class="settings-list" id="skills-list"></div>
+        <div class="agent-list-empty hidden" id="skills-empty">
+          <div class="agent-list-empty-icon">✨</div>
+          <div class="agent-list-empty-title">没有安装 Skill MOD</div>
+          <div class="agent-list-empty-desc">mods/ 目录下的 type=skill 条目会显示在这里。</div>
         </div>
       </section>
 
       <section class="setting-section" data-section="nodes" hidden>
         <h3 data-block="console.section.nodes">节点</h3>
-        <p class="section-desc">设备配对与公开命令。</p>
-        <div class="state-card">
-          <div class="state-card-icon">🔗</div>
-          <h4 class="state-card-title">该模块尚未接入</h4>
-          <p class="state-card-reason">节点配对协议待定义，当前版本未实现。</p>
+        <p class="section-desc">当前接入的浏览器客户端与已登记的网关节点。</p>
+        <div class="console-toolbar">
+          <span class="console-toolbar-hint" id="nodes-summary">加载中…</span>
+          <div class="console-toolbar-actions">
+            <button class="ghost-button" type="button" id="nodes-refresh">刷新</button>
+          </div>
         </div>
+        <div class="nodes-list" id="nodes-list"></div>
       </section>
 
       <section class="setting-section" data-section="lifecycle" hidden>
@@ -780,32 +964,52 @@
 
       <section class="setting-section" data-section="system" hidden>
         <h3 data-block="console.section.system">系统配置</h3>
-        <p class="section-desc">服务端可调项（只读检测 + 白名单可写）。</p>
-        <div class="state-card">
-          <div class="state-card-icon">⚙️</div>
-          <h4 class="state-card-title">该模块尚未接入</h4>
-          <p class="state-card-reason">系统配置需要 runtime/system_config.py，当前版本未实现。</p>
+        <p class="section-desc">运行环境只读探测 + 白名单可写项（日志级别）。</p>
+        <div class="console-toolbar">
+          <span class="console-toolbar-hint" id="system-summary">加载中…</span>
+          <div class="console-toolbar-actions">
+            <button class="ghost-button" type="button" id="system-refresh">刷新</button>
+          </div>
+        </div>
+        <div class="system-grid" id="system-grid"></div>
+        <div class="console-editor">
+          <label class="console-field">运行日志级别
+            <select class="console-select" id="system-log-level"></select>
+          </label>
+          <button class="primary-button" type="button" id="system-save">保存配置</button>
+          <span class="console-msg" id="system-msg"></span>
         </div>
       </section>
 
       <section class="setting-section" data-section="debug" hidden>
         <h3 data-block="console.section.debug">调试</h3>
-        <p class="section-desc">进程快照、事件流与手动 RPC。</p>
-        <div class="state-card">
-          <div class="state-card-icon">🔧</div>
-          <h4 class="state-card-title">该模块尚未接入</h4>
-          <p class="state-card-reason">调试面板需要 psutil 与环形缓冲，当前版本未实现。</p>
+        <p class="section-desc">进程快照、存储占用与最近 API 事件（内存环形缓冲，不持久化）。</p>
+        <div class="console-toolbar">
+          <span class="console-toolbar-hint" id="debug-summary">加载中…</span>
+          <div class="console-toolbar-actions">
+            <button class="ghost-button" type="button" id="debug-refresh">刷新</button>
+          </div>
         </div>
+        <div class="system-grid" id="debug-stats"></div>
+        <div class="debug-events-head">最近事件</div>
+        <div class="debug-events" id="debug-events"></div>
       </section>
 
       <section class="setting-section" data-section="logs" hidden>
         <h3 data-block="console.section.logs">日志</h3>
-        <p class="section-desc">运行日志的尾部读取（只读）。</p>
-        <div class="state-card">
-          <div class="state-card-icon">📜</div>
-          <h4 class="state-card-title">该模块尚未接入</h4>
-          <p class="state-card-reason">日志查看器需要 rotating handler，当前版本未实现。</p>
+        <p class="section-desc">运行日志尾部读取（只读，滚动文件 simchat.log）。</p>
+        <div class="console-toolbar">
+          <select class="console-select" id="log-file"></select>
+          <select class="console-select" id="log-lines">
+            <option value="100">100 行</option>
+            <option value="200" selected>200 行</option>
+            <option value="500">500 行</option>
+            <option value="1000">1000 行</option>
+          </select>
+          <button class="ghost-button" type="button" id="log-refresh">刷新</button>
+          <span class="console-msg" id="log-summary"></span>
         </div>
+        <pre class="log-viewer" id="log-viewer">加载中…</pre>
       </section>
 
       <!-- ================ 实验：Hippo 系统 ================ -->
@@ -956,6 +1160,147 @@
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261103a"></script>
+<!-- ======= AI 实例 编辑弹窗（4:3 Tab 版） ======= -->
+<div class="agent-edit-modal hidden" id="agent-edit-modal" aria-hidden="true">
+  <div class="agent-edit-dialog" role="dialog" aria-modal="true">
+    <header class="agent-edit-header">
+      <h3 id="agent-edit-title">创建 AI 实例</h3>
+      <button class="agent-edit-close" id="agent-edit-close" type="button" aria-label="关闭">✕</button>
+    </header>
+
+    <form class="agent-edit-form" id="agent-edit-form" novalidate>
+      <input type="hidden" id="agent-edit-id">
+
+      <!-- Tab 切换 -->
+      <div class="agent-edit-tabs">
+        <button type="button" class="agent-edit-tab is-active" data-tab="basic">基本设置</button>
+        <button type="button" class="agent-edit-tab" data-tab="advanced">高级设置</button>
+      </div>
+
+      <!-- ===== 基本设置 Tab ===== -->
+      <div class="agent-edit-tab-pane is-active" data-pane="basic">
+        <div class="agent-edit-row">
+          <label class="field">
+            <span class="field-label">实例名称 <span class="field-required">*</span></span>
+            <input type="text" id="agent-edit-name" class="field-input" maxlength="40" required placeholder="给这个实例起个名字">
+          </label>
+          <label class="field">
+            <span class="field-label">ID（entity_id）</span>
+            <input type="text" id="agent-edit-entity" class="field-input" maxlength="32" placeholder="用于 /@ 调用，留空自动生成">
+            <span class="field-hint">Orbiter 的 /@指令识别用，唯一标识这个实例。</span>
+          </label>
+        </div>
+
+        <div class="agent-edit-row">
+          <label class="field">
+            <span class="field-label">头像</span>
+            <div class="agent-edit-avatar-row">
+              <div class="agent-edit-avatar-preview" id="agent-edit-avatar-preview">🤖</div>
+              <div class="agent-edit-avatar-controls">
+                <button type="button" class="ghost-button" id="agent-edit-avatar-reroll">🎲 随机 emoji</button>
+                <button type="button" class="ghost-button" id="agent-edit-avatar-upload">🖼️ 上传图片</button>
+                <input type="file" id="agent-edit-avatar-file" accept="image/*" hidden>
+              </div>
+              <input type="hidden" id="agent-edit-avatar-input">
+              <input type="hidden" id="agent-edit-avatar-type" value="emoji">
+            </div>
+          </label>
+
+          <label class="field">
+            <span class="field-label">描述</span>
+            <input type="text" id="agent-edit-desc" class="field-input" maxlength="200" placeholder="一句话介绍（可选）">
+          </label>
+        </div>
+
+        <label class="field">
+          <span class="field-label">系统提示词</span>
+          <textarea id="agent-edit-system" class="field-input" rows="6" placeholder="你是一个专业的……请用……语气……" style="resize:vertical;font-family:monospace;"></textarea>
+          <span class="field-hint">每次对话开头会注入这段提示词，定义这个实例的人格和行为。</span>
+        </label>
+      </div>
+
+      <!-- ===== 高级设置 Tab ===== -->
+      <div class="agent-edit-tab-pane" data-pane="advanced">
+        <label class="field">
+          <span class="field-label">种子（Seed）</span>
+          <input type="text" id="agent-edit-seed" class="field-input" maxlength="128" placeholder="神经引擎识别的特殊 TOE（可选）">
+          <span class="field-hint">用于后方神经引擎识别的特殊 Token，定义该实例的行为基底。</span>
+        </label>
+
+        <div class="field">
+          <span class="field-label">神经引擎预设</span>
+          <input type="hidden" id="agent-edit-engine" value="normal">
+          <div class="agent-engine-list" id="agent-engine-list" role="radiogroup" aria-label="神经引擎预设"></div>
+          <span class="field-hint">只调教同一个底层引擎的生成参数，不会切换模型或后端。</span>
+        </div>
+
+        <div class="agent-engine-params" id="agent-engine-params">
+          <span class="field-hint" id="agent-engine-params-hint">选择「自定义参数」后可手动调整</span>
+          <div class="agent-edit-row">
+            <label class="field">
+              <span class="field-label">温度</span>
+              <div class="field-range">
+                <input type="range" id="agent-engine-temperature" min="0" max="2" step="0.05" value="0.7">
+                <span class="range-value" id="agent-engine-temperature-val">0.70</span>
+              </div>
+            </label>
+            <label class="field">
+              <span class="field-label">Top P</span>
+              <div class="field-range">
+                <input type="range" id="agent-engine-top-p" min="0.05" max="1" step="0.05" value="0.9">
+                <span class="range-value" id="agent-engine-top-p-val">0.90</span>
+              </div>
+            </label>
+          </div>
+          <div class="agent-edit-row">
+            <label class="field">
+              <span class="field-label">重复惩罚</span>
+              <div class="field-range">
+                <input type="range" id="agent-engine-repeat" min="1" max="2" step="0.05" value="1.15">
+                <span class="range-value" id="agent-engine-repeat-val">1.15</span>
+              </div>
+            </label>
+            <label class="field">
+              <span class="field-label">最大 tokens</span>
+              <input type="number" id="agent-engine-max-tokens" class="field-input" min="128" max="32768" step="1" value="4096">
+            </label>
+          </div>
+        </div>
+
+        <div class="agent-edit-switches">
+          <label class="switch">
+            <input type="checkbox" id="agent-edit-agent-capable" checked>
+            <span class="switch-track"></span>
+            <span class="switch-label">Agent 能力</span>
+            <span class="switch-desc">允许该实例以 Agent 模式运行（自主调用工具、多轮推理）。</span>
+          </label>
+
+          <label class="switch">
+            <input type="checkbox" id="agent-edit-allow-advanced">
+            <span class="switch-track"></span>
+            <span class="switch-label">允许高级功能</span>
+            <span class="switch-desc">开放 Skill、命令和自动化等高级能力入口。</span>
+          </label>
+
+          <label class="switch">
+            <input type="checkbox" id="agent-edit-desktop-pet">
+            <span class="switch-track"></span>
+            <span class="switch-label">桌面宠物</span>
+            <span class="switch-desc">让该实例以桌面宠物形式常驻系统托盘。</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="agent-edit-message" id="agent-edit-message" aria-live="polite"></div>
+
+      <div class="agent-edit-actions">
+        <button type="button" class="ghost-button" id="agent-edit-cancel">取消</button>
+        <button type="submit" class="primary-button" id="agent-edit-save">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261103c"></script>
 </body>
 </html>

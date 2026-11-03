@@ -34,11 +34,21 @@ class SessionStore:
             raise ValueError("非法 session_id")
         return os.path.join(self.root, f"{safe}.json")
 
+    # per-session 可覆盖的运行参数；不在列表里的字段一律忽略
+    _OVERRIDE_KEYS = ("thinking", "verbose", "reasoning")
+    # 合法值集合；None / "inherit" 表示不覆盖，使用全局设置
+    _OVERRIDE_VALUES = {
+        "thinking": ("inherit", "low", "medium", "high"),
+        "verbose": ("inherit", "low", "medium", "high"),
+        "reasoning": ("inherit", "off", "low", "medium", "high"),
+    }
+
     def _new_session(self, sid, title=DEFAULT_TITLE, mode="chat"):
         now = time.time()
         return {
             "id": sid, "title": title, "mode": normalize_mode(mode),
             "created_at": now, "updated_at": now, "messages": [],
+            "overrides": {},
         }
 
     def create(self, title=DEFAULT_TITLE, mode="chat"):
@@ -98,6 +108,27 @@ class SessionStore:
         self.save(sess)
         return sess
 
+    @staticmethod
+    def _estimate_tokens(messages):
+        """粗略 token 估算：中文字符约 1 token，英文/数字/标点约 4 字符 = 1 token。
+
+        不追求精确——用于控制台展示的量级感知，标注"估算"。
+        """
+        total_chars = 0
+        cjk_chars = 0
+        for msg in messages or []:
+            content = (msg.get("content") or "") if isinstance(msg, dict) else ""
+            total_chars += len(content)
+            # CJK 统一汉字 + 假名 + 谚文 + 全角标点的粗略覆盖
+            for ch in content:
+                cp = ord(ch)
+                if (0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF
+                        or 0x3040 <= cp <= 0x30FF or 0xAC00 <= cp <= 0xD7AF
+                        or 0xFF00 <= cp <= 0xFFEF):
+                    cjk_chars += 1
+        ascii_chars = max(0, total_chars - cjk_chars)
+        return int(cjk_chars + ascii_chars / 4)
+
     def list(self):
         out = []
         for name in os.listdir(self.root):
@@ -106,18 +137,49 @@ class SessionStore:
             try:
                 with open(os.path.join(self.root, name), "r", encoding="utf-8") as f:
                     s = json.load(f)
+                messages = s.get("messages") or []
+                overrides_raw = s.get("overrides") or {}
+                # 兼容旧会话文件：没有 overrides 字段 → 不回显
+                overrides = {
+                    k: overrides_raw[k]
+                    for k in self._OVERRIDE_KEYS
+                    if overrides_raw.get(k) in self._OVERRIDE_VALUES.get(k, ())
+                }
                 out.append({
                     "id": s.get("id"),
                     "title": s.get("title"),
                     "mode": normalize_mode(s.get("mode")),
                     "created_at": s.get("created_at"),
                     "updated_at": s.get("updated_at"),
-                    "message_count": len(s.get("messages") or []),
+                    "message_count": len(messages),
+                    "tokens_estimated": self._estimate_tokens(messages),
+                    "overrides": overrides,
                 })
             except Exception:
                 continue
         out.sort(key=lambda x: x.get("updated_at") or 0, reverse=True)
         return out
+
+    def update_overrides(self, sid, overrides):
+        """安全地更新 per-session overrides：只白名单字段 + 合法值。"""
+        sess = self.get(sid)
+        if not sess:
+            return None
+        current = dict(sess.get("overrides") or {})
+        changed = False
+        if isinstance(overrides, dict):
+            for key in self._OVERRIDE_KEYS:
+                if key in overrides:
+                    val = overrides[key]
+                    allowed = self._OVERRIDE_VALUES.get(key, ())
+                    if val in allowed:
+                        if current.get(key) != val:
+                            current[key] = val
+                            changed = True
+        if changed or not sess.get("overrides"):
+            sess["overrides"] = current
+            self.save(sess)
+        return sess.get("overrides") or {}
 
     def delete(self, sid):
         try:

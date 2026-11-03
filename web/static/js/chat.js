@@ -56,6 +56,14 @@
     agentToggle: document.getElementById("agent-toggle"),
     agentToggleLabel: document.getElementById("agent-toggle-label"),
     openIde: document.getElementById("open-ide"),
+
+    // Minecraft 风格菜单按钮
+    mcSingleplayer: document.getElementById("mc-singleplayer"),
+    mcMultiplayer: document.getElementById("mc-multiplayer"),
+    mcMods: document.getElementById("mc-mods"),
+    mcRealms: document.getElementById("mc-realms"),
+    mcEject: document.getElementById("mc-eject"),
+
     tokenBar: document.getElementById("token-bar"),
     tokenInput: document.getElementById("token-input"),
     tokenTotal: document.getElementById("token-total"),
@@ -200,6 +208,7 @@
     // Agent 运行态
     agentRunId: null,       // 当前运行的 run_id
     agentPendingRunId: null, // 待审批的 run_id
+    activeAgentId: localStorage.getItem("simchat.active_agent_id") || null, // 当前激活的 AI 实例
 
     // 自动模型发现
     discoverTimer: null,   // 防抖计时器
@@ -2171,6 +2180,7 @@
       model: state.model || undefined,
       mode: mode,
       history: options.history || undefined,
+      agent_id: state.activeAgentId || undefined,
     };
 
     let endpoint = "/api/agent/run";
@@ -2412,6 +2422,7 @@
       provider: state.modelProvider || undefined,
       model: state.model || undefined,
       regenerate: !!options.regenerate,
+      agent_id: state.activeAgentId || undefined,
     };
 
     try {
@@ -3200,6 +3211,14 @@
     } else {
       stopLifecyclePolling();
     }
+
+    if (name === "skills") loadSkills();
+    if (name === "nodes") loadNodes();
+    if (name === "agent") loadAgentOverview();
+    if (name === "automation") loadAutomation();
+    if (name === "system") loadSystem();
+    if (name === "debug") loadDebug();
+    if (name === "logs") loadLogs();
 
     updateCommRuntimePolling();
   }
@@ -4863,9 +4882,1529 @@
       /* splash 加载失败不影响主流程 */
     }
 
+    // ---------- 顶部导航按钮 ----------
+    // AI 实例 → 打开 AI 实例列表面板
+    if (el.mcSingleplayer) {
+      el.mcSingleplayer.addEventListener("click", () => openOverlay("agent-list"));
+    }
+
+    // 网关连接 → 占位全屏蒙版
+    if (el.mcMultiplayer) {
+      el.mcMultiplayer.addEventListener("click", () => openOverlay("gateway-console"));
+    }
+
+    // MOD → 占位全屏蒙版
+    if (el.mcMods) {
+      el.mcMods.addEventListener("click", () => openOverlay("mod-console"));
+    }
+
+    // Realms → 占位按钮（disabled，暂无动作）
+
+    // Eject → 强制关闭后端模型服务
+    if (el.mcEject) {
+      el.mcEject.addEventListener("click", async () => {
+        const confirmed = window.confirm(
+          "⚠ 退出游戏\n\n这将强制关闭 SimChat 后端模型服务，停止所有推理、思维链和 ReAct 循环。\n\n此操作不可恢复，确定要退出吗？"
+        );
+        if (!confirmed) return;
+
+        const btn = el.mcEject;
+        btn.disabled = true;
+        btn.querySelector("span").textContent = "关闭中...";
+
+        try {
+          const resp = await fetch("/api/lifecycle/stop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "service" }),
+          });
+          const data = await resp.json();
+          if (data.ok) {
+            // 显示关闭成功画面
+            document.body.innerHTML =
+              '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:monospace;background:#1a1a1a;color:#aaa;">' +
+              '<h1 style="color:#c44;font-size:48px;margin-bottom:20px;">SimChat Stopped</h1>' +
+              '<p style="font-size:16px;">后端服务已关闭。你可以安全地关闭此窗口。</p>' +
+              '<p style="font-size:13px;margin-top:30px;color:#666;">(To restart, run the launcher again)</p>' +
+              '</div>';
+          } else {
+            alert("关闭失败: " + (data.error || data.message || "未知错误"));
+            btn.disabled = false;
+            btn.querySelector("span").textContent = "退出";
+          }
+        } catch (err) {
+          // 关闭服务后后端断开连接，fetch 可能报错——这是预期行为
+          document.body.innerHTML =
+            '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:monospace;background:#1a1a1a;color:#aaa;">' +
+            '<h1 style="color:#c44;font-size:48px;margin-bottom:20px;">SimChat Stopped</h1>' +
+            '<p style="font-size:16px;">后端服务已关闭。你可以安全地关闭此窗口。</p>' +
+            '<p style="font-size:13px;margin-top:30px;color:#666;">(Connection closed — this is normal)</p>' +
+            '</div>';
+        }
+      });
+    }
+
     // ---------- 实例监控初始化 ----------
+    initAgentList();
     initInstanceHeartbeat();
   })();
+
+  // ============================================================
+  // AI 实例（Agent 预设）模块
+  // ============================================================
+
+  const AGENT_AVATARS = [
+    "🤖","🧠","🐱","🦊","🐼","🦉","🐙","🦄",
+    "🎭","👻","🧙","🗡️","🌱","🔥","❄️","⚡",
+  ];
+
+  const state2 = {
+    agents: [],
+    selectedAgentId: null,
+    enginePresets: [],
+    enginePresetId: "normal",
+  };
+
+  async function loadAgents() {
+    try {
+      const resp = await api("/api/agents");
+      state2.agents = resp.agents || [];
+      state2.enginePresets = resp.engine_presets || [];
+      if (state.activeAgentId && !state2.agents.some((a) => a.id === state.activeAgentId)) {
+        state.activeAgentId = null;
+        try { localStorage.removeItem("simchat.active_agent_id"); } catch (_) {}
+      }
+      renderAgentList();
+    } catch (err) {
+      console.error("[agents] 加载失败:", err);
+      state2.agents = [];
+      renderAgentList();
+    }
+  }
+
+  function renderAgentList() {
+    const scroll = document.getElementById("agent-list-scroll");
+    const empty = document.getElementById("agent-list-empty");
+    const count = document.getElementById("agent-list-count");
+    if (!scroll || !empty) return;
+
+    count.textContent = state2.agents.length + " 个实例";
+
+    if (!state2.agents.length) {
+      scroll.innerHTML = "";
+      empty.classList.remove("hidden");
+      updateAgentActions();
+      return;
+    }
+    empty.classList.add("hidden");
+
+    scroll.innerHTML = state2.agents.map((a) => {
+      const desc = a.description ? escapeHtml(a.description) : "";
+      const mode = a.mode === "agent" ? "Agent" : "对话";
+      const tags = (a.tags || []).map((t) => `<span class="agent-card-tag">${escapeHtml(t)}</span>`).join("");
+      const sel = state2.selectedAgentId === a.id ? " is-selected" : "";
+      const defaultBadge = a.is_default ? '<span class="agent-card-badge">内置</span>' : "";
+      const avatar = (a.avatar_type === "image" || (a.avatar && a.avatar.startsWith("/") && a.avatar.endsWith(".png")))
+        ? `<img src="${escapeHtml(a.avatar)}" alt="" class="agent-card-avatar-img" onerror="this.style.display='none'; this.parentNode.textContent='🤖'">`
+        : escapeHtml(a.avatar || "🤖");
+      return `
+        <div class="agent-card${sel}" data-agent-id="${a.id}">
+          <div class="agent-card-avatar">${avatar}</div>
+          <div class="agent-card-body">
+            <div class="agent-card-name">${escapeHtml(a.name)}${defaultBadge}</div>
+            <div class="agent-card-sub">
+              <span class="agent-card-mode ${a.mode || "chat"}">${mode}</span>
+              ${desc ? `<span class="agent-card-desc">${desc}</span>` : ""}
+              ${tags ? `<span class="agent-card-tags">${tags}</span>` : ""}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    // 绑定点击事件
+    scroll.querySelectorAll(".agent-card").forEach((card) => {
+      card.addEventListener("click", () => {
+        const id = card.dataset.agentId;
+        state2.selectedAgentId = id;
+        renderAgentList();
+      });
+      card.addEventListener("dblclick", () => activateAgent());
+    });
+
+    // 如果选中的 id 已经不存在了
+    if (state2.selectedAgentId && !state2.agents.find((a) => a.id === state2.selectedAgentId)) {
+      state2.selectedAgentId = null;
+    }
+    updateAgentActions();
+  }
+
+  function updateAgentActions() {
+    const sel = state2.agents.find((a) => a.id === state2.selectedAgentId);
+    const hasSel = !!sel;
+    const isDefault = sel?.is_default === true;
+    const el = {
+      activate: document.getElementById("agent-activate"),
+      edit: document.getElementById("agent-edit"),
+      del: document.getElementById("agent-delete"),
+    };
+    if (el.activate) el.activate.disabled = !hasSel;
+    if (el.edit) el.edit.disabled = !hasSel;
+    if (el.del) {
+      el.del.disabled = !hasSel || isDefault;
+      el.del.title = isDefault ? "内置实例不可删除" : "删除选中的实例";
+    }
+  }
+
+  // ====== 统一全屏蒙版切换 ======
+
+  // 所有全屏蒙版的 id（打开一个会关闭其他）
+  const ALL_OVERLAYS = ["agent-list", "gateway-console", "mod-console", "settings-console"];
+
+  function openOverlay(id) {
+    // 先关掉所有其他蒙版
+    ALL_OVERLAYS.forEach((otherId) => {
+      if (otherId === id) return;
+      const other = document.getElementById(otherId);
+      if (other) {
+        other.classList.remove("is-open", "is-closing");
+        other.classList.add("hidden");
+      }
+    });
+    // 打开目标
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove("hidden", "is-closing");
+    el.classList.add("is-open");
+    // 打开时按需加载数据
+    if (id === "agent-list") loadAgents();
+    if (id === "gateway-console") loadGatewayPeers();
+    if (id === "mod-console") loadMods();
+  }
+
+  function closeOverlay(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove("is-open");
+    el.classList.add("is-closing");
+    setTimeout(() => {
+      el.classList.remove("is-closing");
+      el.classList.add("hidden");
+    }, 180);
+    applyInteractionGate();
+  }
+
+  // 别名（保留老函数名兼容内部调用）
+  const showAgentList = () => openOverlay("agent-list");
+  const hideAgentList = () => closeOverlay("agent-list");
+
+  function activateAgent() {
+    const agent = state2.agents.find((a) => a.id === state2.selectedAgentId);
+    if (!agent) return;
+    // 激活实例：后续对话/Agent 请求带上它的神经引擎预设参数
+    state.activeAgentId = agent.id;
+    try { localStorage.setItem("simchat.active_agent_id", agent.id); } catch (_) {}
+    if (agent.system_prompt) {
+      try { localStorage.setItem("simchat.system_prompt", agent.system_prompt); } catch (_) {}
+    }
+    hideAgentList();
+    // 聚焦输入框
+    setTimeout(() => document.getElementById("input")?.focus(), 50);
+  }
+
+  // ---------- 神经引擎预设（同一引擎的参数调教方案） ----------
+
+  function setEngineParams(params) {
+    if (!params) return;
+    const inputs = {
+      "agent-engine-temperature": params.temperature ?? 0.7,
+      "agent-engine-top-p": params.top_p ?? 0.9,
+      "agent-engine-repeat": params.repetition_penalty ?? 1.15,
+      "agent-engine-max-tokens": params.max_tokens ?? 4096,
+    };
+    Object.entries(inputs).forEach(([id, value]) => {
+      const input = document.getElementById(id);
+      if (input) input.value = value;
+    });
+    updateEngineParamLabels();
+  }
+
+  function updateEngineParamLabels() {
+    [
+      ["agent-engine-temperature", "agent-engine-temperature-val"],
+      ["agent-engine-top-p", "agent-engine-top-p-val"],
+      ["agent-engine-repeat", "agent-engine-repeat-val"],
+    ].forEach(([inputId, labelId]) => {
+      const input = document.getElementById(inputId);
+      const label = document.getElementById(labelId);
+      if (input && label) label.textContent = (parseFloat(input.value) || 0).toFixed(2);
+    });
+  }
+
+  function readEngineParams() {
+    return {
+      temperature: parseFloat(document.getElementById("agent-engine-temperature")?.value) || 0,
+      top_p: parseFloat(document.getElementById("agent-engine-top-p")?.value) || 0.9,
+      repetition_penalty: parseFloat(document.getElementById("agent-engine-repeat")?.value) || 1.0,
+      max_tokens: parseInt(document.getElementById("agent-engine-max-tokens")?.value, 10) || 4096,
+    };
+  }
+
+  function syncEngineParamInputs() {
+    const isCustom = state2.enginePresetId === "custom";
+    document.getElementById("agent-engine-params")?.classList.toggle("is-locked", !isCustom);
+    const hint = document.getElementById("agent-engine-params-hint");
+    if (hint) {
+      hint.textContent = isCustom
+        ? "当前可手动调节，参数随实例保存"
+        : "选择「自定义参数」后可手动调整";
+    }
+    ["agent-engine-temperature", "agent-engine-top-p", "agent-engine-repeat", "agent-engine-max-tokens"]
+      .forEach((id) => {
+        const input = document.getElementById(id);
+        if (input) input.disabled = !isCustom;
+      });
+  }
+
+  function renderEnginePresets() {
+    const list = document.getElementById("agent-engine-list");
+    if (!list) return;
+    if (!state2.enginePresets.length) {
+      list.innerHTML = '<div class="agent-engine-empty">预设列表未加载，请重新打开实例列表。</div>';
+      syncEngineParamInputs();
+      return;
+    }
+    list.innerHTML = state2.enginePresets.map((preset) => {
+      const active = preset.id === state2.enginePresetId;
+      return `
+        <button type="button" class="agent-engine-option${active ? " is-active" : ""}"
+                data-engine-id="${preset.id}" role="radio" aria-checked="${active}">
+          <span class="agent-engine-name">${escapeHtml(preset.label)}</span>
+          <span class="agent-engine-desc">${escapeHtml(preset.description)}</span>
+        </button>`;
+    }).join("");
+    list.querySelectorAll(".agent-engine-option").forEach((btn) => {
+      btn.addEventListener("click", () => selectEnginePreset(btn.dataset.engineId));
+    });
+    syncEngineParamInputs();
+  }
+
+  function selectEnginePreset(id) {
+    const preset = state2.enginePresets.find((p) => p.id === id);
+    if (!preset) return;
+    state2.enginePresetId = id;
+    document.getElementById("agent-edit-engine").value = id;
+    if (id !== "custom") setEngineParams(preset.params);
+    renderEnginePresets();
+  }
+
+  function openAgentEdit(agent) {
+    const modal = document.getElementById("agent-edit-modal");
+    const titleEl = document.getElementById("agent-edit-title");
+    const msgEl = document.getElementById("agent-edit-message");
+
+    // 切回基本设置 Tab
+    document.querySelectorAll(".agent-edit-tab").forEach((t) => {
+      t.classList.toggle("is-active", t.dataset.tab === "basic");
+    });
+    document.querySelectorAll(".agent-edit-tab-pane").forEach((p) => {
+      p.classList.toggle("is-active", p.dataset.pane === "basic");
+    });
+
+    // 头像显示辅助
+    const renderAvatar = (avatar, type) => {
+      const preview = document.getElementById("agent-edit-avatar-preview");
+      if (type === "image" || (avatar && avatar.startsWith("/"))) {
+        preview.innerHTML = `<img src="${escapeHtml(avatar)}" alt="">`;
+      } else {
+        preview.textContent = avatar || "🤖";
+      }
+    };
+
+    if (agent) {
+      titleEl.textContent = "编辑 AI 实例";
+      document.getElementById("agent-edit-id").value = agent.id;
+      document.getElementById("agent-edit-name").value = agent.name || "";
+      document.getElementById("agent-edit-entity").value = agent.entity_id || "";
+      renderAvatar(agent.avatar, agent.avatar_type);
+      document.getElementById("agent-edit-avatar-input").value = agent.avatar || "🤖";
+      document.getElementById("agent-edit-avatar-type").value = agent.avatar_type || "emoji";
+      document.getElementById("agent-edit-desc").value = agent.description || "";
+      document.getElementById("agent-edit-system").value = agent.system_prompt || "";
+      document.getElementById("agent-edit-seed").value = agent.seed || "";
+      state2.enginePresetId = agent.engine_preset || "normal";
+      document.getElementById("agent-edit-engine").value = state2.enginePresetId;
+      const preset = state2.enginePresets.find((p) => p.id === state2.enginePresetId)
+        || state2.enginePresets.find((p) => p.id === "normal");
+      setEngineParams(agent.engine_params || (preset ? preset.params : null));
+      renderEnginePresets();
+      document.getElementById("agent-edit-agent-capable").checked = agent.agent_capable !== false;
+      document.getElementById("agent-edit-allow-advanced").checked = !!agent.allow_advanced;
+      document.getElementById("agent-edit-desktop-pet").checked = !!agent.desktop_pet;
+    } else {
+      titleEl.textContent = "创建 AI 实例";
+      document.getElementById("agent-edit-id").value = "";
+      document.getElementById("agent-edit-name").value = "";
+      document.getElementById("agent-edit-entity").value = "";
+      const avatar = AGENT_AVATARS[Math.floor(Math.random() * AGENT_AVATARS.length)];
+      renderAvatar(avatar, "emoji");
+      document.getElementById("agent-edit-avatar-input").value = avatar;
+      document.getElementById("agent-edit-avatar-type").value = "emoji";
+      document.getElementById("agent-edit-desc").value = "";
+      document.getElementById("agent-edit-system").value = "";
+      document.getElementById("agent-edit-seed").value = "";
+      state2.enginePresetId = "normal";
+      document.getElementById("agent-edit-engine").value = "normal";
+      const preset = state2.enginePresets.find((p) => p.id === "normal");
+      setEngineParams(preset ? preset.params : null);
+      renderEnginePresets();
+      document.getElementById("agent-edit-agent-capable").checked = true;
+      document.getElementById("agent-edit-allow-advanced").checked = false;
+      document.getElementById("agent-edit-desktop-pet").checked = false;
+    }
+
+    msgEl.textContent = "";
+    modal.classList.remove("hidden");
+    setTimeout(() => document.getElementById("agent-edit-name").focus(), 50);
+  }
+
+  function closeAgentEdit() {
+    document.getElementById("agent-edit-modal")?.classList.add("hidden");
+  }
+
+  async function saveAgentEdit(e) {
+    e.preventDefault();
+    const msgEl = document.getElementById("agent-edit-message");
+    msgEl.textContent = "";
+
+    const id = document.getElementById("agent-edit-id").value;
+    const payload = {
+      name: document.getElementById("agent-edit-name").value.trim(),
+      entity_id: document.getElementById("agent-edit-entity").value.trim(),
+      description: document.getElementById("agent-edit-desc").value.trim(),
+      avatar: document.getElementById("agent-edit-avatar-input").value || "🤖",
+      avatar_type: document.getElementById("agent-edit-avatar-type").value || "emoji",
+      system_prompt: document.getElementById("agent-edit-system").value,
+      seed: document.getElementById("agent-edit-seed").value.trim(),
+      engine_preset: state2.enginePresetId,
+      engine_params: readEngineParams(),
+      agent_capable: document.getElementById("agent-edit-agent-capable").checked,
+      allow_advanced: document.getElementById("agent-edit-allow-advanced").checked,
+      desktop_pet: document.getElementById("agent-edit-desktop-pet").checked,
+    };
+
+    if (!payload.name) {
+      msgEl.textContent = "名称不能为空";
+      return;
+    }
+
+    try {
+      let data;
+      if (id) {
+        data = await api(`/api/agents/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+      } else {
+        data = await api("/api/agents", { method: "POST", body: JSON.stringify(payload) });
+      }
+      closeAgentEdit();
+      await loadAgents();
+      if (data?.agent?.id) state2.selectedAgentId = data.agent.id;
+      renderAgentList();
+    } catch (err) {
+      msgEl.textContent = err?.message || "保存失败";
+    }
+  }
+
+  async function deleteSelectedAgent() {
+    const agent = state2.agents.find((a) => a.id === state2.selectedAgentId);
+    if (!agent) return;
+    const ok = window.confirm(`确定要删除实例「${agent.name}」吗？此操作不可恢复。`);
+    if (!ok) return;
+    try {
+      await api(`/api/agents/${agent.id}`, { method: "DELETE" });
+      state2.selectedAgentId = null;
+      await loadAgents();
+    } catch (err) {
+      alert("删除失败: " + (err?.message || err));
+    }
+  }
+
+  async function resetAgents() {
+    const ok = window.confirm("这会删除所有自定义实例并重置为默认实例，确定继续？");
+    if (!ok) return;
+    try {
+      await api("/api/agents/reset", { method: "POST" });
+      state2.selectedAgentId = null;
+      await loadAgents();
+    } catch (err) {
+      alert("重置失败: " + (err?.message || err));
+    }
+  }
+
+  function pickRandomAvatar() {
+    const next = AGENT_AVATARS[Math.floor(Math.random() * AGENT_AVATARS.length)];
+    const preview = document.getElementById("agent-edit-avatar-preview");
+    preview.textContent = next;
+    document.getElementById("agent-edit-avatar-input").value = next;
+    document.getElementById("agent-edit-avatar-type").value = "emoji";
+  }
+
+  function initAgentList() {
+    // 面板切换
+    document.getElementById("agent-list-back")?.addEventListener("click", hideAgentList);
+
+    // 底部按钮栏
+    document.getElementById("agent-activate")?.addEventListener("click", activateAgent);
+    document.getElementById("agent-edit")?.addEventListener("click", () => {
+      const agent = state2.agents.find((a) => a.id === state2.selectedAgentId);
+      openAgentEdit(agent || null);
+    });
+    document.getElementById("agent-delete")?.addEventListener("click", deleteSelectedAgent);
+    document.getElementById("agent-reset")?.addEventListener("click", resetAgents);
+    document.getElementById("agent-create")?.addEventListener("click", () => openAgentEdit(null));
+    document.getElementById("agent-create-empty")?.addEventListener("click", () => openAgentEdit(null));
+
+    // 编辑弹窗
+    document.getElementById("agent-edit-form")?.addEventListener("submit", saveAgentEdit);
+    document.getElementById("agent-edit-close")?.addEventListener("click", closeAgentEdit);
+    document.getElementById("agent-edit-cancel")?.addEventListener("click", closeAgentEdit);
+    document.getElementById("agent-edit-avatar-reroll")?.addEventListener("click", pickRandomAvatar);
+
+    // 神经引擎参数滑块数值
+    ["agent-engine-temperature", "agent-engine-top-p", "agent-engine-repeat"].forEach((id) => {
+      document.getElementById(id)?.addEventListener("input", updateEngineParamLabels);
+    });
+
+    // Tab 切换
+    document.querySelectorAll(".agent-edit-tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const target = tab.dataset.tab;
+        document.querySelectorAll(".agent-edit-tab").forEach((t) =>
+          t.classList.toggle("is-active", t === tab)
+        );
+        document.querySelectorAll(".agent-edit-tab-pane").forEach((p) =>
+          p.classList.toggle("is-active", p.dataset.pane === target)
+        );
+      });
+    });
+
+    // 头像上传
+    document.getElementById("agent-edit-avatar-upload")?.addEventListener("click", () => {
+      document.getElementById("agent-edit-avatar-file")?.click();
+    });
+    document.getElementById("agent-edit-avatar-file")?.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      // 转成 base64 存进 localStorage 的临时区，后端可直接用
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result;
+        const preview = document.getElementById("agent-edit-avatar-preview");
+        preview.innerHTML = `<img src="${dataUrl}" alt="">`;
+        document.getElementById("agent-edit-avatar-input").value = dataUrl;
+        document.getElementById("agent-edit-avatar-type").value = "image";
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // 点击遮罩关闭
+    document.getElementById("agent-edit-modal")?.addEventListener("click", (e) => {
+      if (e.target.id === "agent-edit-modal") closeAgentEdit();
+    });
+
+    updateAgentActions();
+  }
+
+  // ============================================================
+  // 网关节点 / MOD 管理 / 控制台分区
+  // ============================================================
+
+  const consoleState = {
+    peers: [],
+    peerSelf: null,
+    peersLoaded: false,
+    peerBusy: false,
+    mods: null,
+    modsLoaded: false,
+    modQuery: "",
+    modType: "",
+    modSelectedId: null,
+    modBusy: false,
+    skills: null,
+  };
+
+  function _fmtBytes(bytes) {
+    const value = Number(bytes);
+    if (!Number.isFinite(value) || value <= 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let index = 0;
+    let size = value;
+    while (size >= 1024 && index < units.length - 1) {
+      size /= 1024;
+      index += 1;
+    }
+    return size.toFixed(index === 0 ? 0 : 1) + " " + units[index];
+  }
+
+  function _fmtDuration(seconds) {
+    const value = Math.max(0, Number(seconds) || 0);
+    const days = Math.floor(value / 86400);
+    const hours = Math.floor((value % 86400) / 3600);
+    const minutes = Math.floor((value % 3600) / 60);
+    if (days > 0) return days + " 天 " + hours + " 小时";
+    if (hours > 0) return hours + " 小时 " + minutes + " 分";
+    if (minutes > 0) return minutes + " 分 " + Math.floor(value % 60) + " 秒";
+    return Math.floor(value) + " 秒";
+  }
+
+  function _fmtAgo(seconds) {
+    const value = Math.max(0, Number(seconds) || 0);
+    if (value < 60) return value + " 秒前";
+    if (value < 3600) return Math.floor(value / 60) + " 分钟前";
+    if (value < 86400) return Math.floor(value / 3600) + " 小时前";
+    return Math.floor(value / 86400) + " 天前";
+  }
+
+  function _emptyBlock(icon, title, desc) {
+    return (
+      '<div class="agent-list-empty">' +
+      '<div class="agent-list-empty-icon">' + escapeHtml(icon) + "</div>" +
+      '<div class="agent-list-empty-title">' + escapeHtml(title) + "</div>" +
+      '<div class="agent-list-empty-desc">' + escapeHtml(desc) + "</div>" +
+      "</div>"
+    );
+  }
+
+  // ---------------- 网关连接 ----------------
+
+  async function loadGatewayPeers() {
+    const status = document.getElementById("gateway-status");
+    if (status) status.textContent = "检测中…";
+    try {
+      const data = await api("/api/gateway/peers");
+      consoleState.peers = data.peers || [];
+      consoleState.peerSelf = data.self || null;
+      consoleState.peersLoaded = true;
+      renderGatewayPeers();
+    } catch (error) {
+      if (status) status.textContent = "读取失败";
+      const list = document.getElementById("peer-list");
+      if (list) list.innerHTML = _emptyBlock("⚠️", "无法读取节点列表", error.message);
+    }
+  }
+
+  function renderGatewayPeers() {
+    const status = document.getElementById("gateway-status");
+    const selfCard = document.getElementById("peer-self-card");
+    const list = document.getElementById("peer-list");
+    const empty = document.getElementById("peer-empty");
+    if (!list) return;
+
+    const peers = consoleState.peers || [];
+    const online = peers.filter((peer) => peer.last_probe && peer.last_probe.ok).length;
+    if (status) {
+      status.textContent = peers.length
+        ? online + " / " + peers.length + " 在线"
+        : "未登记节点";
+    }
+
+    const self = consoleState.peerSelf;
+    if (selfCard) {
+      selfCard.innerHTML = self
+        ? '<div class="peer-self-head"><span class="peer-dot online"></span><strong>' +
+          escapeHtml(self.name || "本机 SimChat") + '</strong><span class="peer-badge">本机</span></div>' +
+          '<div class="peer-self-meta"><code>' + escapeHtml(self.url || "") + "</code>" +
+          "<span>PID " + escapeHtml(String(self.pid || "?")) + "</span>" +
+          "<span>已运行 " + escapeHtml(_fmtDuration(self.uptime_seconds)) + "</span></div>"
+        : "";
+    }
+
+    if (!peers.length) {
+      list.innerHTML = "";
+      if (empty) empty.classList.remove("hidden");
+      return;
+    }
+    if (empty) empty.classList.add("hidden");
+
+    list.innerHTML = peers.map((peer) => {
+      const probe = peer.last_probe || {};
+      const kind = probe.ok ? "online" : probe.checked_at ? "offline" : "unknown";
+      const probeText = probe.ok
+        ? "在线 · " + (probe.latency_ms != null ? probe.latency_ms + " ms" : "已响应")
+        : probe.checked_at
+          ? "离线 · " + (probe.error || "无响应")
+          : "尚未探活";
+      const checked = probe.checked_at ? "最近检查 " + probe.checked_at.replace("T", " ") : "";
+      return (
+        '<div class="peer-card" data-peer-id="' + escapeHtml(peer.id) + '">' +
+        '<div class="peer-card-head">' +
+        '<span class="peer-dot ' + kind + '"></span>' +
+        "<strong>" + escapeHtml(peer.name || peer.url) + "</strong>" +
+        '<span class="peer-badge">' + (peer.token_configured ? "令牌" : "无令牌") + "</span>" +
+        "</div>" +
+        '<div class="peer-url">' + escapeHtml(peer.url) + "</div>" +
+        (peer.note ? '<div class="peer-note">' + escapeHtml(peer.note) + "</div>" : "") +
+        '<div class="peer-meta"><span>' + escapeHtml(probeText) + "</span>" +
+        (checked ? "<span>" + escapeHtml(checked) + "</span>" : "") + "</div>" +
+        '<div class="peer-card-actions">' +
+        '<button type="button" class="ghost-button" data-action="probe">探活</button>' +
+        '<button type="button" class="ghost-button peer-danger" data-action="remove">删除</button>' +
+        "</div></div>"
+      );
+    }).join("");
+  }
+
+  async function probePeer(peerId) {
+    try {
+      const data = await api("/api/gateway/peers/" + encodeURIComponent(peerId) + "/probe", {
+        method: "POST",
+      });
+      const probe = data.probe || {};
+      if (probe.ok) {
+        showConsoleToast("节点在线，延迟 " + (probe.latency_ms != null ? probe.latency_ms + " ms" : "未知"));
+      } else {
+        showConsoleToast("探活失败：" + (probe.error || "无响应"));
+      }
+      await loadGatewayPeers();
+    } catch (error) {
+      showConsoleToast("探活失败：" + error.message);
+    }
+  }
+
+  async function removePeer(peerId) {
+    if (!window.confirm("删除这个节点？不会影响对方实例，只是移除本地记录。")) return;
+    try {
+      await api("/api/gateway/peers/" + encodeURIComponent(peerId), { method: "DELETE" });
+      showConsoleToast("节点已删除");
+      await loadGatewayPeers();
+    } catch (error) {
+      showConsoleToast("删除失败：" + error.message);
+    }
+  }
+
+  function togglePeerForm(force) {
+    const form = document.getElementById("peer-form");
+    if (!form) return;
+    const open = typeof force === "boolean" ? force : form.classList.contains("hidden");
+    form.classList.toggle("hidden", !open);
+    if (open) {
+      const urlInput = document.getElementById("peer-url");
+      if (urlInput) urlInput.focus();
+    }
+  }
+
+  function peerFormMessage(text, kind) {
+    const node = document.getElementById("peer-form-msg");
+    if (!node) return;
+    node.textContent = text || "";
+    node.className = "console-msg" + (kind ? " " + kind : "");
+  }
+
+  async function testPeerDraft() {
+    const url = document.getElementById("peer-url")?.value.trim();
+    const token = document.getElementById("peer-token")?.value.trim();
+    if (!url) {
+      peerFormMessage("请先填写节点地址", "error");
+      return;
+    }
+    peerFormMessage("正在测试…");
+    try {
+      const data = await api("/api/gateway/peers/probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, token }),
+      });
+      const probe = data.probe || {};
+      if (probe.ok) {
+        peerFormMessage("连接成功 · " + (probe.latency_ms != null ? probe.latency_ms + " ms" : "已响应"), "ok");
+      } else {
+        peerFormMessage("连接失败：" + (probe.error || "无响应"), "error");
+      }
+    } catch (error) {
+      peerFormMessage("连接失败：" + error.message, "error");
+    }
+  }
+
+  async function savePeer(event) {
+    if (event) event.preventDefault();
+    const name = document.getElementById("peer-name")?.value.trim() || "";
+    const url = document.getElementById("peer-url")?.value.trim() || "";
+    const token = document.getElementById("peer-token")?.value.trim() || "";
+    const note = document.getElementById("peer-note")?.value.trim() || "";
+    if (!url) {
+      peerFormMessage("节点地址不能为空", "error");
+      return;
+    }
+    const saveBtn = document.getElementById("peer-save");
+    if (saveBtn) saveBtn.disabled = true;
+    try {
+      const data = await api("/api/gateway/peers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, url, token, note }),
+      });
+      const peer = data.peer || {};
+      peerFormMessage("已保存，正在探活…", "ok");
+      try {
+        await api("/api/gateway/peers/" + encodeURIComponent(peer.id) + "/probe", { method: "POST" });
+      } catch (_) {
+        /* 探活失败不影响保存 */
+      }
+      togglePeerForm(false);
+      ["peer-name", "peer-url", "peer-token", "peer-note"].forEach((id) => {
+        const input = document.getElementById(id);
+        if (input) input.value = "";
+      });
+      peerFormMessage("");
+      await loadGatewayPeers();
+    } catch (error) {
+      peerFormMessage("保存失败：" + error.message, "error");
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  // ---------------- MOD 管理 ----------------
+
+  async function loadMods(force) {
+    if (consoleState.modsLoaded && !force) {
+      renderMods();
+      return;
+    }
+    const status = document.getElementById("mod-status");
+    if (status) status.textContent = "扫描中…";
+    try {
+      const payload = await api("/api/console/mods");
+      if (!payload.available) throw new Error(payload.reason || "MOD 索引不可用");
+      consoleState.mods = payload.data;
+      consoleState.modsLoaded = true;
+      if (!consoleState.modSelectedId && consoleState.mods.local.length) {
+        consoleState.modSelectedId = consoleState.mods.local[0].id;
+      }
+      renderMods();
+      renderModRegistry();
+    } catch (error) {
+      if (status) status.textContent = "扫描失败";
+      const list = document.getElementById("mod-list");
+      if (list) list.innerHTML = _emptyBlock("⚠️", "MOD 扫描失败", error.message);
+      const detail = document.getElementById("mod-detail");
+      if (detail) detail.innerHTML = '<div class="mod-detail-empty">' + escapeHtml(error.message) + "</div>";
+    }
+  }
+
+  function _modStatusInfo(item) {
+    if (item.status === "err") return { kind: "error", text: "manifest 错误" };
+    if (item.status === "warn") return { kind: "warn", text: "有警告" };
+    if (!item.enabled) return { kind: "off", text: "已停用" };
+    return { kind: "ok", text: "可加载" };
+  }
+
+  function renderMods() {
+    const data = consoleState.mods;
+    const list = document.getElementById("mod-list");
+    const status = document.getElementById("mod-status");
+    if (!list || !data) return;
+
+    const counts = data.counts || {};
+    if (status) {
+      status.textContent = (counts.enabled || 0) + " / " + (counts.total || 0) + " 已启用";
+    }
+
+    const query = consoleState.modQuery.toLowerCase();
+    const typeFilter = consoleState.modType;
+    const items = (data.local || []).filter((item) => {
+      if (typeFilter && item.type !== typeFilter) return false;
+      if (!query) return true;
+      return [item.id, item.name, item.description, item.type]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+
+    if (!items.length) {
+      list.innerHTML = _emptyBlock("🧩", "没有匹配的 MOD", data.local.length ? "换个关键词或类型试试。" : "mods/ 目录里还没有带 manifest.json 的 MOD。");
+      renderModDetail(null);
+      return;
+    }
+
+    list.innerHTML = items.map((item) => {
+      const info = _modStatusInfo(item);
+      return (
+        '<div class="mod-card' + (item.id === consoleState.modSelectedId ? " is-selected" : "") +
+        '" data-mod-id="' + escapeHtml(item.id) + '">' +
+        '<div class="mod-card-main">' +
+        '<div class="mod-card-name"><span class="mod-status-dot ' + info.kind + '"></span>' +
+        escapeHtml(item.name) + '<span class="mod-badge">' + escapeHtml(item.type_label || item.type) + "</span></div>" +
+        '<div class="mod-card-desc">' + escapeHtml(item.description || "无描述") + "</div>" +
+        '<div class="mod-card-meta">v' + escapeHtml(item.version) + " · " + escapeHtml(item.id) + "</div>" +
+        "</div>" +
+        '<button type="button" class="mod-switch' + (item.enabled ? " on" : "") +
+        '" data-toggle="' + escapeHtml(item.id) + '" title="' + (item.enabled ? "停用" : "启用") + '">' +
+        '<span class="mod-switch-knob"></span></button>' +
+        "</div>"
+      );
+    }).join("") + (items.length !== (data.local || []).length
+      ? '<div class="mod-filter-note">已过滤 ' + ((data.local || []).length - items.length) + " 个 MOD</div>"
+      : "");
+
+    const selected = (data.local || []).find((item) => item.id === consoleState.modSelectedId);
+    renderModDetail(selected || null);
+  }
+
+  function renderModDetail(item) {
+    const detail = document.getElementById("mod-detail");
+    if (!detail) return;
+    if (!item) {
+      detail.innerHTML = '<div class="mod-detail-empty">选择一个 MOD 查看 manifest 详情</div>';
+      return;
+    }
+    const info = _modStatusInfo(item);
+    const hooks = (item.hooks || []).length
+      ? item.hooks.map((hook) => '<span class="mod-chip">' + escapeHtml(hook) + "</span>").join("")
+      : '<span class="mod-chip muted">无 hooks</span>';
+    const caps = Object.keys(item.capabilities || {}).length
+      ? '<pre class="mod-code">' + escapeHtml(JSON.stringify(item.capabilities, null, 2)) + "</pre>"
+      : '<div class="mod-detail-muted">未声明 capabilities</div>';
+
+    let flowHtml = "";
+    if (item.automation) {
+      if (item.automation.error) {
+        flowHtml = '<div class="mod-detail-error">' + escapeHtml(item.automation.error) + "</div>";
+      } else {
+        const flow = item.automation;
+        flowHtml =
+          '<div class="mod-detail-section"><div class="mod-detail-label">自动化流程</div>' +
+          '<div class="mod-detail-muted">触发器：' +
+          escapeHtml(flow.trigger_type || "未声明") +
+          (flow.trigger_expr ? "（" + escapeHtml(flow.trigger_expr) + "）" : "") +
+          " · " + (flow.steps || []).length + " 步</div>" +
+          ((flow.steps || []).length
+            ? '<ol class="mod-flow-steps">' + flow.steps.map((step) =>
+                "<li><code>" + escapeHtml(step.use || "?") + "</code> · 审批：" +
+                escapeHtml(step.approval || "inherit") + "</li>").join("") + "</ol>"
+            : "") +
+          "</div>";
+      }
+    }
+
+    const errors = (item.errors || []).length
+      ? '<div class="mod-detail-error">' + item.errors.map(escapeHtml).join("<br>") + "</div>"
+      : "";
+    const warnings = (item.warnings || []).length
+      ? '<div class="mod-detail-warn">' + item.warnings.map(escapeHtml).join("<br>") + "</div>"
+      : "";
+
+    detail.innerHTML =
+      '<div class="mod-detail-head"><div class="mod-detail-name">' + escapeHtml(item.name) +
+      '<span class="mod-badge">' + escapeHtml(item.type_label || item.type) + "</span></div>" +
+      '<div class="mod-detail-id">' + escapeHtml(item.id) + "</div></div>" +
+      '<div class="mod-detail-grid">' +
+      '<div><span>版本</span><code>' + escapeHtml(item.version) + "</code></div>" +
+      '<div><span>许可证</span><code>' + escapeHtml(item.license || "未声明") + "</code></div>" +
+      '<div><span>状态</span><span class="mod-detail-state ' + info.kind + '">' + info.text + "</span></div>" +
+      '<div><span>前端扩展</span><code>' + (item.has_web ? "是" : "否") + "</code></div>" +
+      "</div>" +
+      '<div class="mod-detail-section"><div class="mod-detail-label">描述</div><div class="mod-detail-muted">' +
+      escapeHtml(item.description || "无描述") + "</div></div>" +
+      '<div class="mod-detail-section"><div class="mod-detail-label">Hooks</div><div class="mod-chips">' + hooks + "</div></div>" +
+      '<div class="mod-detail-section"><div class="mod-detail-label">Capabilities</div>' + caps + "</div>" +
+      '<div class="mod-detail-section"><div class="mod-detail-label">安装路径</div><div class="mod-detail-path">' +
+      escapeHtml(item.path) + "</div></div>" +
+      errors + warnings + flowHtml +
+      '<div class="mod-detail-actions"><button type="button" class="primary-button" data-detail-toggle="' +
+      escapeHtml(item.id) + '">' + (item.enabled ? "停用该 MOD" : "启用该 MOD") + "</button>" +
+      '<span class="mod-detail-muted">开关写入 .simchat_state.json，重启后生效</span></div>';
+  }
+
+  function renderModRegistry() {
+    const node = document.getElementById("mod-registry");
+    const data = consoleState.mods;
+    if (!node || !data) return;
+    const registry = data.registry || {};
+    if (!registry.available) {
+      node.innerHTML = '<div class="mod-registry-head">远程注册表</div><div class="mod-registry-empty">' +
+        escapeHtml(registry.reason || "不可用") + "</div>";
+      return;
+    }
+    const entries = registry.entries || [];
+    node.innerHTML =
+      '<div class="mod-registry-head">远程注册表 <span class="mod-registry-count">' + entries.length + " 条</span></div>" +
+      (entries.length
+        ? '<div class="mod-registry-list">' + entries.map((entry) =>
+            '<div class="mod-registry-item"><div class="mod-registry-name">' + escapeHtml(entry.name) +
+            '<span class="mod-badge">' + escapeHtml(entry.type_label || entry.type) + "</span></div>" +
+            '<div class="mod-registry-meta">' + escapeHtml(entry.mod_id) +
+            (entry.latest_version ? " · v" + escapeHtml(entry.latest_version) : "") + "</div>" +
+            '<div class="mod-registry-desc">' + escapeHtml(entry.description || "") + "</div></div>"
+          ).join("") + "</div>"
+        : '<div class="mod-registry-empty">注册表为空</div>');
+  }
+
+  async function toggleMod(modId, enabled) {
+    if (consoleState.modBusy) return;
+    consoleState.modBusy = true;
+    try {
+      const payload = await api("/api/console/mods/" + encodeURIComponent(modId) + "/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      consoleState.mods = payload.data;
+      consoleState.modsLoaded = true;
+      renderMods();
+      renderModRegistry();
+      consoleState.skills = null;
+      showConsoleToast(enabled ? "已启用 MOD（重启后生效）" : "已停用 MOD（重启后生效）");
+      if (state.activeSection === "skills") loadSkills(true);
+    } catch (error) {
+      showConsoleToast("操作失败：" + error.message);
+    } finally {
+      consoleState.modBusy = false;
+    }
+  }
+
+  // ---------------- 技能 ----------------
+
+  async function loadSkills(force) {
+    const summary = document.getElementById("skills-summary");
+    const list = document.getElementById("skills-list");
+    const empty = document.getElementById("skills-empty");
+    if (!list) return;
+    if (summary) summary.textContent = "加载中…";
+    try {
+      const payload = await api("/api/console/skills");
+      if (!payload.available) throw new Error(payload.reason || "技能索引不可用");
+      const data = payload.data || {};
+      consoleState.skills = data;
+      const counts = data.counts || {};
+      if (summary) summary.textContent = (counts.enabled || 0) + " / " + (counts.total || 0) + " 个技能已启用";
+      const items = data.items || [];
+      if (!items.length) {
+        list.innerHTML = "";
+        if (empty) empty.classList.remove("hidden");
+        return;
+      }
+      if (empty) empty.classList.add("hidden");
+      list.innerHTML = items.map((item) => {
+        return (
+          '<div class="settings-row" data-skill-id="' + escapeHtml(item.id) + '">' +
+          '<div class="settings-row-main"><div class="settings-row-title">' + escapeHtml(item.name) +
+          '<span class="mod-badge">v' + escapeHtml(item.version) + "</span>" +
+          (item.status === "err" ? '<span class="mod-detail-state error">manifest 错误</span>' : "") +
+          "</div>" +
+          '<div class="settings-row-desc">' + escapeHtml(item.description || item.id) + "</div>" +
+          '<div class="settings-row-meta">hooks: ' +
+          (item.hooks && item.hooks.length ? escapeHtml(item.hooks.join(", ")) : "无") + "</div></div>" +
+          '<button type="button" class="mod-switch' + (item.enabled ? " on" : "") +
+          '" data-skill-toggle="' + escapeHtml(item.id) + '" aria-label="' + (item.enabled ? "停用" : "启用") + '">' +
+          '<span class="mod-switch-knob"></span></button>' +
+          "</div>"
+        );
+      }).join("");
+    } catch (error) {
+      if (summary) summary.textContent = "加载失败";
+      list.innerHTML = _emptyBlock("⚠️", "技能加载失败", error.message);
+      if (empty) empty.classList.add("hidden");
+    }
+  }
+
+  async function toggleSkill(modId, enabled) {
+    await toggleMod(modId, enabled);
+  }
+
+  // ---------------- 节点 ----------------
+
+  async function loadNodes() {
+    const summary = document.getElementById("nodes-summary");
+    const list = document.getElementById("nodes-list");
+    if (!list) return;
+    if (summary) summary.textContent = "加载中…";
+    try {
+      const payload = await api("/api/console/nodes");
+      if (!payload.available) throw new Error(payload.reason || "节点接口不可用");
+      const data = payload.data || {};
+      const counts = data.counts || {};
+      if (summary) {
+        summary.textContent = "客户端 " + (counts.clients_online || 0) + "/" + (counts.clients || 0) +
+          " 在线 · 网关节点 " + (counts.peers_online || 0) + "/" + (counts.peers || 0) + " 在线";
+      }
+
+      const self = data.self
+        ? '<div class="node-card node-card-self"><div class="node-card-head"><span class="peer-dot online"></span>' +
+          "<strong>" + escapeHtml(data.self.name) + '</strong><span class="peer-badge">本机</span></div>' +
+          '<div class="node-card-meta"><code>' + escapeHtml(data.self.url) + "</code> · PID " +
+          escapeHtml(String(data.self.pid)) + "</div></div>"
+        : "";
+
+      const clients = (data.clients || []).map((node) =>
+        '<div class="node-card"><div class="node-card-head"><span class="peer-dot ' +
+        (node.online ? "online" : "offline") + '"></span><strong>' + escapeHtml(node.name) +
+        '</strong><span class="node-kind">客户端</span></div>' +
+        '<div class="node-card-meta">' + escapeHtml(node.platform || "未知平台") +
+        (node.remote_ip ? " · " + escapeHtml(node.remote_ip) : "") +
+        " · " + node.tabs + " 个标签页 · " + escapeHtml(node.online ? "在线" : _fmtAgo(node.last_seen_ago_seconds)) +
+        "</div></div>"
+      ).join("");
+
+      const peers = (data.peers || []).map((node) =>
+        '<div class="node-card"><div class="node-card-head"><span class="peer-dot ' +
+        (node.online ? "online" : "offline") + '"></span><strong>' + escapeHtml(node.name) +
+        '</strong><span class="node-kind">网关节点</span></div>' +
+        '<div class="node-card-meta"><code>' + escapeHtml(node.url) + "</code> · " +
+        escapeHtml(node.online ? "在线" : "未连接") +
+        (node.latency_ms != null ? " · " + node.latency_ms + " ms" : "") +
+        "</div></div>"
+      ).join("");
+
+      list.innerHTML = self + clients + peers;
+      if (!clients && !peers) {
+        list.innerHTML += _emptyBlock("🔗", "暂无其他节点", "浏览器接入后会自动出现在这里；网关节点可在「网关连接」中添加。");
+      }
+    } catch (error) {
+      if (summary) summary.textContent = "加载失败";
+      list.innerHTML = _emptyBlock("⚠️", "节点加载失败", error.message);
+    }
+  }
+
+  // ---------------- 代理（Agent 运行时） ----------------
+
+  async function loadAgentOverview() {
+    const summary = document.getElementById("agent-overview-summary");
+    const node = document.getElementById("agent-overview");
+    if (!node) return;
+    if (summary) summary.textContent = "加载中…";
+    try {
+      const payload = await api("/api/console/agent");
+      if (!payload.available) throw new Error(payload.reason || "代理接口不可用");
+      const data = payload.data || {};
+      const options = data.options || {};
+      const agents = data.agents || [];
+      const skills = data.skill_mods || [];
+      if (summary) {
+        summary.textContent = agents.length + " 个实例 · " + skills.length + " 个技能 MOD";
+      }
+
+      const stat = (label, value, hint) =>
+        '<div class="stat-card"><div class="stat-card-label">' + escapeHtml(label) + "</div>" +
+        '<div class="stat-card-value">' + escapeHtml(String(value)) + "</div>" +
+        (hint ? '<div class="stat-card-sub">' + escapeHtml(hint) + "</div>" : "") + "</div>";
+
+      const optionsHtml =
+        '<div class="system-grid">' +
+        stat("最大轮次", options.max_turns ?? "?", "config.json → agent.max_turns") +
+        stat("审批超时", _fmtDuration(options.approval_ttl) , "审批挂起上限") +
+        stat("Shell 执行", options.shell_enabled ? "已开启" : "已关闭", "沙箱命令权限") +
+        stat("Shell 超时", (options.shell_timeout || 0) + " 秒", "单条命令上限") +
+        "</div>" +
+        '<div class="overview-path"><span>工具根目录</span><code>' +
+        escapeHtml(options.workdir || "未配置") + "</code></div>";
+
+      const agentsHtml = agents.length
+        ? '<div class="overview-list">' + agents.map((agent) =>
+            '<div class="overview-row"><div class="overview-row-main"><div class="overview-row-title">' +
+            escapeHtml(agent.name || agent.id) + '<span class="mod-badge">' +
+            escapeHtml(agent.agent_capable ? "Agent" : "对话") + "</span></div>" +
+            '<div class="overview-row-desc">' + escapeHtml(agent.description || "") + "</div>" +
+            '<div class="overview-row-meta">引擎预设：' + escapeHtml(agent.engine_preset || "normal") +
+            (agent.model ? " · 模型：" + escapeHtml(agent.model) : "") + "</div></div></div>"
+          ).join("") + "</div>"
+        : '<div class="mod-detail-muted">还没有实例</div>';
+
+      const skillsHtml = skills.length
+        ? '<div class="mod-chips">' + skills.map((item) =>
+            '<span class="mod-chip">' + escapeHtml(item.name) + (item.enabled ? "" : "（停用）") + "</span>"
+          ).join("") + "</div>"
+        : '<div class="mod-detail-muted">没有 Skill MOD，Agent 暂时没有可调用工具。</div>';
+
+      node.innerHTML =
+        '<div class="overview-section"><div class="overview-title">运行参数</div>' + optionsHtml + "</div>" +
+        '<div class="overview-section"><div class="overview-title">AI 实例</div>' + agentsHtml + "</div>" +
+        '<div class="overview-section"><div class="overview-title">技能来源</div>' + skillsHtml + "</div>";
+    } catch (error) {
+      if (summary) summary.textContent = "加载失败";
+      node.innerHTML = _emptyBlock("⚠️", "代理概览加载失败", error.message);
+    }
+  }
+
+  // ---------------- 自动化 ----------------
+
+  async function loadAutomation() {
+    const summary = document.getElementById("automation-summary");
+    const list = document.getElementById("automation-list");
+    const empty = document.getElementById("automation-empty");
+    if (!list) return;
+    if (summary) summary.textContent = "加载中…";
+    try {
+      const payload = await api("/api/console/automation");
+      if (!payload.available) throw new Error(payload.reason || "自动化接口不可用");
+      const data = payload.data || {};
+      const items = data.items || [];
+      const counts = data.counts || {};
+      if (summary) {
+        summary.textContent = "发现 " + (counts.total || 0) + " 个工作流 · " + (counts.enabled || 0) +
+          " 个已启用 · 引擎：" + (data.engine === "not_started" ? "未启动" : data.engine);
+      }
+      if (!items.length) {
+        list.innerHTML = "";
+        if (empty) empty.classList.remove("hidden");
+        return;
+      }
+      if (empty) empty.classList.add("hidden");
+      list.innerHTML = items.map((item) => {
+        const flow = item.flow;
+        let flowHtml = '<div class="mod-detail-muted">该 MOD 没有可读取的 flow 定义</div>';
+        if (flow && flow.error) {
+          flowHtml = '<div class="mod-detail-error">' + escapeHtml(flow.error) + "</div>";
+        } else if (flow) {
+          flowHtml =
+            '<div class="automation-flow-meta">触发器：<code>' +
+            escapeHtml((flow.trigger_type || "未声明") + (flow.trigger_expr ? " · " + flow.trigger_expr : "")) +
+            "</code></div>" +
+            (flow.steps && flow.steps.length
+              ? '<ol class="mod-flow-steps">' + flow.steps.map((step) =>
+                  "<li><code>" + escapeHtml(step.use || "?") + "</code> · 审批：" +
+                  escapeHtml(step.approval || "inherit") + "</li>").join("") + "</ol>"
+              : '<div class="mod-detail-muted">没有声明步骤</div>') +
+            '<div class="automation-policy">' + escapeHtml(JSON.stringify(flow.policy || {}, null, 0)) + "</div>";
+        }
+        return (
+          '<div class="automation-card">' +
+          '<div class="automation-head"><strong>' + escapeHtml(item.name) + '</strong>' +
+          '<span class="mod-badge">v' + escapeHtml(item.version) + "</span>" +
+          '<span class="mod-detail-state ' + (item.enabled ? "ok" : "off") + '">' +
+          (item.enabled ? "已启用" : "已停用") + "</span>" +
+          (item.status === "err" ? '<span class="mod-detail-state error">manifest 错误</span>' : "") +
+          "</div>" +
+          '<div class="automation-desc">' + escapeHtml(item.description || "") + "</div>" +
+          flowHtml +
+          (item.error ? '<div class="mod-detail-error">' + escapeHtml(item.error) + "</div>" : "") +
+          "</div>"
+        );
+      }).join("");
+    } catch (error) {
+      if (summary) summary.textContent = "加载失败";
+      list.innerHTML = _emptyBlock("⚠️", "自动化加载失败", error.message);
+      if (empty) empty.classList.add("hidden");
+    }
+  }
+
+  // ---------------- 系统配置 ----------------
+
+  async function loadSystem() {
+    const summary = document.getElementById("system-summary");
+    const grid = document.getElementById("system-grid");
+    const levelSelect = document.getElementById("system-log-level");
+    if (!grid) return;
+    if (summary) summary.textContent = "加载中…";
+    try {
+      const payload = await api("/api/console/system");
+      if (!payload.available) throw new Error(payload.reason || "系统接口不可用");
+      const data = payload.data || {};
+      const runtime = data.runtime || {};
+      const memory = data.memory || {};
+      const storage = data.storage || {};
+      const paths = data.paths || {};
+      const state = data.state || {};
+      if (summary) {
+        summary.textContent = runtime.app + " · Python " + runtime.python + " · " + (runtime.platform || "");
+      }
+
+      const stat = (label, value, hint) =>
+        '<div class="stat-card"><div class="stat-card-label">' + escapeHtml(label) + "</div>" +
+        '<div class="stat-card-value">' + escapeHtml(String(value)) + "</div>" +
+        (hint ? '<div class="stat-card-sub">' + escapeHtml(hint) + "</div>" : "") + "</div>";
+
+      grid.innerHTML =
+        stat("进程 PID", runtime.pid, "当前 Web 进程") +
+        stat("CPU 核心", runtime.cpu_count ?? "?", runtime.machine) +
+        stat("进程内存", memory.rss_mb != null ? memory.rss_mb + " MB" : "不可用", memory.source === "psutil" ? "RSS" : "安装 psutil 后可读") +
+        stat("线程数", memory.threads ?? "—", "当前进程") +
+        stat("Data 目录", _fmtBytes(storage.data_size_bytes), (storage.data_files || 0) + " 个文件") +
+        stat("磁盘可用", _fmtBytes(storage.disk_free_bytes), "项目所在盘");
+
+      const pathRows = [
+        ["项目根目录", paths.project_root],
+        ["数据目录", storage.data_root],
+        ["MOD 目录", paths.mods_dir],
+        ["日志目录", paths.logs_dir],
+        ["配置文件", paths.config || "未生成"],
+        ["设置文件", paths.settings || "未生成"],
+      ].map(([label, value]) =>
+        '<div class="overview-path"><span>' + escapeHtml(label) + "</span><code>" +
+        escapeHtml(value || "") + "</code></div>"
+      ).join("");
+
+      const envRows = (data.env || []).length
+        ? (data.env || []).map((item) =>
+            '<div class="overview-path"><span>' + escapeHtml(item.key) + "</span><code>" +
+            escapeHtml(item.value) + "</code></div>"
+          ).join("")
+        : '<div class="mod-detail-muted">没有 SIMCHAT_* 环境变量</div>';
+
+      grid.innerHTML +=
+        '<div class="overview-section overview-section-wide"><div class="overview-title">运行路径</div>' +
+        pathRows + "</div>" +
+        '<div class="overview-section overview-section-wide"><div class="overview-title">环境变量</div>' +
+        envRows + "</div>";
+
+      if (levelSelect) {
+        const levels = data.log_levels || ["DEBUG", "INFO", "WARNING", "ERROR"];
+        levelSelect.innerHTML = levels.map((level) =>
+          '<option value="' + escapeHtml(level) + '"' +
+          (level === state.log_level ? " selected" : "") + ">" + escapeHtml(level) + "</option>"
+        ).join("");
+      }
+    } catch (error) {
+      if (summary) summary.textContent = "加载失败";
+      grid.innerHTML = _emptyBlock("⚠️", "系统信息加载失败", error.message);
+    }
+  }
+
+  async function saveSystemConfig() {
+    const levelSelect = document.getElementById("system-log-level");
+    const message = document.getElementById("system-msg");
+    if (!levelSelect) return;
+    try {
+      const payload = await api("/api/console/system", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ log_level: levelSelect.value }),
+      });
+      if (message) {
+        message.textContent = "已保存，日志级别：" + levelSelect.value;
+        message.className = "console-msg ok";
+      }
+      if (payload.data) {
+        // 刷新展示（保持当前选择）
+        await loadSystem();
+        const select = document.getElementById("system-log-level");
+        if (select) select.value = levelSelect.value;
+      }
+    } catch (error) {
+      if (message) {
+        message.textContent = "保存失败：" + error.message;
+        message.className = "console-msg error";
+      }
+    }
+  }
+
+  // ---------------- 调试 ----------------
+
+  async function loadDebug() {
+    const summary = document.getElementById("debug-summary");
+    const grid = document.getElementById("debug-stats");
+    const eventsNode = document.getElementById("debug-events");
+    if (!grid || !eventsNode) return;
+    if (summary) summary.textContent = "加载中…";
+    try {
+      const [snapshotPayload, eventsPayload] = await Promise.all([
+        api("/api/console/debug/snapshot"),
+        api("/api/console/debug/events?limit=60"),
+      ]);
+      if (!snapshotPayload.available) throw new Error(snapshotPayload.reason || "调试接口不可用");
+      const data = snapshotPayload.data || {};
+      const runtime = data.runtime || {};
+      const memory = data.memory || {};
+      const disk = data.disk || {};
+      const counts = data.counts || {};
+      if (summary) {
+        summary.textContent = "运行 " + _fmtDuration(data.uptime_seconds) + " · PID " + runtime.pid;
+      }
+
+      const stat = (label, value, hint) =>
+        '<div class="stat-card"><div class="stat-card-label">' + escapeHtml(label) + "</div>" +
+        '<div class="stat-card-value">' + escapeHtml(String(value)) + "</div>" +
+        (hint ? '<div class="stat-card-sub">' + escapeHtml(hint) + "</div>" : "") + "</div>";
+
+      grid.innerHTML =
+        stat("运行时长", _fmtDuration(data.uptime_seconds), data.started_at || "") +
+        stat("会话数", counts.sessions || 0, "data/sessions") +
+        stat("Agent 运行", counts.agent_runs || 0, "data/agent_runs") +
+        stat("客户端", counts.instances || 0, "已上报心跳") +
+        stat("网关节点", counts.gateway_peers || 0, "已登记") +
+        stat("事件缓冲", counts.events || 0, "最多 300 条") +
+        stat("内存", memory.rss_mb != null ? memory.rss_mb + " MB" : "不可用", "RSS") +
+        stat("磁盘可用", _fmtBytes(disk.free_bytes), _fmtBytes(disk.total_bytes) + " 总量");
+
+      const events = (eventsPayload.data && eventsPayload.data.events) || [];
+      eventsNode.innerHTML = events.length
+        ? events.map((event) => {
+            const detail = event.detail || {};
+            const text = event.kind === "http"
+              ? (detail.method || "?") + " " + (detail.path || "") + " → " + (detail.status ?? "?") +
+                " (" + (detail.duration_ms ?? 0) + " ms)"
+              : Object.keys(detail).map((key) => key + "=" + detail[key]).join("，");
+            return (
+              '<div class="debug-event"><span class="debug-event-time">' +
+              escapeHtml(event.ts || "") + '</span><span class="debug-event-kind">' +
+              escapeHtml(event.kind || "") + '</span><span class="debug-event-detail">' +
+              escapeHtml(text || "") + "</span></div>"
+            );
+          }).join("")
+        : '<div class="mod-detail-muted">还没有事件；调用任意 /api 接口后这里会出现记录。</div>';
+    } catch (error) {
+      if (summary) summary.textContent = "加载失败";
+      grid.innerHTML = _emptyBlock("⚠️", "调试快照加载失败", error.message);
+      eventsNode.innerHTML = "";
+    }
+  }
+
+  // ---------------- 日志 ----------------
+
+  async function loadLogs() {
+    const fileSelect = document.getElementById("log-file");
+    if (!fileSelect) return;
+    try {
+      const payload = await api("/api/console/logs");
+      if (!payload.available) throw new Error(payload.reason || "日志接口不可用");
+      const data = payload.data || {};
+      const files = data.files || [];
+      if (!files.length) {
+        fileSelect.innerHTML = '<option value="">暂无日志文件</option>';
+        const viewer = document.getElementById("log-viewer");
+        if (viewer) viewer.textContent = "日志文件尚未生成；触发一次 API 请求后会写入 data/logs/simchat.log。";
+        const summary = document.getElementById("log-summary");
+        if (summary) summary.textContent = data.log_dir || "";
+        return;
+      }
+      const previous = fileSelect.value;
+      fileSelect.innerHTML = files.map((file) =>
+        '<option value="' + escapeHtml(file.name) + '">' + escapeHtml(file.name) +
+        " (" + _fmtBytes(file.size_bytes) + ")</option>"
+      ).join("");
+      const keep = files.some((file) => file.name === previous);
+      if (!keep) fileSelect.value = files[0].name;
+      await loadLogTail();
+    } catch (error) {
+      const viewer = document.getElementById("log-viewer");
+      if (viewer) viewer.textContent = "日志读取失败：" + error.message;
+    }
+  }
+
+  async function loadLogTail() {
+    const fileSelect = document.getElementById("log-file");
+    const linesSelect = document.getElementById("log-lines");
+    const viewer = document.getElementById("log-viewer");
+    const summary = document.getElementById("log-summary");
+    if (!fileSelect || !viewer) return;
+    const name = fileSelect.value;
+    if (!name) {
+      viewer.textContent = "没有可读取的日志文件。";
+      return;
+    }
+    const lines = linesSelect ? linesSelect.value : 200;
+    viewer.textContent = "读取中…";
+    try {
+      const payload = await api(
+        "/api/console/logs/" + encodeURIComponent(name) + "?lines=" + encodeURIComponent(lines)
+      );
+      if (!payload.available) throw new Error(payload.reason || "日志不可读");
+      const data = payload.data || {};
+      viewer.textContent = data.content || "（日志为空）";
+      if (summary) {
+        summary.textContent = data.name + " · 最近 " + (data.lines || 0) + " 行";
+        summary.className = "console-msg";
+      }
+      viewer.scrollTop = viewer.scrollHeight;
+    } catch (error) {
+      viewer.textContent = "日志读取失败：" + error.message;
+    }
+  }
+
+  // ---------------- 通用提示 ----------------
+
+  let _consoleToastTimer = null;
+  function showConsoleToast(text) {
+    let node = document.getElementById("console-toast");
+    if (!node) {
+      node = document.createElement("div");
+      node.id = "console-toast";
+      node.className = "console-toast hidden";
+      document.body.appendChild(node);
+    }
+    node.textContent = text;
+    node.classList.remove("hidden");
+    if (_consoleToastTimer) clearTimeout(_consoleToastTimer);
+    _consoleToastTimer = setTimeout(() => node.classList.add("hidden"), 2600);
+  }
+
+  // ---------------- 事件绑定 ----------------
+
+  function initOverlayConsoles() {
+    document.getElementById("gateway-back")?.addEventListener("click", () => closeOverlay("gateway-console"));
+    document.getElementById("mod-back")?.addEventListener("click", () => closeOverlay("mod-console"));
+
+    // 网关节点
+    document.getElementById("peer-refresh")?.addEventListener("click", () => loadGatewayPeers());
+    document.getElementById("peer-add-toggle")?.addEventListener("click", () => togglePeerForm());
+    document.getElementById("peer-cancel")?.addEventListener("click", () => {
+      togglePeerForm(false);
+      peerFormMessage("");
+    });
+    document.getElementById("peer-test")?.addEventListener("click", testPeerDraft);
+    document.getElementById("peer-form")?.addEventListener("submit", savePeer);
+
+    document.getElementById("peer-list")?.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      const card = event.target.closest("[data-peer-id]");
+      if (!button || !card) return;
+      const peerId = card.dataset.peerId;
+      if (button.dataset.action === "probe") probePeer(peerId);
+      if (button.dataset.action === "remove") removePeer(peerId);
+    });
+
+    // MOD
+    document.getElementById("mod-refresh")?.addEventListener("click", () => loadMods(true));
+    document.getElementById("mod-search")?.addEventListener("input", (event) => {
+      consoleState.modQuery = event.target.value.trim();
+      renderMods();
+    });
+    document.getElementById("mod-type-filter")?.addEventListener("change", (event) => {
+      consoleState.modType = event.target.value;
+      renderMods();
+    });
+    document.getElementById("mod-list")?.addEventListener("click", (event) => {
+      const toggle = event.target.closest("button[data-toggle]");
+      if (toggle) {
+        event.stopPropagation();
+        const item = (consoleState.mods?.local || []).find((mod) => mod.id === toggle.dataset.toggle);
+        if (item) toggleMod(item.id, !item.enabled);
+        return;
+      }
+      const card = event.target.closest("[data-mod-id]");
+      if (!card) return;
+      consoleState.modSelectedId = card.dataset.modId;
+      renderMods();
+    });
+    document.getElementById("mod-detail")?.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-detail-toggle]");
+      if (!button) return;
+      const item = (consoleState.mods?.local || []).find((mod) => mod.id === button.dataset.detailToggle);
+      if (item) toggleMod(item.id, !item.enabled);
+    });
+
+    // 技能
+    document.getElementById("skills-refresh")?.addEventListener("click", () => loadSkills(true));
+    document.getElementById("skills-list")?.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-skill-toggle]");
+      if (!button) return;
+      const item = (consoleState.skills?.items || []).find((skill) => skill.id === button.dataset.skillToggle);
+      if (item) toggleSkill(item.id, !item.enabled);
+    });
+
+    // 节点 / 代理 / 自动化
+    document.getElementById("nodes-refresh")?.addEventListener("click", () => loadNodes());
+    document.getElementById("agent-overview-refresh")?.addEventListener("click", () => loadAgentOverview());
+    document.getElementById("automation-refresh")?.addEventListener("click", () => loadAutomation());
+
+    // 系统 / 调试 / 日志
+    document.getElementById("system-refresh")?.addEventListener("click", () => loadSystem());
+    document.getElementById("system-save")?.addEventListener("click", saveSystemConfig);
+    document.getElementById("debug-refresh")?.addEventListener("click", () => loadDebug());
+    document.getElementById("log-refresh")?.addEventListener("click", () => loadLogs());
+    document.getElementById("log-file")?.addEventListener("change", () => loadLogTail());
+    document.getElementById("log-lines")?.addEventListener("change", () => loadLogTail());
+  }
+  initOverlayConsoles();
 
   // ============================================================
   // 实例 / 设备监控模块

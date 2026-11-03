@@ -224,7 +224,8 @@ class SimChatCore:
         }
 
     def generate(self, prompt, system_msg=None, provider=None, model=None,
-                 temperature=0.7, max_tokens=1024):
+                 temperature=0.7, max_tokens=1024,
+                 top_p=None, repetition_penalty=None):
         """Agent 模式使用的一次性生成：收集流式增量后返回完整文本。"""
         self.config = self._load_config()
         chosen, error = self.resolve_provider(provider)
@@ -244,6 +245,8 @@ class SimChatCore:
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
             )
         ]
         text = "".join(pieces).strip()
@@ -255,7 +258,7 @@ class SimChatCore:
 
     def chat_stream(self, message, session_id=None, provider=None, model=None,
                     system=None, temperature=0.7, max_tokens=1024,
-                    regenerate=False):
+                    regenerate=False, top_p=None, repetition_penalty=None):
         """生成 SSE 事件 dict：chat_started → token* → final | error。"""
         self.config = self._load_config()  # 热加载，改配置免重启
 
@@ -300,7 +303,8 @@ class SimChatCore:
         pieces = []
         try:
             for piece in prov.stream_chat(messages, model=model,
-                                          temperature=temperature, max_tokens=max_tokens):
+                                          temperature=temperature, max_tokens=max_tokens,
+                                          top_p=top_p, repetition_penalty=repetition_penalty):
                 pieces.append(piece)
                 yield {"event": "token", "content": piece}
         except ProviderError as e:

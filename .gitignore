@@ -10,8 +10,9 @@ data/
 secrets*
 dev-keys/
 
-# MOD 运行时上传目录
+# MOD 运行时上传目录与启停状态
 mods/uploads/
+mods/.simchat_state.json
 
 # Python
 __pycache__/

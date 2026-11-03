@@ -32,15 +32,16 @@ class OllamaProvider:
         self.keep_alive = cfg.get("keep_alive", "30m")
         self.extra_options = cfg.get("options") or {}
 
-    def stream_chat(self, messages, model=None, temperature=0.7, max_tokens=1024):
+    def stream_chat(self, messages, model=None, temperature=0.7, max_tokens=1024,
+                    top_p=None, repetition_penalty=None):
         if not OLLAMA_AVAILABLE:
             raise ProviderError("ollama Python 库不可用")
         options = {
             "temperature": temperature,
-            "top_p": 0.9,
+            "top_p": 0.9 if top_p is None else top_p,
             "num_ctx": 8192,
             "num_predict": max_tokens,
-            "repetition_penalty": 1.15,
+            "repeat_penalty": 1.15 if repetition_penalty is None else repetition_penalty,
         }
         options.update(self.extra_options)
         try:
@@ -74,7 +75,8 @@ class OpenAICompatProvider:
         if not (self.api_base and self.api_key and self.model):
             raise ProviderError("OpenAI 兼容端点未配置（api_base/api_key/model_name）")
 
-    def stream_chat(self, messages, model=None, temperature=0.7, max_tokens=1024):
+    def stream_chat(self, messages, model=None, temperature=0.7, max_tokens=1024,
+                    top_p=None, repetition_penalty=None):
         self._check()
         url = self.api_base + "/chat/completions"
         payload = {
@@ -84,6 +86,11 @@ class OpenAICompatProvider:
             "max_tokens": max_tokens,
             "stream": True,
         }
+        if top_p is not None:
+            payload["top_p"] = top_p
+        if repetition_penalty is not None:
+            # OpenAI 兼容协议没有 repeat_penalty：映射到 frequency_penalty（0~2）
+            payload["frequency_penalty"] = round(max(0.0, repetition_penalty - 1.0), 3)
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",

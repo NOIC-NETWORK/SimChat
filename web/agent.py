@@ -68,8 +68,25 @@ def _get_core():
     return get_core(current_app)
 
 
+def _active_agent(core, data):
+    """按请求里的 agent_id 取出当前激活的实例。"""
+    agent_id = (data.get("agent_id") or "").strip()
+    if not agent_id:
+        return None
+    try:
+        from ..runtime import agents as agents_mod
+
+        return agents_mod.get(core.data_root, agent_id)
+    except (ValueError, OSError, ImportError):
+        return None
+
+
 def _system_prompt(core, data, fallback=None):
     text = (data.get("system") or "").strip()
+    if not text:
+        agent = _active_agent(core, data)
+        if agent:
+            text = (agent.get("system_prompt") or "").strip()
     if not text:
         try:
             text = (core.load_settings().get("system_prompt") or "").strip()
@@ -82,12 +99,28 @@ def _system_prompt(core, data, fallback=None):
 
 def _make_backend(core, data, fallback=None):
     meta = fallback or {}
+    agent = _active_agent(core, data)
+    params = {}
+    if agent:
+        from ..runtime import agents as agents_mod
+
+        params = agents_mod.resolve_engine_params(agent)
+
+    def _pick(key, default):
+        for source in (meta, params):
+            value = source.get(key)
+            if value is not None:
+                return value
+        return default
+
     return SimChatAgentBackend(
         core,
         provider=data.get("provider") or meta.get("provider"),
         model=data.get("model") or meta.get("model"),
-        temperature=float(meta.get("temperature") or 0.7),
-        max_tokens=int(meta.get("max_tokens") or 1024),
+        temperature=float(_pick("temperature", 0.7)),
+        max_tokens=int(_pick("max_tokens", 1024)),
+        top_p=_pick("top_p", None),
+        repetition_penalty=_pick("repetition_penalty", None),
     )
 
 

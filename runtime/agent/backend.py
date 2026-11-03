@@ -20,12 +20,15 @@ class SimChatAgentBackend:
     safety_system = None
 
     def __init__(self, core, provider=None, model=None,
-                 temperature=0.7, max_tokens=1024):
+                 temperature=0.7, max_tokens=1024,
+                 top_p=None, repetition_penalty=None):
         self.core = core
         self.provider = provider or None
         self.model = model or None
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.top_p = top_p
+        self.repetition_penalty = repetition_penalty
         self._available = None
 
     # ---------------- 门禁 ----------------
@@ -45,6 +48,8 @@ class SimChatAgentBackend:
             "model": self.model,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
+            "top_p": self.top_p,
+            "repetition_penalty": self.repetition_penalty,
         }
 
     # ---------------- 上下文与推理 ----------------
@@ -72,6 +77,8 @@ class SimChatAgentBackend:
                 model=self.model,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
+                top_p=self.top_p,
+                repetition_penalty=self.repetition_penalty,
             )
         except ProviderError as error:
             raise RuntimeError(str(error))

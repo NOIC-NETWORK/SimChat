@@ -33,7 +33,17 @@ function Fail($msg)  { Write-Host "[FAIL] $msg"  -ForegroundColor Red }
 function Warn($msg)  { Write-Host "[WARN] $msg"  -ForegroundColor Magenta }
 
 # ---------- 1. Locate Python ----------
-Write-Banner "SimChat Launcher - Windows PowerShell"
+Write-Banner "
+                                                                                 X                  X
+    SSSSSSS   IIIIIII   MMMMMMM   CCCCCCC   H     H     A      TTTTTTT             X            X
+   S            I      M  M  M   C         H     H    A  A        T           XXXXXXXXXXXXXXXXXXXXXX
+  SSSSSS       I      M  M  M   C         HHHHHHH   AAAAAAA      T           X   X                X
+      S       I      M  M  M  C         H     H    A      A     T           X      X             X
+SSSSSSS   IIIIIII   M  M  M  CCCCCCC   H     H   A         A   T           X   X        XXXXX   X                                                                
+                                                                          XXXXXXXXXXXXXXXXXXXXXX           
+Everything, Harnessed.
+
+"
 
 Step "Locating Python..."
 $PyCandidates = @(

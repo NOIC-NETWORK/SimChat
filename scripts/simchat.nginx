@@ -1,0 +1,106 @@
+# SimChat 反向代理示例（nginx）
+#
+# 用法：
+#   1. 确认 SimChat 监听在本机，默认 127.0.0.1:5000：
+#        scripts/run.sh
+#      或 systemd: scripts/deploy_daemon.sh install
+#   2. 复制本文件到 /etc/nginx/conf.d/simchat.conf（或 sites-enabled/）
+#      并按需修改 listen / server_name / upstream。
+#   3. nginx -t && sudo systemctl reload nginx
+#
+# 安全提醒：
+#   SimChat 自身没有登录鉴权。不要把 80/443 直接暴露到公网；
+#   请配合 VPN、Basic Auth、mTLS 或仅监听内网地址使用。
+
+# WebSocket / SSE 连接升级（群机器人网关等场景需要）
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+upstream simchat_backend {
+    server 127.0.0.1:5000;
+    keepalive 32;
+}
+
+server {
+    # 默认用 8080 避免非 root 用户无法绑定 80；需要时改成 80/443
+    listen 8080;
+    server_name _;
+
+    # 上传附件/图片可能较大，按需调整
+    client_max_body_size 50m;
+
+    # 关闭访问日志中的敏感查询串可按需配置；默认保留
+    access_log /var/log/nginx/simchat.access.log;
+    error_log  /var/log/nginx/simchat.error.log warn;
+
+    location / {
+        proxy_pass http://simchat_backend;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        $connection_upgrade;
+
+        # 聊天/Agent 使用 SSE 流式输出，必须关闭缓冲
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_request_buffering off;
+
+        # 长连接与长任务
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_connect_timeout 10s;
+    }
+
+    # 健康检查（守护脚本 / 负载均衡可直接探活）
+    location = /api/health {
+        proxy_pass http://simchat_backend;
+        access_log off;
+        proxy_set_header Host $host;
+    }
+}
+
+# ---------------------------------------------------------------------------
+# HTTPS 示例（启用前先准备证书；Let's Encrypt 可用 certbot 自动签发）
+# ---------------------------------------------------------------------------
+# server {
+#     listen 443 ssl http2;
+#     server_name simchat.example.com;
+#
+#     ssl_certificate     /etc/letsencrypt/live/simchat.example.com/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/simchat.example.com/privkey.pem;
+#     ssl_protocols TLSv1.2 TLSv1.3;
+#     ssl_ciphers HIGH:!aNULL:!MD5;
+#
+#     client_max_body_size 50m;
+#
+#     location / {
+#         proxy_pass http://simchat_backend;
+#         proxy_http_version 1.1;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection $connection_upgrade;
+#         proxy_buffering off;
+#         proxy_cache off;
+#         proxy_read_timeout 3600s;
+#         proxy_send_timeout 3600s;
+#     }
+# }
+#
+# ---------------------------------------------------------------------------
+# Basic Auth 示例（SimChat 无内置鉴权时至少加一层）
+# ---------------------------------------------------------------------------
+#   sudo htpasswd -c /etc/nginx/.simchat_htpasswd youruser
+#   然后在 location / 中加入：
+#     auth_basic           "SimChat";
+#     auth_basic_user_file /etc/nginx/.simchat_htpasswd;
+#
+# 注意：Basic Auth 必须配合 HTTPS，否则凭据会明文传输。
