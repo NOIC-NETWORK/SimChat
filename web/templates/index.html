@@ -6,7 +6,7 @@
 <title>SimChat | Everything, Harnessed.</title>
 <link rel="icon" type="image/png" href="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261031b">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261101b">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261103a">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 </head>
@@ -213,6 +213,10 @@
         <span id="lock-text">尚未配置可用的服务商，无法对话。</span>
         <button type="button" id="lock-config">配置服务商</button>
       </div>
+      <!-- 每日 token 用量超限横幅（前端硬闸 + 后端 quota 双保险） -->
+      <div class="quota-limit-banner hidden" id="quota-limit-banner">
+        ⚠ <strong>今日 token 用量已达上限</strong>（由本地限制器拦截）。可在「设置 → 用量限制」中关闭或调整上限。
+      </div>
       <form class="composer hidden" id="composer">
         <div class="attach-chips hidden" id="attach-chips"></div>
         <textarea id="input" rows="1" placeholder="给 SimChat 发送消息" autocomplete="off"></textarea>
@@ -257,6 +261,12 @@
         <span class="token-sep">·</span>
         <span id="token-total">会话 0 tokens</span>
       </div>
+      <!-- 每日 token 用量进度条（跟随 token-bar 显示） -->
+      <div class="daily-usage-bar hidden" id="daily-usage-bar">
+        <span id="quota-used-label">今日 0</span>
+        <div class="usage-bar-track"><div class="usage-bar-fill" id="quota-bar-fill"></div></div>
+        <span id="quota-limit-label">（未启用限制）</span>
+      </div>
       <p class="disclaimer">SimChat 含有人工智能生成内容，请核查重要信息。</p>
     </div>
   </main>
@@ -292,6 +302,7 @@
       </div>
       <div class="console-nav-group">
         <h4 data-block="console.group.config">配置</h4>
+        <button class="console-nav-item" data-section="lifecycle" data-block="console.section.lifecycle">启动与守护</button>
         <button class="console-nav-item" data-section="system" data-block="console.section.system">配置</button>
         <button class="console-nav-item" data-section="debug" data-block="console.section.debug">调试</button>
         <button class="console-nav-item" data-section="logs" data-block="console.section.logs">日志</button>
@@ -480,31 +491,164 @@
 
       <section class="setting-section" data-section="instances" hidden>
         <h3 data-block="console.section.instances">实例</h3>
-        <p class="section-desc">当前已连接的浏览器客户端与节点设备。</p>
-        <div class="state-card">
-          <div class="state-card-icon">🖥️</div>
-          <h4 class="state-card-title">该模块尚未接入</h4>
-          <p class="state-card-reason">客户端心跳机制需要 runtime/console.py，当前版本未实现。</p>
+        <p class="section-desc">当前已连接的浏览器客户端与节点设备。每 15 秒自动上报心跳，60 秒无心跳标记为离线。</p>
+
+        <!-- 统计卡 -->
+        <div class="instances-summary">
+          <div class="instances-summary-card">
+            <div class="instances-summary-label">在线设备</div>
+            <div class="instances-summary-value" id="inst-online">0</div>
+          </div>
+          <div class="instances-summary-card">
+            <div class="instances-summary-label">总设备数</div>
+            <div class="instances-summary-value" id="inst-total">0</div>
+          </div>
+          <div class="instances-summary-card">
+            <div class="instances-summary-label">最后刷新</div>
+            <div class="instances-summary-value" id="inst-generated">—</div>
+          </div>
+          <button class="instances-refresh-btn" id="inst-refresh" type="button" title="刷新实例列表">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            刷新
+          </button>
+        </div>
+
+        <!-- 设备列表 -->
+        <div class="instances-list" id="instances-list">
+          <!-- JS 动态渲染 -->
         </div>
       </section>
 
       <section class="setting-section" data-section="sessions" hidden>
         <h3 data-block="console.section.sessions">会话</h3>
-        <p class="section-desc">活动与历史会话列表。</p>
-        <div class="state-card">
-          <div class="state-card-icon">💬</div>
-          <h4 class="state-card-title">该模块尚未接入</h4>
-          <p class="state-card-reason">会话列表展示需要额外的活动会话追踪，当前版本只在侧边栏提供基础列表。</p>
+        <p class="section-desc">活动与历史会话列表。可按活跃度筛选，每行独立配置 Thinking / Verbose / Reasoning 覆盖值（暂存本地，对话生成链路后续接入）。</p>
+
+        <!-- Sessions 面板 -->
+        <div class="sessions-panel">
+          <!-- 筛选栏 -->
+          <div class="sessions-filter">
+            <div class="sessions-filter-field">
+              <label for="ses-active-within">Active within (minutes)</label>
+              <input type="number" id="ses-active-within" class="field-input" min="1" placeholder="不限" title="只显示 N 分钟内活跃的会话；留空 = 全部">
+            </div>
+            <div class="sessions-filter-field">
+              <label for="ses-limit">Limit</label>
+              <input type="number" id="ses-limit" class="field-input" min="1" max="500" placeholder="全部">
+            </div>
+            <div class="sessions-filter-spacer"></div>
+            <button type="button" class="ghost-button ses-refresh-btn" id="ses-refresh" title="刷新会话列表">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              刷新
+            </button>
+          </div>
+
+          <!-- 会话表格 -->
+          <div class="sessions-table-wrap">
+            <table class="sessions-table" id="sessions-table">
+              <thead>
+                <tr>
+                  <th class="col-key">Key</th>
+                  <th class="col-label">Label</th>
+                  <th class="col-kind">Kind</th>
+                  <th class="col-updated">Updated</th>
+                  <th class="col-tokens">Tokens <span class="col-hint">估算</span></th>
+                  <th class="col-thinking">Thinking</th>
+                  <th class="col-verbose">Verbose</th>
+                  <th class="col-reasoning">Reasoning</th>
+                  <th class="col-actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="sessions-tbody">
+                <!-- JS 动态渲染 -->
+              </tbody>
+            </table>
+            <div class="sessions-empty" id="sessions-empty" hidden>
+              <div class="sessions-empty-icon">💬</div>
+              <div>暂无会话记录</div>
+              <div class="sessions-empty-sub">开始一段新对话，它会自动出现在这里。</div>
+            </div>
+            <div class="sessions-loading" id="sessions-loading" hidden>加载中…</div>
+          </div>
+
+          <!-- 底部统计 -->
+          <div class="sessions-footer">
+            <span class="sessions-footer-info" id="sessions-footer-info"></span>
+          </div>
         </div>
       </section>
 
       <section class="setting-section" data-section="usage" hidden>
         <h3 data-block="console.section.usage">使用情况</h3>
-        <p class="section-desc">Token 用量统计与额度锁。</p>
-        <div class="state-card">
-          <div class="state-card-icon">📊</div>
-          <h4 class="state-card-title">该模块尚未接入</h4>
-          <p class="state-card-reason">用量统计需要 runtime/usage.py，当前版本未实现。</p>
+        <p class="section-desc">Token 用量统计与额度锁（本地 + 后端双保险）。</p>
+
+        <!-- 用量卡片网格 -->
+        <div class="usage-stats-grid">
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">今日总计</div>
+            <div class="usage-stat-value" id="usage-today-total">—</div>
+            <div class="usage-stat-sub" id="usage-today-detail"></div>
+          </div>
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">今日输入</div>
+            <div class="usage-stat-value" id="usage-today-input">—</div>
+            <div class="usage-stat-sub">prompt tokens</div>
+          </div>
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">今日输出</div>
+            <div class="usage-stat-value" id="usage-today-output">—</div>
+            <div class="usage-stat-sub">completion tokens</div>
+          </div>
+          <div class="usage-stat-card">
+            <div class="usage-stat-label">今日会话数</div>
+            <div class="usage-stat-value" id="usage-today-exchanges">—</div>
+            <div class="usage-stat-sub">对话 / Agent 轮次</div>
+          </div>
+        </div>
+
+        <!-- 近 7 天条形图 -->
+        <div class="usage-chart-wrap">
+          <div class="usage-chart-title">近 7 天用量</div>
+          <div class="usage-chart" id="usage-chart">
+            <!-- JS 填充条形 -->
+          </div>
+        </div>
+
+        <!-- 额度限制配置 -->
+        <div class="usage-quota-card">
+          <div class="usage-quota-header">
+            <h4>额度限制</h4>
+            <label class="setting-switch">
+              <input type="checkbox" id="quota-enabled-toggle">
+              <span class="setting-switch-slider"></span>
+              <span class="setting-switch-label" for="quota-enabled-toggle">启用每日上限</span>
+            </label>
+          </div>
+          <div class="usage-quota-body">
+            <div class="usage-quota-row">
+              <label for="quota-limit-input">每日上限 (tokens)</label>
+              <input type="number" id="quota-limit-input" min="0" step="1000" placeholder="0 = 不限额">
+            </div>
+            <div class="usage-quota-row">
+              <label for="quota-period-select">周期</label>
+              <select id="quota-period-select">
+                <option value="day">每日</option>
+                <option value="month">每月</option>
+              </select>
+            </div>
+            <div class="usage-quota-row usage-quota-lock-row">
+              <label class="setting-switch">
+                <input type="checkbox" id="quota-lock-toggle">
+                <span class="setting-switch-slider"></span>
+                <span class="setting-switch-label" for="quota-lock-toggle">锁定限制（锁定后需解锁才能修改）</span>
+              </label>
+              <span class="quota-lock-hint hidden" id="quota-lock-hint">🔒 已锁定，修改前请先关闭锁定开关</span>
+            </div>
+          </div>
+          <div class="usage-quota-footer">
+            <button type="button" class="btn btn-primary" id="quota-save-btn">保存</button>
+            <button type="button" class="btn btn-ghost" id="quota-reset-btn">重置今日</button>
+            <span class="usage-save-feedback" id="quota-save-feedback"></span>
+          </div>
         </div>
       </section>
 
@@ -545,6 +689,92 @@
           <div class="state-card-icon">🔗</div>
           <h4 class="state-card-title">该模块尚未接入</h4>
           <p class="state-card-reason">节点配对协议待定义，当前版本未实现。</p>
+        </div>
+      </section>
+
+      <section class="setting-section" data-section="lifecycle" hidden>
+        <h3 data-block="console.section.lifecycle">启动与守护</h3>
+        <p class="section-desc">让 SimChat 在登录后自动就绪，并在异常退出后恢复。所有设置只作用于当前用户，不使用管理员权限；状态与路径完全可见，随时可解除。</p>
+
+        <!-- 开机自启 -->
+        <div class="lifecycle-card">
+          <div class="lifecycle-row">
+            <div class="lifecycle-info">
+              <div class="lifecycle-title">
+                开机自启
+                <span class="lifecycle-badge" id="lifecycle-autostart-badge">未安装</span>
+              </div>
+              <div class="lifecycle-hint">登录系统后自动启动 SimChat Web 服务。只写入当前用户的自启动项，不修改系统级配置。</div>
+            </div>
+            <div class="field-switch">
+              <div class="switch-track" id="lifecycle-autostart-track" role="switch" tabindex="0" aria-checked="false" aria-label="开机自启">
+                <div class="switch-thumb"></div>
+              </div>
+            </div>
+          </div>
+          <div class="lifecycle-meta" id="lifecycle-autostart-meta">检测中…</div>
+        </div>
+
+        <!-- 自动拉起（高危） -->
+        <div class="lifecycle-card lifecycle-card--danger">
+          <div class="lifecycle-row">
+            <div class="lifecycle-info">
+              <div class="lifecycle-title">
+                自动拉起
+                <span class="lifecycle-badge danger">高危功能</span>
+                <span class="lifecycle-badge" id="lifecycle-watchdog-badge">未启用</span>
+              </div>
+              <div class="lifecycle-hint">检测到 SimChat 端口失联时，由独立守护进程重新拉起 Web 服务。</div>
+            </div>
+            <div class="field-switch">
+              <div class="switch-track" id="lifecycle-watchdog-track" role="switch" tabindex="0" aria-checked="false" aria-label="自动拉起">
+                <div class="switch-thumb"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="lifecycle-warning">
+            <strong>启用前请确认</strong>
+            <span>
+              这是高危功能，做不好会变成流氓软件。本实现默认关闭，并内置以下约束：仅异常失联后拉起；
+              你在终端按 Ctrl+C 或在下方点「停止服务」会写入停止标记，守护进程立即退出、绝不复活；
+              10 分钟内最多拉起 5 次，超过即熔断等待人工恢复；不申请管理员权限、不隐藏进程、不修改安全软件设置。
+            </span>
+          </div>
+
+          <div class="lifecycle-status-grid">
+            <div class="lifecycle-stat">
+              <div class="lifecycle-stat-label">守护进程</div>
+              <div class="lifecycle-stat-value" id="lifecycle-wd-running">未运行</div>
+            </div>
+            <div class="lifecycle-stat">
+              <div class="lifecycle-stat-label">守护 PID</div>
+              <div class="lifecycle-stat-value" id="lifecycle-wd-pid">—</div>
+            </div>
+            <div class="lifecycle-stat">
+              <div class="lifecycle-stat-label">累计拉起</div>
+              <div class="lifecycle-stat-value" id="lifecycle-wd-restarts">0 次</div>
+            </div>
+            <div class="lifecycle-stat">
+              <div class="lifecycle-stat-label">最近拉起</div>
+              <div class="lifecycle-stat-value" id="lifecycle-wd-last">—</div>
+            </div>
+            <div class="lifecycle-stat">
+              <div class="lifecycle-stat-label">当前服务</div>
+              <div class="lifecycle-stat-value" id="lifecycle-server">—</div>
+            </div>
+            <div class="lifecycle-stat">
+              <div class="lifecycle-stat-label">熔断状态</div>
+              <div class="lifecycle-stat-value" id="lifecycle-wd-paused">正常</div>
+            </div>
+          </div>
+
+          <div class="lifecycle-actions">
+            <button type="button" class="ghost-button" id="lifecycle-refresh">刷新状态</button>
+            <button type="button" class="ghost-button" id="lifecycle-stop-watchdog" disabled>停止守护</button>
+            <button type="button" class="ghost-button lifecycle-danger-button" id="lifecycle-stop-service">停止服务（本次）</button>
+            <span class="lifecycle-msg" id="lifecycle-msg"></span>
+          </div>
         </div>
       </section>
 
@@ -670,6 +900,31 @@
   </div>
 </div>
 
+<!-- ======= 自动拉起高危确认 ======= -->
+<div class="lifecycle-confirm" id="lifecycle-confirm" aria-hidden="true">
+  <div class="lifecycle-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="lifecycle-confirm-title">
+    <h3 id="lifecycle-confirm-title">启用「自动拉起」？</h3>
+    <p class="lifecycle-confirm-desc">启用后，SimChat 会在检测到 Web 服务异常失联时自动重启它。这是一个高风险能力，请确认你理解以下行为：</p>
+    <ul class="lifecycle-confirm-list">
+      <li>异常退出会被自动恢复，正常停止不会复活；</li>
+      <li>守护进程会在后台运行，PID 与日志在设置页可见；</li>
+      <li>连续崩溃会触发熔断，不会无限重启。</li>
+    </ul>
+    <label class="lifecycle-confirm-check">
+      <input type="checkbox" id="lifecycle-confirm-check">
+      <span>我理解并接受 SimChat 在异常退出后自动重新启动</span>
+    </label>
+    <label class="field">
+      <span class="field-label">请输入确认短语「<strong>启用自动拉起</strong>」</span>
+      <input type="text" class="field-input" id="lifecycle-confirm-input" placeholder="启用自动拉起" autocomplete="off" spellcheck="false">
+    </label>
+    <div class="lifecycle-confirm-actions">
+      <button type="button" class="ghost-button" id="lifecycle-confirm-cancel">取消</button>
+      <button type="button" class="primary-button" id="lifecycle-confirm-enable" disabled>确认启用</button>
+    </div>
+  </div>
+</div>
+
 <!-- ======= 工作目录选择器 ======= -->
 <div class="workspace-modal" id="workspace-modal" aria-hidden="true">
   <div class="workspace-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-modal-title">
@@ -701,6 +956,6 @@
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261101b"></script>
+<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261103a"></script>
 </body>
 </html>

@@ -10,6 +10,7 @@
 import json
 import os
 import threading
+import time
 
 from flask import (
     Flask,
@@ -272,6 +273,82 @@ def create_app(core=None):
             return jsonify({"ok": False, "error": str(error)}), 400
         return jsonify({"ok": True, **listing})
 
+    # ---------------- 健康检查 / 生命周期 ----------------
+
+    def _lifecycle():
+        from simchat.runtime import lifecycle
+
+        return lifecycle
+
+    @app.get("/api/health")
+    def health():
+        """守护进程用它判断 Web 是否存活；不读写任何用户数据。"""
+        return jsonify({"ok": True, "app": "simchat", "pid": os.getpid()})
+
+    @app.get("/api/lifecycle")
+    def lifecycle_status():
+        lifecycle = _lifecycle()
+        return jsonify(lifecycle.status(server_pid=os.getpid()))
+
+    @app.post("/api/lifecycle/autostart")
+    def lifecycle_autostart():
+        data = request.get_json(silent=True) or {}
+        enabled = data.get("enabled")
+        if not isinstance(enabled, bool):
+            return jsonify({"ok": False, "error": "enabled 必须是布尔值"}), 400
+        lifecycle = _lifecycle()
+        try:
+            return jsonify(lifecycle.set_autostart(enabled))
+        except lifecycle.LifecycleError as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
+        except Exception as error:  # pragma: no cover - 平台相关
+            return jsonify({"ok": False, "error": "设置开机自启失败：%s" % error}), 500
+
+    @app.post("/api/lifecycle/watchdog")
+    def lifecycle_watchdog():
+        data = request.get_json(silent=True) or {}
+        enabled = data.get("enabled")
+        if not isinstance(enabled, bool):
+            return jsonify({"ok": False, "error": "enabled 必须是布尔值"}), 400
+        lifecycle = _lifecycle()
+        try:
+            return jsonify(
+                lifecycle.set_watchdog(
+                    enabled,
+                    confirm=data.get("confirm") or "",
+                    port=data.get("port") or None,
+                )
+            )
+        except lifecycle.LifecycleError as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
+        except Exception as error:  # pragma: no cover - 平台相关
+            return jsonify({"ok": False, "error": "设置自动拉起失败：%s" % error}), 500
+
+    @app.post("/api/lifecycle/stop")
+    def lifecycle_stop():
+        """mode=watchdog 只停守护；mode=service 停守护并退出当前 Web 进程。"""
+        data = request.get_json(silent=True) or {}
+        mode = (data.get("mode") or "service").strip()
+        lifecycle = _lifecycle()
+        try:
+            lifecycle.stop_watchdog()
+        except Exception as error:  # pragma: no cover - 平台相关
+            return jsonify({"ok": False, "error": "停止守护失败：%s" % error}), 500
+        if mode == "watchdog":
+            return jsonify({"ok": True, "stopped": False, "message": "守护已停止，Web 服务继续运行"})
+
+        # 先让响应返回，再退出进程；stop 标记已写入，守护不会复活
+        def _exit_process():
+            time.sleep(0.9)
+            os._exit(0)
+
+        threading.Thread(target=_exit_process, daemon=True).start()
+        return jsonify({
+            "ok": True,
+            "stopped": True,
+            "message": "SimChat 服务已停止；开机自启设置保持不变",
+        })
+
     # ---------------- 网关概览 ----------------
 
     import time as _time
@@ -467,6 +544,94 @@ def create_app(core=None):
             return jsonify({"error": str(error)}), error.status
         return jsonify(body), status
 
+    # ---------------- 实例 / 客户端心跳 ----------------
+    import uuid as _uuid
+
+    # 内存中的客户端注册表：device_id -> {info, first_seen, last_heartbeat}
+    # 用 dict + lock 保证线程安全；60 秒无心跳视为离线
+    _instances_lock = threading.Lock()
+    _instances = {}
+    INSTANCE_OFFLINE_THRESHOLD = 60  # 秒
+
+    @app.post("/api/instances/heartbeat")
+    def instances_heartbeat():
+        """客户端定期上报设备信息 + 心跳。
+
+        payload:
+          device_id:  浏览器/标签页唯一 ID（localStorage 持久化 + sessionStorage 区分 tab）
+          tab_id:     标签页 ID（可选；同一浏览器多 tab 有相同 device_id 但不同 tab_id）
+          info:       { os, os_version, browser, browser_version, ua, arch, screen,
+                        language, timezone, date, hardware_concurrency, device_pixel_ratio,
+                        platform, vendor, online }
+        """
+        data = request.get_json(silent=True) or {}
+        device_id = (data.get("device_id") or "").strip()
+        if not device_id:
+            return jsonify({"error": "device_id 必填"}), 400
+
+        tab_id = (data.get("tab_id") or "").strip() or None
+        info = data.get("info") or {}
+        now = time.time()
+        remote_ip = request.remote_addr or ""
+
+        with _instances_lock:
+            existing = _instances.get(device_id)
+            if existing is None:
+                _instances[device_id] = {
+                    "device_id": device_id,
+                    "tab_ids": {tab_id} if tab_id else set(),
+                    "info": info,
+                    "first_seen": now,
+                    "last_heartbeat": now,
+                    "remote_ip": remote_ip,
+                }
+            else:
+                if tab_id:
+                    existing.setdefault("tab_ids", set()).add(tab_id)
+                existing["info"] = info or existing.get("info") or {}
+                existing["last_heartbeat"] = now
+                if remote_ip:
+                    existing["remote_ip"] = remote_ip
+
+        return jsonify({"ok": True})
+
+    @app.get("/api/instances")
+    def instances_list():
+        """返回当前所有注册过的客户端（包含在线/离线信息）。"""
+        now = time.time()
+        with _instances_lock:
+            # 清理长期离线（> 10 分钟）的旧记录，防止内存无限增长
+            stale = [d for d, v in _instances.items() if now - v["last_heartbeat"] > 600]
+            for d in stale:
+                del _instances[d]
+
+            items = []
+            for dev_id, v in _instances.items():
+                last_hb = v["last_heartbeat"]
+                online = (now - last_hb) < INSTANCE_OFFLINE_THRESHOLD
+                items.append({
+                    "device_id": dev_id,
+                    "tabs": len(v.get("tab_ids") or set()),
+                    "info": v.get("info") or {},
+                    "remote_ip": v.get("remote_ip", ""),
+                    "first_seen": v["first_seen"],
+                    "last_heartbeat": last_hb,
+                    "online": online,
+                    "last_seen_ago_seconds": int(now - last_hb),
+                })
+
+        # 排序：在线优先，然后按 last_heartbeat 降序
+        items.sort(key=lambda x: (not x["online"], -x["last_heartbeat"]))
+
+        online_count = sum(1 for i in items if i["online"])
+        return jsonify({
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "offline_threshold_seconds": INSTANCE_OFFLINE_THRESHOLD,
+            "online": online_count,
+            "total": len(items),
+            "instances": items,
+        })
+
     # ---------------- 会话 CRUD ----------------
 
     @app.get("/api/sessions")
@@ -487,6 +652,21 @@ def create_app(core=None):
     @app.delete("/api/sessions/<sid>")
     def delete_session(sid):
         return jsonify({"deleted": _get_core(app).delete_session(sid)})
+
+    @app.patch("/api/sessions/<sid>")
+    def patch_session(sid):
+        """更新 per-session overrides（thinking / verbose / reasoning）。
+
+        payload: {"overrides": {"thinking": "medium", "verbose": "inherit", ...}}
+        白名单字段 + 合法值由 store 层校验，非法值静默忽略。
+        """
+        data = request.get_json(silent=True) or {}
+        core = _get_core(app)
+        try:
+            saved = core.update_session_overrides(sid, data.get("overrides") or {})
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        return jsonify({"ok": True, "overrides": saved})
 
     # ---------------- 对话（SSE） ----------------
 
@@ -530,5 +710,75 @@ def create_app(core=None):
         resp.headers["Cache-Control"] = "no-cache"
         resp.headers["X-Accel-Buffering"] = "no"
         return resp
+
+    # ---------------- 用量统计 / 限额配置 ----------------
+
+    @app.get("/api/console/usage")
+    def console_usage():
+        """返回每日用量统计（后端 usage.json + settings.json quota 配置）。"""
+        core = _get_core(app)
+        cfg = core.load_settings()
+        quota_cfg = cfg.get("quota") or {}
+        today = core.usage.today_usage()
+        recent = core.usage.recent_usage(days=7)
+        return jsonify({
+            "success": True,
+            "quota": {
+                "enabled": int(quota_cfg.get("limit", 0)) > 0,
+                "limit": int(quota_cfg.get("limit", 0)),
+                "period": quota_cfg.get("period", "day"),
+                "lock": bool(quota_cfg.get("lock", False)),
+            },
+            "today": today,
+            "recent": recent,
+        })
+
+    @app.post("/api/console/usage/quota")
+    def console_usage_quota_save():
+        """保存 quota 配置到 settings.json。只允许修改 limit/period（lock 需单独解锁流程）。"""
+        core = _get_core(app)
+        data = request.get_json(silent=True) or {}
+        current = core.load_settings()
+        cur_quota = current.get("quota") or {}
+
+        # 锁定状态下禁止修改 limit 和 enabled
+        if cur_quota.get("lock"):
+            return jsonify({
+                "success": False,
+                "error": "额度限制已锁定，请先解锁后再修改",
+            }), 403
+
+        updates = {}
+        limit_val = data.get("limit")
+        if limit_val is not None:
+            try:
+                limit_int = max(0, int(limit_val))
+                updates["limit"] = limit_int
+            except (TypeError, ValueError):
+                return jsonify({"success": False, "error": "limit 必须是非负整数"}), 400
+
+        period_val = data.get("period")
+        if period_val is not None and period_val in ("day", "month"):
+            updates["period"] = period_val
+
+        # 只有明确传 lock 字段才允许切换锁定状态
+        if "lock" in data and isinstance(data["lock"], bool):
+            updates["lock"] = data["lock"]
+
+        if not updates:
+            return jsonify({"success": False, "error": "无有效字段提交"}), 400
+
+        saved = core.save_settings({"quota": updates})
+        return jsonify({
+            "success": True,
+            "quota": saved.get("quota"),
+        })
+
+    @app.post("/api/console/usage/reset-today")
+    def console_usage_reset_today():
+        """清空今日用量记录（主要用于测试 / 用户手动修正）。"""
+        core = _get_core(app)
+        core.usage.reset_today()
+        return jsonify({"success": True})
 
     return app

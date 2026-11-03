@@ -166,6 +166,15 @@ def create_agent_blueprint(name="agent"):
         message = (data.get("message") or "").strip()
         if not message:
             return jsonify({"error": "消息内容为空"}), 400
+
+        # 后端 quota 硬闸（与 chat_stream 同源；limit=0 表示不限额）
+        ok, reason, _usage, _quota_cfg = core.usage.check_quota(core.data_root)
+        if not ok:
+            return jsonify({
+                "error": reason,
+                "code": "quota_exceeded",
+            }), 429
+
         if not core.has_available_provider():
             return jsonify({
                 "error": "尚未配置可用的服务商，请先完成服务商配置。",

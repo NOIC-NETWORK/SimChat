@@ -124,6 +124,28 @@
     hippoToggleLabel: document.getElementById("hippo-toggle-label"),
     hippoStatusBadge: document.getElementById("hippo-status-badge"),
 
+    // 启动与守护
+    lifecycleAutostartTrack: document.getElementById("lifecycle-autostart-track"),
+    lifecycleAutostartBadge: document.getElementById("lifecycle-autostart-badge"),
+    lifecycleAutostartMeta: document.getElementById("lifecycle-autostart-meta"),
+    lifecycleWatchdogTrack: document.getElementById("lifecycle-watchdog-track"),
+    lifecycleWatchdogBadge: document.getElementById("lifecycle-watchdog-badge"),
+    lifecycleWdRunning: document.getElementById("lifecycle-wd-running"),
+    lifecycleWdPid: document.getElementById("lifecycle-wd-pid"),
+    lifecycleWdRestarts: document.getElementById("lifecycle-wd-restarts"),
+    lifecycleWdLast: document.getElementById("lifecycle-wd-last"),
+    lifecycleServer: document.getElementById("lifecycle-server"),
+    lifecycleWdPaused: document.getElementById("lifecycle-wd-paused"),
+    lifecycleRefresh: document.getElementById("lifecycle-refresh"),
+    lifecycleStopWatchdog: document.getElementById("lifecycle-stop-watchdog"),
+    lifecycleStopService: document.getElementById("lifecycle-stop-service"),
+    lifecycleMsg: document.getElementById("lifecycle-msg"),
+    lifecycleConfirm: document.getElementById("lifecycle-confirm"),
+    lifecycleConfirmCheck: document.getElementById("lifecycle-confirm-check"),
+    lifecycleConfirmInput: document.getElementById("lifecycle-confirm-input"),
+    lifecycleConfirmEnable: document.getElementById("lifecycle-confirm-enable"),
+    lifecycleConfirmCancel: document.getElementById("lifecycle-confirm-cancel"),
+
     // 用户个人中心
     userBadge: document.getElementById("user-badge"),
     userAvatar: document.getElementById("user-avatar"),
@@ -137,6 +159,23 @@
     profileMeta: document.getElementById("profile-meta"),
     profileMsg: document.getElementById("profile-msg"),
     profileSave: document.getElementById("profile-save"),
+
+    // 实例监控
+    instList: document.getElementById("instances-list"),
+    instOnline: document.getElementById("inst-online"),
+    instTotal: document.getElementById("inst-total"),
+    instGenerated: document.getElementById("inst-generated"),
+    instRefresh: document.getElementById("inst-refresh"),
+
+    // 会话管理（控制台）
+    sesTable: document.getElementById("sessions-table"),
+    sesTbody: document.getElementById("sessions-tbody"),
+    sesEmpty: document.getElementById("sessions-empty"),
+    sesLoading: document.getElementById("sessions-loading"),
+    sesFooterInfo: document.getElementById("sessions-footer-info"),
+    sesRefresh: document.getElementById("ses-refresh"),
+    sesActiveWithin: document.getElementById("ses-active-within"),
+    sesLimit: document.getElementById("ses-limit"),
   };
 
   const state = {
@@ -179,6 +218,11 @@
     // 通讯通道缓存
     comms: null,              // { active, channels: [...] }
     commsActiveChannel: null,  // 当前选中渲染的 channel id（与后端 .active 无关）
+
+    // 启动与守护
+    lifecycle: null,          // 后端 /api/lifecycle 快照
+    lifecycleTimer: null,     // 守护状态轮询
+    lifecycleBusy: false,
     commsPollTimer: null,     // 群机器人运行时状态轮询
     commsRuntimeMsg: null,    // { channelId, text, kind } 运行面板临时提示
 
@@ -188,6 +232,16 @@
 
     // 实验功能
     hippoEnabled: false,
+
+    // 实例监控
+    deviceId: null,          // 持久化设备 ID（localStorage）
+    tabId: null,             // 标签页 ID（sessionStorage，每 tab 唯一）
+    heartbeatTimer: null,    // 心跳定时器
+    instances: null,         // /api/instances 返回的缓存
+    instancesPollTimer: null,// 实例列表轮询（当用户在 instances 分区时）
+
+    // 会话管理（控制台）
+    sessions: null,          // /api/sessions 返回的完整缓存
   };
 
   // ---------------- 模型提供商存档（固化 + 全局可调用） ----------------
@@ -387,6 +441,151 @@
   function formatTokens(count) {
     return Number(count || 0).toLocaleString("en-US");
   }
+
+  // Token 预算常量（与后端 runtime/agent/loop.py 保持一致）
+  const TOKEN_BUDGET = 16384;
+  const TOKEN_COMPACTION_THRESHOLD = 12288;
+
+  // 根据 token 比例返回等级：'ok' / 'warn' / 'critical'
+  function tokenLevel(current, budget) {
+    const ratio = budget > 0 ? current / budget : 0;
+    if (ratio >= 0.95) return "critical";
+    if (ratio >= 0.8) return "warn";
+    return "ok";
+  }
+
+  // Agent 当前运行的 token 用量追踪
+  let currentAgentTaskTokens = { prompt: 0, completion: 0, last_prompt: 0, last_completion: 0 };
+
+  // ---------------- 每日使用统计（localStorage） ----------------
+  // 从 kirara 迁移过来的每日 token 用量持久化模块
+  const UT_STORAGE_KEY = "simchat_usage_daily";
+  const UT_LIMIT_KEY = "simchat_usage_limit_config";
+  const UT_LIMIT_DEFAULT = { enabled: false, limit: 50000, locked: false };
+
+  function utReadAll() {
+    try {
+      const raw = localStorage.getItem(UT_STORAGE_KEY);
+      if (!raw) return {};
+      const obj = JSON.parse(raw);
+      return (obj && typeof obj === "object") ? obj : {};
+    } catch (_) { return {}; }
+  }
+
+  function utWriteAll(data) {
+    try {
+      localStorage.setItem(UT_STORAGE_KEY, JSON.stringify(data));
+    } catch (_) { /* localStorage 不可用时静默忽略 */ }
+  }
+
+  function utTodayKey() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + day;
+  }
+
+  // 累加一条用量到当日记录（Agent / Chat 都在结束时调用）
+  function recordDailyUsage(entry) {
+    const inputTokens = Number.isFinite(entry.inputTokens) ? entry.inputTokens : 0;
+    const outputTokens = Number.isFinite(entry.outputTokens) ? entry.outputTokens : 0;
+    const durationMs = Number.isFinite(entry.durationMs) ? entry.durationMs : 0;
+    const all = utReadAll();
+    const key = utTodayKey();
+    if (!all[key]) all[key] = { input_tokens: 0, output_tokens: 0, time_ms: 0, exchanges: 0 };
+    all[key].input_tokens += inputTokens;
+    all[key].output_tokens += outputTokens;
+    all[key].time_ms += durationMs;
+    all[key].exchanges += 1;
+    utWriteAll(all);
+  }
+
+  function utReadLimitConfig() {
+    try {
+      const raw = localStorage.getItem(UT_LIMIT_KEY);
+      if (!raw) return Object.assign({}, UT_LIMIT_DEFAULT);
+      const obj = JSON.parse(raw);
+      return {
+        enabled: obj.enabled === true,
+        limit: Number.isFinite(obj.limit) && obj.limit > 0 ? obj.limit : UT_LIMIT_DEFAULT.limit,
+        locked: obj.locked === true,
+      };
+    } catch (_) { return Object.assign({}, UT_LIMIT_DEFAULT); }
+  }
+
+  function utWriteLimitConfig(cfg) {
+    try { localStorage.setItem(UT_LIMIT_KEY, JSON.stringify(cfg)); } catch (_) {}
+  }
+
+  // 今日是否已达上限（供 sendMessage 在发送前检查）
+  function utIsLimitExceeded() {
+    const cfg = utReadLimitConfig();
+    if (!cfg.enabled) return false;
+    const all = utReadAll();
+    const rec = all[utTodayKey()] || { input_tokens: 0, output_tokens: 0 };
+    return (rec.input_tokens + rec.output_tokens) >= cfg.limit;
+  }
+
+  // 获取今日用量（用于 UI 显示）
+  function utGetTodayUsage() {
+    const all = utReadAll();
+    const rec = all[utTodayKey()] || { input_tokens: 0, output_tokens: 0 };
+    return { used: (rec.input_tokens || 0) + (rec.output_tokens || 0), input: rec.input_tokens || 0, output: rec.output_tokens || 0 };
+  }
+
+  // 今日已用量占上限的百分比（0-100，上限未启用时返回 0）
+  function utGetUsagePercent() {
+    const cfg = utReadLimitConfig();
+    if (!cfg.enabled || !cfg.limit) return 0;
+    const usage = utGetTodayUsage();
+    return Math.min(100, (usage.used / cfg.limit) * 100);
+  }
+
+  // ---------------- 每日用量 UI（DOM 已硬编码在 index.html） ----------------
+  const _quotaBannerEl = document.getElementById("quota-limit-banner");
+  const _quotaUsedLabel = document.getElementById("quota-used-label");
+  const _quotaLimitLabel = document.getElementById("quota-limit-label");
+  const _quotaBarFill = document.getElementById("quota-bar-fill");
+  const _quotaBarWrap = document.getElementById("daily-usage-bar");
+
+  function updateQuotaUI() {
+    const cfg = utReadLimitConfig();
+    const usage = utGetTodayUsage();
+
+    // 超限横幅
+    if (_quotaBannerEl) {
+      const exceeded = cfg.enabled && usage.used >= cfg.limit;
+      _quotaBannerEl.classList.toggle("hidden", !exceeded);
+    }
+
+    // 进度条
+    if (_quotaBarWrap) {
+      if (cfg.enabled) {
+        const pct = Math.min(100, (usage.used / cfg.limit) * 100);
+        if (_quotaBarFill) {
+          _quotaBarFill.style.width = pct + "%";
+          _quotaBarFill.className = "usage-bar-fill level-" + tokenLevel(usage.used, cfg.limit);
+        }
+        if (_quotaUsedLabel) _quotaUsedLabel.textContent = "今日 " + formatTokens(usage.used);
+        if (_quotaLimitLabel) _quotaLimitLabel.textContent = "/ " + formatTokens(cfg.limit);
+        _quotaBarWrap.style.display = "flex";
+      } else {
+        if (_quotaUsedLabel) _quotaUsedLabel.textContent = "今日 " + formatTokens(usage.used);
+        if (_quotaLimitLabel) _quotaLimitLabel.textContent = "（未启用限制）";
+        if (_quotaBarFill) _quotaBarFill.style.width = "0%";
+        _quotaBarWrap.style.display = "flex";
+      }
+    }
+  }
+
+  // 暴露到 window，方便设置页调用
+  window.utReadLimitConfig = utReadLimitConfig;
+  window.utWriteLimitConfig = utWriteLimitConfig;
+  window.utIsLimitExceeded = utIsLimitExceeded;
+  window.utGetTodayUsage = utGetTodayUsage;
+  window.utGetUsagePercent = utGetUsagePercent;
+  window.updateQuotaUI = updateQuotaUI;
 
   function updateInputTokens() {
     if (!el.tokenInput) return;
@@ -725,6 +924,11 @@
     el.lockBanner.classList.toggle("hidden", !blocked);
     el.composer.classList.toggle("hidden", blocked);
     el.tokenBar?.classList.toggle("hidden", blocked);
+    // 每日用量进度条跟随 token-bar 一起显隐
+    const dub = document.getElementById("daily-usage-bar");
+    if (dub) dub.classList.toggle("hidden", blocked);
+    const qb = document.getElementById("quota-limit-banner");
+    if (qb) qb.classList.toggle("hidden", blocked || !utIsLimitExceeded());
     el.statusDot.classList.toggle("locked", blocked);
     el.statusDot.classList.toggle("streaming", !blocked && state.streaming);
     el.statusDot.title = connectionLabel();
@@ -1323,6 +1527,8 @@
   }
   function closeConsole() {
     // 关掉控制台后回到 chat 还是 setup，看 locked 状态
+    stopLifecyclePolling();
+    closeLifecycleConfirm();
     try { localStorage.removeItem(ADVANCED_KEY); } catch (_) {}
     enterMode(state.locked ? "setup" : "chat");
   }
@@ -1831,6 +2037,37 @@
     return card;
   }
 
+  function createTokenBadge(prompt, completion, budget, threshold) {
+    const badge = document.createElement("span");
+    badge.className = "agent-token-badge";
+    const b = budget || TOKEN_BUDGET;
+    const t = threshold || TOKEN_COMPACTION_THRESHOLD;
+    const lvl = tokenLevel(prompt, b);
+    badge.classList.add("level-" + lvl);
+    badge.textContent = "📊 " + formatTokens(prompt) + " / " + formatTokens(b);
+    badge.title = "本轮 prompt " + formatTokens(prompt) + " tokens" +
+      "；累计 completion " + formatTokens(completion) +
+      "；阈值 " + formatTokens(t);
+    return badge;
+  }
+
+  function createCompactionCard(beforeEntries, afterEntries, beforeTokens, afterTokens, threshold, budget) {
+    const card = document.createElement("div");
+    card.className = "agent-card agent-compaction-card";
+    const header = document.createElement("div");
+    header.className = "agent-card-header";
+    header.innerHTML = '<svg class="agent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>上下文压缩';
+    card.appendChild(header);
+    const body = document.createElement("div");
+    body.className = "compaction-summary";
+    body.innerHTML =
+      '<span>上下文超限（约 ' + formatTokens(beforeTokens) + ' tokens）</span>' +
+      '<span>早期 ' + beforeEntries + ' → ' + afterEntries + ' 条</span>' +
+      '<span>压缩后约 ' + formatTokens(afterTokens) + ' tokens</span>';
+    card.appendChild(body);
+    return card;
+  }
+
   // 找到 assistant 消息行里的 .agent-cards 容器，没有就创建
   function ensureAgentCards(row) {
     let cards = row._agentCards;
@@ -1894,6 +2131,9 @@
   async function runAgent(text, options, mode, existingRow) {
     options = options || {};
     mode = mode || "agent";
+
+    // 重置 token 追踪状态
+    currentAgentTaskTokens = { prompt: 0, completion: 0, last_prompt: 0, last_completion: 0 };
 
     setStreaming(true);
     state.stickToBottom = true;
@@ -2038,9 +2278,42 @@
           cardsContainer.appendChild(mtCard);
           scrollToBottom();
         } else if (event.event === "compaction") {
-          // transcript 压缩事件，静默处理（不渲染给用户）
+          // transcript 压缩事件：显示压缩提示卡片
+          const compCard = createCompactionCard(
+            event.before_entries, event.after_entries,
+            event.before_tokens, event.after_tokens,
+            event.threshold, event.budget
+          );
+          cardsContainer.appendChild(compCard);
+          scrollToBottom();
         } else if (event.event === "token_usage") {
-          // token 用量事件，静默处理
+          // token 用量事件：累加并更新 token 徽章
+          const pt = event.prompt_tokens || 0;
+          const ct = event.completion_tokens || 0;
+          currentAgentTaskTokens.last_prompt = pt;
+          currentAgentTaskTokens.last_completion = ct;
+          currentAgentTaskTokens.prompt = pt;
+          currentAgentTaskTokens.completion = (currentAgentTaskTokens.completion || 0) + ct;
+          // 在 Agent 卡片容器中找最后一个 agent-plan-card 或最后一个卡片，在其 header 右侧插入 token 徽章
+          // 更简洁的做法：在第一张卡片的 header 里更新/追加徽章
+          const firstCard = cardsContainer.querySelector(".agent-card");
+          if (firstCard) {
+            let badge = firstCard.querySelector(".agent-token-badge");
+            if (!badge) {
+              const header = firstCard.querySelector(".agent-card-header");
+              if (header) {
+                badge = createTokenBadge(pt, currentAgentTaskTokens.completion, event.budget, event.threshold);
+                header.appendChild(badge);
+              }
+            } else {
+              const lvl = tokenLevel(pt, event.budget || TOKEN_BUDGET);
+              badge.className = "agent-token-badge level-" + lvl;
+              badge.textContent = "📊 " + formatTokens(pt) + " / " + formatTokens(event.budget || TOKEN_BUDGET);
+              badge.title = "本轮 prompt " + formatTokens(pt) + " tokens" +
+                "；累计 completion " + formatTokens(currentAgentTaskTokens.completion) +
+                "；阈值 " + formatTokens(event.threshold || TOKEN_COMPACTION_THRESHOLD);
+            }
+          }
         } else if (event.event === "error") {
           errorMessage = event.message || "Agent 运行错误";
           cardsContainer.appendChild(createErrorCard(errorMessage));
@@ -2057,6 +2330,16 @@
     state.agentRunId = null;
     setStreaming(false);
     recalcSessionTokens();
+
+    // Agent 模式 token 结算：记录每日用量
+    try {
+      recordDailyUsage({
+        inputTokens: currentAgentTaskTokens.prompt || 0,
+        outputTokens: currentAgentTaskTokens.completion || 0,
+      });
+      updateQuotaUI();
+    } catch (_) { /* 静默失败 */ }
+
     scrollToBottom();
     await loadSessions();
 
@@ -2196,6 +2479,15 @@
     row._actions.classList.remove("hidden");
     setStreaming(false);
     recalcSessionTokens();
+
+    // Chat 模式 token 结算：从对话历史估算输入、从最终答复估算输出
+    try {
+      const inputTok = estimateTokens(text || "");
+      const outputTok = estimateTokens(finalText || accumulated || "");
+      recordDailyUsage({ inputTokens: inputTok, outputTokens: outputTok });
+      updateQuotaUI();
+    } catch (_) { /* 静默失败 */ }
+
     scrollToBottom();
     await loadSessions();
     el.input.focus();
@@ -2214,6 +2506,14 @@
       openWorkspacePicker();
       return;
     }
+
+    // 本地每日 token 限制检查（前端硬闸，静默拦截）
+    if (utIsLimitExceeded()) {
+      updateQuotaUI();
+      return;
+    }
+
+    updateQuotaUI();
 
     // 根据当前模式选择执行路径
     const mode = getCurrentMode();
@@ -2686,6 +2986,183 @@
   const ADVANCED_KEY = "simchat.advanced";
   const SECTION_KEY = "simchat.section";
 
+  // -------- Usage Section 状态 --------
+  let _usageCache = null;
+  let _usageQuotaBindings = false;
+
+  async function renderUsageSection() {
+    // 绑定一次表单事件（idempotent）
+    bindQuotaForm();
+
+    let data;
+    try {
+      const resp = await fetch("/api/console/usage", { cache: "no-store" });
+      const json = await resp.json();
+      if (!json.success) throw new Error(json.error || "加载失败");
+      data = json;
+    } catch (err) {
+      // 后端不可用时退化到纯前端本地数据
+      data = {
+        success: true,
+        quota: { enabled: false, limit: 0, period: "day", lock: false },
+        today: { input_tokens: 0, output_tokens: 0, total_tokens: 0, exchanges: 0 },
+        recent: buildFallbackRecent(),
+      };
+    }
+    _usageCache = data;
+
+    // ---- 统计卡片 ----
+    document.getElementById("usage-today-total").textContent = formatTokens(data.today.total_tokens);
+    const detailParts = [];
+    if (data.today.input_tokens) detailParts.push("in " + formatTokens(data.today.input_tokens));
+    if (data.today.output_tokens) detailParts.push("out " + formatTokens(data.today.output_tokens));
+    document.getElementById("usage-today-detail").textContent = detailParts.length ? detailParts.join(" · ") : "—";
+    document.getElementById("usage-today-input").textContent = formatTokens(data.today.input_tokens);
+    document.getElementById("usage-today-output").textContent = formatTokens(data.today.output_tokens);
+    document.getElementById("usage-today-exchanges").textContent = formatTokens(data.today.exchanges);
+
+    // ---- 近 7 天条形图 ----
+    const chart = document.getElementById("usage-chart");
+    if (chart) {
+      chart.innerHTML = "";
+      const maxTok = Math.max(1, ...data.recent.map(d => d.total_tokens || 0));
+      const todayStr = new Date().toISOString().slice(0, 10);
+      data.recent.forEach(day => {
+        const height = Math.max(3, (day.total_tokens / maxTok) * 110);
+        const dayEl = document.createElement("div");
+        dayEl.className = "usage-chart-day";
+        const bar = document.createElement("div");
+        bar.className = "usage-chart-bar";
+        if (day.date === todayStr) bar.classList.add("is-today");
+        bar.style.height = height + "px";
+        bar.setAttribute("data-tokens", formatTokens(day.total_tokens));
+        dayEl.appendChild(bar);
+        const label = document.createElement("div");
+        label.className = "usage-chart-label";
+        label.textContent = day.date.slice(5).replace("-", "/"); // MM/DD
+        dayEl.appendChild(label);
+        chart.appendChild(dayEl);
+      });
+    }
+
+    // ---- 额度配置表单 ----
+    const quota = data.quota || {};
+    const toggle = document.getElementById("quota-enabled-toggle");
+    const limitInput = document.getElementById("quota-limit-input");
+    const periodSelect = document.getElementById("quota-period-select");
+    const lockToggle = document.getElementById("quota-lock-toggle");
+    const lockHint = document.getElementById("quota-lock-hint");
+
+    if (toggle) toggle.checked = !!quota.enabled;
+    if (limitInput) limitInput.value = quota.limit || 0;
+    if (periodSelect) periodSelect.value = quota.period || "day";
+    if (lockToggle) lockToggle.checked = !!quota.lock;
+
+    // 锁定时禁用 limit/period/enabled 编辑
+    const blocked = !!quota.lock;
+    [limitInput, periodSelect].forEach(el => { if (el) el.disabled = blocked; });
+    if (toggle) toggle.disabled = blocked;
+    if (lockHint) lockHint.classList.toggle("hidden", !blocked);
+  }
+
+  function buildFallbackRecent() {
+    // 后端不可用时，从 localStorage 拼装最近 7 天
+    const all = utReadAll();
+    const today = new Date();
+    const result = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      const rec = all[key] || {};
+      const inp = rec.input_tokens || 0;
+      const out = rec.output_tokens || 0;
+      result.push({
+        date: key,
+        input_tokens: inp,
+        output_tokens: out,
+        total_tokens: inp + out,
+        exchanges: rec.exchanges || 0,
+      });
+    }
+    return result;
+  }
+
+  function bindQuotaForm() {
+    if (_usageQuotaBindings) return;
+    _usageQuotaBindings = true;
+
+    const toggle = document.getElementById("quota-enabled-toggle");
+    const limitInput = document.getElementById("quota-limit-input");
+    const periodSelect = document.getElementById("quota-period-select");
+    const lockToggle = document.getElementById("quota-lock-toggle");
+    const saveBtn = document.getElementById("quota-save-btn");
+    const resetBtn = document.getElementById("quota-reset-btn");
+    const feedback = document.getElementById("quota-save-feedback");
+
+    if (saveBtn) saveBtn.addEventListener("click", async () => {
+      const limitVal = limitInput ? parseInt(limitInput.value, 10) || 0 : 0;
+      const enabled = toggle ? toggle.checked : false;
+      const period = periodSelect ? periodSelect.value : "day";
+      const lock = lockToggle ? lockToggle.checked : false;
+
+      // enabled=false 时 limit 自动设为 0（关闭限制）
+      const effectiveLimit = enabled ? Math.max(0, limitVal) : 0;
+
+      // 同时写 localStorage（前端硬闸）和后端 settings.json（后端硬闸）
+      const cfg = utReadLimitConfig();
+      cfg.enabled = enabled;
+      cfg.limit = effectiveLimit;
+      cfg.locked = lock;
+      utWriteLimitConfig(cfg);
+      updateQuotaUI();
+
+      // 后端保存（lock 状态下可能返回 403）
+      if (_usageCache && _usageCache.quota && _usageCache.quota.lock && !lock) {
+        // 从锁定变为解锁：先更新本地缓存，再提交
+        _usageCache.quota.lock = false;
+      }
+      try {
+        const resp = await fetch("/api/console/usage/quota", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ limit: effectiveLimit, period, lock }),
+        });
+        const json = await resp.json();
+        if (!json.success) throw new Error(json.error || "保存失败");
+        if (feedback) {
+          feedback.textContent = "✓ 已保存";
+          feedback.classList.remove("is-error");
+          setTimeout(() => { if (feedback) feedback.textContent = ""; }, 2000);
+        }
+      } catch (err) {
+        // 后端 API 不存在时（旧版 simchat）静默降级——前端 localStorage 已是硬闸
+        if (feedback) {
+          feedback.textContent = "已保存到本地（后端未连通）";
+          feedback.classList.remove("is-error");
+          setTimeout(() => { if (feedback) feedback.textContent = ""; }, 2000);
+        }
+      }
+      // 立即刷新显示
+      renderUsageSection();
+      updateQuotaUI();
+    });
+
+    if (resetBtn) resetBtn.addEventListener("click", async () => {
+      if (!confirm("确定要重置今日 token 用量记录吗？")) return;
+      try {
+        await fetch("/api/console/usage/reset-today", { method: "POST" });
+      } catch (_) {}
+      // 本地 localStorage 也清理今天
+      const all = utReadAll();
+      const todayKey = utTodayKey();
+      delete all[todayKey];
+      utWriteAll(all);
+      renderUsageSection();
+      updateQuotaUI();
+    });
+  }
+
   function switchSection(name) {
     state.activeSection = name;
     try { localStorage.setItem(SECTION_KEY, name); } catch (_) {}
@@ -2700,12 +3177,577 @@
     // 惰性加载：只在第一次切到某个分区时拉数据
     if (name === "profile") {
       renderProfileForm();
+    } else if (name === "usage") {
+      renderUsageSection();
     } else if (name === "comms" && !state.comms) {
       loadComms();
     } else if (name === "comms") {
       renderComms();
+    } else if (name === "instances") {
+      loadInstances();
+      startInstancesPolling();
+    } else {
+      stopInstancesPolling();
     }
+
+    if (name === "sessions") {
+      loadConsoleSessions();
+    }
+
+    if (name === "lifecycle") {
+      loadLifecycle();
+      startLifecyclePolling();
+    } else {
+      stopLifecyclePolling();
+    }
+
     updateCommRuntimePolling();
+  }
+
+  // ---------------- 启动与守护 ----------------
+
+  function lifecycleMsg(text, kind) {
+    if (!el.lifecycleMsg) return;
+    el.lifecycleMsg.textContent = text || "";
+    el.lifecycleMsg.className = "lifecycle-msg" + (kind ? " " + kind : "");
+  }
+
+  function _lcSetBadge(node, text, kind) {
+    if (!node) return;
+    node.textContent = text;
+    node.className = "lifecycle-badge" + (kind ? " " + kind : "");
+  }
+
+  function _lcSetStat(node, text, kind) {
+    if (!node) return;
+    node.textContent = text;
+    node.className = "lifecycle-stat-value" + (kind ? " " + kind : "");
+  }
+
+  function formatLifecycleStamp(value) {
+    if (!value) return "—";
+    return String(value).replace("T", " ");
+  }
+
+  function renderLifecycle(data) {
+    if (!data) return;
+    state.lifecycle = data;
+    const auto = data.autostart || {};
+    const wd = data.watchdog || {};
+    const server = data.server || {};
+
+    if (el.lifecycleAutostartTrack) {
+      el.lifecycleAutostartTrack.classList.toggle("on", !!auto.enabled);
+      el.lifecycleAutostartTrack.setAttribute("aria-checked", auto.enabled ? "true" : "false");
+    }
+    _lcSetBadge(
+      el.lifecycleAutostartBadge,
+      auto.enabled ? "已安装" : "未安装",
+      auto.enabled ? "on" : ""
+    );
+    if (el.lifecycleAutostartMeta) {
+      if (!auto.supported) {
+        el.lifecycleAutostartMeta.textContent = auto.method_label || "当前系统不支持";
+      } else {
+        el.lifecycleAutostartMeta.textContent =
+          (auto.method_label || "") + (auto.location ? "\n" + auto.location : "");
+      }
+    }
+
+    if (el.lifecycleWatchdogTrack) {
+      el.lifecycleWatchdogTrack.classList.toggle("on", !!wd.enabled);
+      el.lifecycleWatchdogTrack.setAttribute("aria-checked", wd.enabled ? "true" : "false");
+    }
+    const paused = !!wd.paused;
+    _lcSetBadge(
+      el.lifecycleWatchdogBadge,
+      paused ? "熔断中" : wd.enabled ? "已启用" : "未启用",
+      paused ? "warn" : wd.enabled ? "on" : ""
+    );
+    _lcSetStat(el.lifecycleWdRunning, wd.running ? "运行中" : "未运行", wd.running ? "ok" : "");
+    _lcSetStat(el.lifecycleWdPid, wd.guardian_pid ? String(wd.guardian_pid) : "—");
+    _lcSetStat(el.lifecycleWdRestarts, (wd.restarts || 0) + " 次");
+    _lcSetStat(el.lifecycleWdLast, formatLifecycleStamp(wd.last_restart_at));
+    _lcSetStat(
+      el.lifecycleServer,
+      server.running ? (server.url || "运行中") : "未运行",
+      server.running ? "ok" : ""
+    );
+    _lcSetStat(
+      el.lifecycleWdPaused,
+      paused ? (wd.paused_reason || "已熔断") : "正常",
+      paused ? "warn" : "ok"
+    );
+    if (el.lifecycleStopWatchdog) el.lifecycleStopWatchdog.disabled = !wd.running;
+  }
+
+  async function loadLifecycle() {
+    try {
+      const data = await api("/api/lifecycle");
+      renderLifecycle(data);
+    } catch (err) {
+      lifecycleMsg("状态读取失败：" + err.message, "error");
+    }
+  }
+
+  function startLifecyclePolling() {
+    stopLifecyclePolling();
+    state.lifecycleTimer = setInterval(() => {
+      if (state.activeSection === "lifecycle") loadLifecycle();
+    }, 6000);
+  }
+
+  function stopLifecyclePolling() {
+    if (state.lifecycleTimer) {
+      clearInterval(state.lifecycleTimer);
+      state.lifecycleTimer = null;
+    }
+  }
+
+  async function toggleAutostart() {
+    if (state.lifecycleBusy) return;
+    if (!state.lifecycle) {
+      await loadLifecycle();
+      return;
+    }
+    const current = !!state.lifecycle.autostart?.enabled;
+    if (!current && !window.confirm("将在当前用户登录时自动启动 SimChat。是否继续？")) {
+      await loadLifecycle();
+      return;
+    }
+    state.lifecycleBusy = true;
+    lifecycleMsg(current ? "正在移除自启动项…" : "正在安装自启动项…");
+    try {
+      const data = await api("/api/lifecycle/autostart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !current }),
+      });
+      renderLifecycle(data);
+      lifecycleMsg(
+        !current ? (data.detail || "已安装开机自启") : "已移除开机自启",
+        "ok"
+      );
+    } catch (err) {
+      lifecycleMsg(err.message || "设置失败", "error");
+      await loadLifecycle();
+    } finally {
+      state.lifecycleBusy = false;
+    }
+  }
+
+  function openLifecycleConfirm() {
+    if (!el.lifecycleConfirm) return;
+    if (el.lifecycleConfirmCheck) el.lifecycleConfirmCheck.checked = false;
+    if (el.lifecycleConfirmInput) el.lifecycleConfirmInput.value = "";
+    updateLifecycleConfirmState();
+    el.lifecycleConfirm.classList.add("is-open");
+    el.lifecycleConfirm.setAttribute("aria-hidden", "false");
+    el.lifecycleConfirmInput?.focus();
+  }
+
+  function closeLifecycleConfirm() {
+    if (!el.lifecycleConfirm) return;
+    el.lifecycleConfirm.classList.remove("is-open");
+    el.lifecycleConfirm.setAttribute("aria-hidden", "true");
+  }
+
+  function updateLifecycleConfirmState() {
+    const phrase = state.lifecycle?.confirmation_phrase || "启用自动拉起";
+    const checked = !!el.lifecycleConfirmCheck?.checked;
+    const typed = (el.lifecycleConfirmInput?.value || "").trim();
+    if (el.lifecycleConfirmEnable) {
+      el.lifecycleConfirmEnable.disabled = !(checked && typed === phrase);
+    }
+  }
+
+  async function enableWatchdog() {
+    const phrase = state.lifecycle?.confirmation_phrase || "启用自动拉起";
+    if (!el.lifecycleConfirmCheck?.checked) return;
+    if ((el.lifecycleConfirmInput?.value || "").trim() !== phrase) return;
+    if (state.lifecycleBusy) return;
+    state.lifecycleBusy = true;
+    lifecycleMsg("正在启动守护进程…");
+    try {
+      const data = await api("/api/lifecycle/watchdog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: true, confirm: phrase }),
+      });
+      renderLifecycle(data);
+      closeLifecycleConfirm();
+      lifecycleMsg("自动拉起已启用", "ok");
+    } catch (err) {
+      lifecycleMsg(err.message || "启用失败", "error");
+    } finally {
+      state.lifecycleBusy = false;
+    }
+  }
+
+  async function disableWatchdog() {
+    if (state.lifecycleBusy) return;
+    if (!window.confirm("停止自动拉起？守护进程会退出，当前 Web 服务继续运行。")) {
+      await loadLifecycle();
+      return;
+    }
+    state.lifecycleBusy = true;
+    lifecycleMsg("正在停止守护进程…");
+    try {
+      const data = await api("/api/lifecycle/watchdog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: false }),
+      });
+      renderLifecycle(data);
+      lifecycleMsg("自动拉起已停止", "ok");
+    } catch (err) {
+      lifecycleMsg(err.message || "停止失败", "error");
+      await loadLifecycle();
+    } finally {
+      state.lifecycleBusy = false;
+    }
+  }
+
+  async function stopWatchdogOnly() {
+    if (state.lifecycleBusy) return;
+    if (!window.confirm("停止守护进程？当前 Web 服务会继续运行，但不会再被自动拉起。")) return;
+    state.lifecycleBusy = true;
+    lifecycleMsg("正在停止守护进程…");
+    try {
+      await api("/api/lifecycle/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "watchdog" }),
+      });
+      await loadLifecycle();
+      lifecycleMsg("守护已停止，Web 服务继续运行", "ok");
+    } catch (err) {
+      lifecycleMsg(err.message || "停止失败", "error");
+    } finally {
+      state.lifecycleBusy = false;
+    }
+  }
+
+  async function stopService() {
+    if (state.lifecycleBusy) return;
+    const ok = window.confirm(
+      "立即停止 SimChat 服务？\n\n" +
+      "本次停止会同时解除自动拉起，守护进程不会复活它；开机自启设置保持不变。"
+    );
+    if (!ok) return;
+    state.lifecycleBusy = true;
+    stopLifecyclePolling();
+    lifecycleMsg("正在停止服务…");
+    try {
+      const data = await api("/api/lifecycle/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "service" }),
+      });
+      if (el.lifecycleStopService) el.lifecycleStopService.disabled = true;
+      lifecycleMsg(data.message || "服务已停止，可关闭此页面", "ok");
+    } catch (err) {
+      lifecycleMsg(err.message || "停止失败", "error");
+      state.lifecycleBusy = false;
+    }
+  }
+
+  // ---------------- 会话管理（控制台） ----------------
+
+  const _SESS_OVERRIDE_OPTIONS = {
+    thinking: [
+      { value: "inherit", label: "继承（全局）" },
+      { value: "low",     label: "low" },
+      { value: "medium",  label: "medium" },
+      { value: "high",    label: "high" },
+    ],
+    verbose: [
+      { value: "inherit", label: "继承（全局）" },
+      { value: "low",     label: "low" },
+      { value: "medium",  label: "medium" },
+      { value: "high",    label: "high" },
+    ],
+    reasoning: [
+      { value: "inherit", label: "继承（全局）" },
+      { value: "off",     label: "off" },
+      { value: "low",     label: "low" },
+      { value: "medium",  label: "medium" },
+      { value: "high",    label: "high" },
+    ],
+  };
+
+  /** 相对时间格式化：返回 "just now" / "5 min ago" / "2h ago" / "昨天" 等 */
+  function _formatRelativeTime(timestamp) {
+    if (!timestamp) return "—";
+    const diff = (Date.now() / 1000) - timestamp;
+    if (diff < 60) return "just now";
+    if (diff < 3600) return Math.floor(diff / 60) + " min ago";
+    if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+    if (diff < 86400 * 7) return Math.floor(diff / 86400) + "d ago";
+    // 超过一周显示日期
+    const d = new Date(timestamp * 1000);
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+
+  /** 获取当前筛选参数 */
+  function _getSessionFilters() {
+    const withinRaw = (el.sesActiveWithin?.value || "").trim();
+    const limitRaw = (el.sesLimit?.value || "").trim();
+    return {
+      withinMinutes: withinRaw ? Math.max(1, parseInt(withinRaw, 10)) : null,
+      limit: limitRaw ? Math.max(1, parseInt(limitRaw, 10)) : null,
+    };
+  }
+
+  /** 根据筛选参数过滤会话列表（返回新数组） */
+  function _applySessionFilters(sessions) {
+    const { withinMinutes, limit } = _getSessionFilters();
+    let list = sessions.slice();
+
+    if (withinMinutes) {
+      const cutoff = (Date.now() / 1000) - withinMinutes * 60;
+      list = list.filter((s) => (s.updated_at || 0) >= cutoff);
+    }
+
+    if (limit) {
+      list = list.slice(0, limit);
+    }
+
+    return list;
+  }
+
+  /** 渲染控制台会话表格（纯 DOM 操作，不发请求） */
+  function renderSessionsConsole(sessions) {
+    if (!el.sesTbody) return;
+
+    const filtered = _applySessionFilters(sessions || []);
+
+    // 空态
+    if (!filtered.length) {
+      el.sesTable.style.display = "none";
+      if (el.sesEmpty) el.sesEmpty.hidden = false;
+      if (el.sesLoading) el.sesLoading.hidden = true;
+      if (el.sesFooterInfo) {
+        const total = sessions?.length || 0;
+        const { withinMinutes, limit } = _getSessionFilters();
+        el.sesFooterInfo.textContent =
+          total === 0
+            ? "本地暂无会话"
+            : `共 ${total} 条，筛选后 0 条${withinMinutes ? "（活跃 ≤ " + withinMinutes + " min）" : ""}${limit ? "（limit " + limit + "）" : ""}`;
+      }
+      return;
+    }
+
+    el.sesTable.style.display = "";
+    if (el.sesEmpty) el.sesEmpty.hidden = true;
+    if (el.sesLoading) el.sesLoading.hidden = true;
+
+    // 构建下拉框选项 HTML（复用给每行）
+    const buildOptions = (options, current) =>
+      options.map((o) =>
+        `<option value="${o.value}" ${o.value === current ? "selected" : ""}>${o.label}</option>`
+      ).join("");
+
+    const rowsHtml = filtered.map((s) => {
+      const overrides = s.overrides || {};
+      const key = s.id || "—";
+      const title = (s.title || "").trim();
+      const label = title && title !== "新对话" ? title : key;
+      const labelClass = title && title !== "新对话" ? "sess-label" : "sess-label is-fallback";
+      const modeClass = s.mode === "agent" ? "sess-kind agent" : "sess-kind chat";
+      const modeLabel = s.mode === "agent" ? "agent" : "direct";
+      const updated = _formatRelativeTime(s.updated_at);
+      const tokens = typeof s.tokens_estimated === "number"
+        ? s.tokens_estimated.toLocaleString()
+        : "—";
+      const thinkingVal = overrides.thinking || "inherit";
+      const verboseVal = overrides.verbose || "inherit";
+      const reasoningVal = overrides.reasoning || "inherit";
+
+      const rowId = `ses-row-${key}`;
+      return `
+        <tr data-sid="${key}" id="${rowId}">
+          <td class="col-key"><span class="sess-key" title="点击复制会话 ID">${key}</span></td>
+          <td class="col-label"><span class="${labelClass}" title="${label}">${label}</span></td>
+          <td class="col-kind"><span class="${modeClass}">${modeLabel}</span></td>
+          <td class="col-updated">${updated}</td>
+          <td class="col-tokens">${tokens}</td>
+          <td class="col-thinking">
+            <select class="sess-override" data-override="thinking">
+              ${buildOptions(_SESS_OVERRIDE_OPTIONS.thinking, thinkingVal)}
+            </select>
+          </td>
+          <td class="col-verbose">
+            <select class="sess-override" data-override="verbose">
+              ${buildOptions(_SESS_OVERRIDE_OPTIONS.verbose, verboseVal)}
+            </select>
+          </td>
+          <td class="col-reasoning">
+            <select class="sess-override" data-override="reasoning">
+              ${buildOptions(_SESS_OVERRIDE_OPTIONS.reasoning, reasoningVal)}
+            </select>
+          </td>
+          <td class="col-actions">
+            <div class="sess-actions">
+              <button class="sess-action-btn" data-act="refresh" title="刷新本行">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                刷新
+              </button>
+              <button class="sess-action-btn danger" data-act="delete" title="删除此会话">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+                删除
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+    el.sesTbody.innerHTML = rowsHtml;
+
+    // 绑定行内事件：下拉框 change、按钮点击
+    el.sesTbody.querySelectorAll("tr").forEach((row) => {
+      const sid = row.dataset.sid;
+      if (!sid) return;
+
+      // 下拉框 → 批量保存 overrides
+      row.querySelectorAll(".sess-override").forEach((select) => {
+        select.addEventListener("change", () => {
+          _saveSessionOverrides(sid, row).catch((err) => {
+            console.error("保存 overrides 失败:", err);
+          });
+        });
+      });
+
+      // Key 点击 → 复制
+      const keyEl = row.querySelector(".sess-key");
+      if (keyEl) {
+        keyEl.addEventListener("click", () => {
+          navigator.clipboard?.writeText(sid).then(
+            () => { keyEl.style.color = "var(--accent)"; setTimeout(() => { keyEl.style.color = ""; }, 800); },
+            () => {}
+          );
+        });
+      }
+
+      // Actions 按钮
+      row.querySelectorAll(".sess-action-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const act = btn.dataset.act;
+          if (act === "delete") _deleteSession(sid);
+          else if (act === "refresh") {
+            loadConsoleSessions();
+          }
+        });
+      });
+    });
+
+    // 底部统计
+    if (el.sesFooterInfo) {
+      const total = sessions.length;
+      const shown = filtered.length;
+      const { withinMinutes, limit } = _getSessionFilters();
+      const parts = [`共 ${total} 条`];
+      if (shown !== total) parts.push(`当前显示 ${shown} 条`);
+      if (withinMinutes) parts.push(`活跃 ≤ ${withinMinutes} min`);
+      if (limit) parts.push(`limit ${limit}`);
+      el.sesFooterInfo.textContent = parts.join(" · ");
+    }
+  }
+
+  /** 从行 DOM 提取当前 overrides 并 PATCH 到后端 */
+  async function _saveSessionOverrides(sid, row) {
+    if (!row) return;
+    const overrides = {};
+    row.querySelectorAll(".sess-override").forEach((select) => {
+      const key = select.dataset.override;
+      if (key) overrides[key] = select.value;
+    });
+
+    try {
+      const resp = await api("/api/sessions/" + encodeURIComponent(sid), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ overrides }),
+      });
+
+      // 更新本地缓存
+      if (state.sessions) {
+        const cached = state.sessions.find((s) => s.id === sid);
+        if (cached) cached.overrides = resp.overrides || {};
+      }
+    } catch (err) {
+      alert("保存失败: " + (err.message || err));
+      // 回滚：重新拉一次覆盖值
+      await loadConsoleSessions();
+    }
+  }
+
+  /** 删除会话（带确认） */
+  async function _deleteSession(sid) {
+    if (!window.confirm(`确认删除会话 ${sid}？此操作不可恢复。`)) return;
+    try {
+      await api("/api/sessions/" + encodeURIComponent(sid), { method: "DELETE" });
+      // 从本地缓存移除
+      if (state.sessions) {
+        state.sessions = state.sessions.filter((s) => s.id !== sid);
+      }
+      renderSessionsConsole(state.sessions || []);
+      // 同时刷新侧边栏会话列表（chat.js 已有的 loadSessions → renderSessions）
+      try { await loadSessions(); } catch (_) {}
+      // 刷新概览的会话计数
+      if (el.ovSessions && state.sessions) {
+        el.ovSessions.textContent = state.sessions.length;
+      }
+    } catch (err) {
+      alert("删除失败: " + (err.message || err));
+    }
+  }
+
+  /** 拉取会话列表并渲染控制台表格 */
+  async function loadConsoleSessions() {
+    // 显示 loading（如果表格还没数据）
+    if (el.sesTable) el.sesTable.style.display = "none";
+    if (el.sesLoading) el.sesLoading.hidden = false;
+    if (el.sesEmpty) el.sesEmpty.hidden = true;
+
+    try {
+      const data = await api("/api/sessions");
+      state.sessions = data.sessions || [];
+    } catch (err) {
+      console.error("加载会话列表失败:", err);
+      state.sessions = [];
+    } finally {
+      renderSessionsConsole(state.sessions || []);
+    }
+  }
+
+  /** 绑定筛选栏的实时过滤（debounce 50ms）和刷新按钮 */
+  function _bindSessionFilters() {
+    if (el.sesRefresh) {
+      el.sesRefresh.addEventListener("click", () => loadConsoleSessions());
+    }
+
+    let debounceTimer = null;
+    const onFilterChange = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        renderSessionsConsole(state.sessions || []);
+      }, 80);
+    };
+
+    [el.sesActiveWithin, el.sesLimit].forEach((input) => {
+      input?.addEventListener("input", onFilterChange);
+    });
+  }
+
+  // 在 DOMContentLoaded 时绑定筛选事件（如果存在）
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", _bindSessionFilters);
+  } else {
+    _bindSessionFilters();
   }
 
   // ---------------- 概览渲染 ----------------
@@ -3710,10 +4752,50 @@
   initHippoToggle();
   el.hippoToggle?.addEventListener("click", toggleHippo);
 
+  // 启动与守护 · 事件绑定
+  el.lifecycleAutostartTrack?.addEventListener("click", toggleAutostart);
+  el.lifecycleAutostartTrack?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggleAutostart();
+    }
+  });
+  el.lifecycleWatchdogTrack?.addEventListener("click", () => {
+    if (!state.lifecycle) {
+      loadLifecycle();
+      return;
+    }
+    if (state.lifecycle.watchdog?.enabled) {
+      disableWatchdog();
+    } else {
+      openLifecycleConfirm();
+    }
+  });
+  el.lifecycleWatchdogTrack?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    el.lifecycleWatchdogTrack.click();
+  });
+  el.lifecycleRefresh?.addEventListener("click", async () => {
+    await loadLifecycle();
+    lifecycleMsg("状态已刷新", "ok");
+  });
+  el.lifecycleStopWatchdog?.addEventListener("click", stopWatchdogOnly);
+  el.lifecycleStopService?.addEventListener("click", stopService);
+  el.lifecycleConfirmCheck?.addEventListener("change", updateLifecycleConfirmState);
+  el.lifecycleConfirmInput?.addEventListener("input", updateLifecycleConfirmState);
+  el.lifecycleConfirmEnable?.addEventListener("click", enableWatchdog);
+  el.lifecycleConfirmCancel?.addEventListener("click", closeLifecycleConfirm);
+  el.lifecycleConfirm?.addEventListener("click", (event) => {
+    if (event.target === el.lifecycleConfirm) closeLifecycleConfirm();
+  });
+
   // 键盘：Esc 优先关 console，其次关 setup（locked 时不关 setup）
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
-    if (el.workspaceModal?.classList.contains("is-open")) {
+    if (el.lifecycleConfirm?.classList.contains("is-open")) {
+      closeLifecycleConfirm();
+    } else if (el.workspaceModal?.classList.contains("is-open")) {
       closeWorkspacePicker();
     } else if (el.settingsConsole?.classList.contains("is-open")) {
       closeConsole();
@@ -3741,6 +4823,7 @@
   autoResize();
   updateInputTokens();
   updateSendState();
+  updateQuotaUI(); // 每日用量进度条 + 超限横幅初始化
 
   (async function init() {
     await Promise.all([loadSessions(), loadProviders(), loadSettings(), loadProfile(), loadWorkspace()]);
@@ -3779,6 +4862,357 @@
     } catch (_) {
       /* splash 加载失败不影响主流程 */
     }
+
+    // ---------- 实例监控初始化 ----------
+    initInstanceHeartbeat();
   })();
+
+  // ============================================================
+  // 实例 / 设备监控模块
+  // ============================================================
+
+  const INSTANCE_HEARTBEAT_KEY = "simchat.device_id";
+  const INSTANCE_TAB_KEY = "simchat.tab_id";
+  const INSTANCE_HEARTBEAT_INTERVAL = 15000;  // 15 秒一次
+  const INSTANCE_POLL_INTERVAL = 5000;        // 在 instances 分区中每 5 秒刷列表
+
+  function _generateShortId(len) {
+    len = len || 12;
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let s = "";
+    for (let i = 0; i < len; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+    return s;
+  }
+
+  /** 从 User-Agent 解析 OS、浏览器、版本等信息。纯前端，无需后端。 */
+  function _parseUA() {
+    const ua = navigator.userAgent || "";
+    const platform = navigator.platform || "";
+    let os = "Unknown", osVersion = "", browser = "Unknown", browserVersion = "", arch = "";
+
+    // OS 检测
+    if (/Windows NT 10\.0/.test(ua)) { os = "Windows"; osVersion = "10/11"; }
+    else if (/Windows NT 6\.3/.test(ua)) { os = "Windows"; osVersion = "8.1"; }
+    else if (/Windows NT 6\.2/.test(ua)) { os = "Windows"; osVersion = "8"; }
+    else if (/Windows NT 6\.1/.test(ua)) { os = "Windows"; osVersion = "7"; }
+    else if (/Windows NT 5\.1/.test(ua)) { os = "Windows"; osVersion = "XP"; }
+    else if (/Mac OS X ([\d_.]+)/.test(ua)) { os = "macOS"; osVersion = (ua.match(/Mac OS X ([\d_.]+)/) || [, ""])[1].replace(/_/g, "."); }
+    else if (/Android ([\d.]+)/.test(ua)) { os = "Android"; osVersion = (ua.match(/Android ([\d.]+)/) || [, ""])[1]; }
+    else if (/iPhone|iPad|iPod/.test(ua)) { os = "iOS"; osVersion = (ua.match(/OS ([\d_]+)/) || [, ""])[1].replace(/_/g, "."); }
+    else if (/Linux/.test(ua)) { os = "Linux"; osVersion = (platform || "").trim(); }
+    else if (/HarmonyOS/.test(ua)) { os = "HarmonyOS"; osVersion = (ua.match(/HarmonyOS ([\d.]+)/) || [, ""])[1]; }
+
+    // 浏览器检测（顺序敏感：Edge 包含 Chrome，Chrome 包含 Safari）
+    if (/Edg\//.test(ua)) { browser = "Edge"; browserVersion = (ua.match(/Edg\/([\d.]+)/) || [, ""])[1]; }
+    else if (/OPR\//.test(ua) || /Opera\//.test(ua)) { browser = "Opera"; browserVersion = (ua.match(/(?:OPR|Opera)\/([\d.]+)/) || [, ""])[1]; }
+    else if (/Chrome\//.test(ua) && !/Chromium/.test(ua)) { browser = "Chrome"; browserVersion = (ua.match(/Chrome\/([\d.]+)/) || [, ""])[1]; }
+    else if (/Safari\//.test(ua)) { browser = "Safari"; browserVersion = (ua.match(/Version\/([\d.]+)/) || [, ""])[1]; }
+    else if (/Firefox\//.test(ua)) { browser = "Firefox"; browserVersion = (ua.match(/Firefox\/([\d.]+)/) || [, ""])[1]; }
+    else if (/HarmonyOS/.test(ua)) { browser = "Harmony WebView"; browserVersion = (ua.match(/HarmonyOSBrowser\/([\d.]+)/) || [, ""])[1] || "—"; }
+
+    // 架构
+    if (/WOW64|Win64|x64|x86_64/.test(ua)) arch = "64-bit";
+    else if (/ARM|aarch64/.test(ua)) arch = "ARM";
+    else if (/Windows/.test(ua)) arch = "32-bit";
+
+    // 优先用现代 UA Client Hints API（更精确）
+    const uach = navigator.userAgentData;
+    if (uach && uach.brands && uach.brands.length) {
+      const brand = uach.brands
+        .filter((b) => !b.brand.includes("Not") && !b.brand.includes("Chromium"))
+        .sort((a, b) => (b.version || 0) - (a.version || 0))[0];
+      if (brand) { browser = brand.brand; browserVersion = brand.version; }
+      if (uach.platform) { os = uach.platform; }
+      if (uach.platformVersion) osVersion = uach.platformVersion;
+      if (uach.architecture) arch = uach.architecture;
+    }
+
+    return { os, os_version: osVersion, browser, browser_version: browserVersion, arch, ua };
+  }
+
+  /** 采集当前设备的完整信息 payload。 */
+  function collectDeviceInfo() {
+    const ua = _parseUA();
+    const scr = screen || {};
+    const today = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const isoDate = today.getFullYear() + "-" + pad(today.getMonth() + 1) + "-" + pad(today.getDate()) +
+      " " + pad(today.getHours()) + ":" + pad(today.getMinutes()) + ":" + pad(today.getSeconds());
+
+    return {
+      // 系统
+      os: ua.os,
+      os_version: ua.os_version,
+      arch: ua.arch,
+      platform: navigator.platform || "",
+      vendor: navigator.vendor || "",
+
+      // 浏览器
+      browser: ua.browser,
+      browser_version: ua.browser_version,
+      ua: ua.ua,
+
+      // 屏幕
+      screen: (scr.width || 0) + "×" + (scr.height || 0),
+      viewport: (window.innerWidth || 0) + "×" + (window.innerHeight || 0),
+      device_pixel_ratio: window.devicePixelRatio || 1,
+      color_depth: scr.colorDepth || 0,
+
+      // 环境
+      language: navigator.language || (navigator.languages && navigator.languages[0]) || "",
+      languages: (navigator.languages || []).slice(0, 3).join(", "),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+      timezone_offset: new Date().getTimezoneOffset(),
+      date: isoDate,
+
+      // 硬件
+      hardware_concurrency: navigator.hardwareConcurrency || 0,
+      device_memory: navigator.deviceMemory || "",
+      max_touch_points: navigator.maxTouchPoints || 0,
+
+      // 网络
+      online: navigator.onLine,
+      connection_type: (navigator.connection && navigator.connection.effectiveType) || "",
+
+      // SimChat
+      simchat_build: "2026-11-03",
+    };
+  }
+
+  /** 初始化 deviceId / tabId 并启动心跳。 */
+  function initInstanceHeartbeat() {
+    // deviceId：localStorage 持久化，同一浏览器同一用户始终相同
+    try {
+      let id = localStorage.getItem(INSTANCE_HEARTBEAT_KEY);
+      if (!id) {
+        id = "dev-" + _generateShortId(8) + "-" + Date.now().toString(36);
+        localStorage.setItem(INSTANCE_HEARTBEAT_KEY, id);
+      }
+      state.deviceId = id;
+    } catch (_) {
+      state.deviceId = "anon-" + _generateShortId(12);
+    }
+
+    // tabId：sessionStorage，每个标签页唯一
+    try {
+      let tid = sessionStorage.getItem(INSTANCE_TAB_KEY);
+      if (!tid) {
+        tid = "tab-" + _generateShortId(6);
+        sessionStorage.setItem(INSTANCE_TAB_KEY, tid);
+      }
+      state.tabId = tid;
+    } catch (_) {
+      state.tabId = "tab-" + _generateShortId(6);
+    }
+
+    // 首次立即发一次
+    sendHeartbeat();
+    // 然后定时
+    state.heartbeatTimer = setInterval(sendHeartbeat, INSTANCE_HEARTBEAT_INTERVAL);
+
+    // 页面隐藏时降低频率（可选），切回来立即发一次
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) sendHeartbeat();
+    });
+    // 关闭页面前最后发一次（sendBeacon 不丢失）
+    window.addEventListener("beforeunload", () => {
+      const payload = JSON.stringify({
+        device_id: state.deviceId,
+        tab_id: state.tabId,
+        info: collectDeviceInfo(),
+      });
+      try { navigator.sendBeacon("/api/instances/heartbeat", payload); } catch (_) {}
+    });
+  }
+
+  async function sendHeartbeat() {
+    if (!state.deviceId) return;
+    try {
+      await fetch("/api/instances/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          device_id: state.deviceId,
+          tab_id: state.tabId,
+          info: collectDeviceInfo(),
+        }),
+      });
+    } catch (_) {
+      /* 网络断开等情况静默跳过——下一轮会重试 */
+    }
+  }
+
+  // ---------- 实例列表加载 / 渲染 ----------
+
+  function startInstancesPolling() {
+    stopInstancesPolling();
+    // 切进来先立刻拉一次
+    loadInstances();
+    state.instancesPollTimer = setInterval(() => {
+      if (state.activeSection === "instances") loadInstances();
+    }, INSTANCE_POLL_INTERVAL);
+  }
+
+  function stopInstancesPolling() {
+    if (state.instancesPollTimer) {
+      clearInterval(state.instancesPollTimer);
+      state.instancesPollTimer = null;
+    }
+  }
+
+  async function loadInstances() {
+    if (el.instRefresh) el.instRefresh.classList.add("loading");
+    try {
+      const data = await api("/api/instances");
+      state.instances = data;
+      renderInstances(data);
+    } catch (_) {
+      // 静默——下次轮询会重试
+    } finally {
+      if (el.instRefresh) el.instRefresh.classList.remove("loading");
+    }
+  }
+
+  function _fmtAgo(seconds) {
+    if (seconds < 5) return "刚刚";
+    if (seconds < 60) return seconds + " 秒前";
+    if (seconds < 3600) return Math.floor(seconds / 60) + " 分钟前";
+    if (seconds < 86400) return Math.floor(seconds / 3600) + " 小时前";
+    return Math.floor(seconds / 86400) + " 天前";
+  }
+
+  function _deviceIcon(os) {
+    const name = String(os || "").toLowerCase();
+    if (/android/.test(name) || /ios/.test(name) || /harmony/.test(name)) return "📱";
+    if (/mac/.test(name)) return "💻";
+    if (/linux/.test(name)) return "🐧";
+    if (/windows/.test(name)) return "🪟";
+    return "🖥️";
+  }
+
+  function renderInstances(data) {
+    if (!data) return;
+
+    // 顶部统计
+    if (el.instOnline) el.instOnline.textContent = String(data.online || 0);
+    if (el.instTotal) el.instTotal.textContent = String(data.total || 0);
+    if (el.instGenerated) {
+      const g = data.generated_at || "";
+      el.instGenerated.textContent = g ? g.replace("T", " ").replace("Z", "") : "—";
+    }
+
+    if (!el.instList) return;
+    el.instList.innerHTML = "";
+
+    const items = data.instances || [];
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.className = "instance-empty";
+      empty.innerHTML = '<span class="instance-empty-icon">📡</span>还没有任何设备连接到这个 SimChat 实例。当前浏览器应该正在第一次上报，稍等几秒刷新。';
+      el.instList.appendChild(empty);
+      return;
+    }
+
+    for (const inst of items) {
+      el.instList.appendChild(_buildInstanceCard(inst));
+    }
+  }
+
+  function _buildInstanceCard(inst) {
+    const card = document.createElement("div");
+    card.className = "instance-card" + (inst.online ? "" : " is-offline");
+    const isSelf = inst.device_id === state.deviceId;
+    if (isSelf) card.classList.add("is-self");
+
+    const info = inst.info || {};
+
+    // ---- 头部 ----
+    const head = document.createElement("div");
+    head.className = "instance-head";
+
+    const dot = document.createElement("div");
+    dot.className = "instance-status-dot " + (inst.online ? "online" : "offline");
+    head.appendChild(dot);
+
+    const icon = document.createElement("div");
+    icon.className = "instance-icon";
+    icon.textContent = _deviceIcon(info.os);
+    head.appendChild(icon);
+
+    const title = document.createElement("div");
+    title.className = "instance-title";
+    const osLine = document.createElement("div");
+    osLine.className = "instance-os";
+    osLine.textContent = [info.os, info.os_version].filter(Boolean).join(" ") || "Unknown Device";
+    title.appendChild(osLine);
+
+    const sub = document.createElement("div");
+    sub.className = "instance-sub";
+    const parts = [];
+    parts.push((info.browser || "—") + " " + (info.browser_version || ""));
+    if (info.arch) parts.push(info.arch);
+    if (inst.remote_ip) parts.push(inst.remote_ip);
+    parts.push("首次接入 " + new Date(inst.first_seen * 1000).toLocaleString());
+    sub.textContent = parts.join(" · ");
+    title.appendChild(sub);
+    head.appendChild(title);
+
+    if (isSelf) {
+      const selfBadge = document.createElement("span");
+      selfBadge.className = "instance-self-badge";
+      selfBadge.textContent = "本机";
+      head.appendChild(selfBadge);
+    }
+
+    const pill = document.createElement("span");
+    pill.className = "instance-status-pill " + (inst.online ? "online" : "offline");
+    pill.textContent = inst.online ? "在线" : (_fmtAgo(inst.last_seen_ago_seconds) + " 离线");
+    head.appendChild(pill);
+
+    card.appendChild(head);
+
+    // ---- 详情网格 ----
+    const details = document.createElement("div");
+    details.className = "instance-details";
+
+    const row = (label, value, klass) => {
+      const wrap = document.createElement("div");
+      wrap.className = "instance-detail";
+      const l = document.createElement("div");
+      l.className = "instance-detail-label";
+      l.textContent = label;
+      const v = document.createElement("div");
+      v.className = "instance-detail-value" + (klass ? " " + klass : "");
+      v.textContent = (value === undefined || value === null || value === "") ? "—" : String(value);
+      v.title = v.textContent;
+      wrap.appendChild(l);
+      wrap.appendChild(v);
+      return wrap;
+    };
+
+    details.appendChild(row("屏幕", info.screen || "—"));
+    details.appendChild(row("视口", info.viewport || "—"));
+    details.appendChild(row("语言", info.language || "—", "normal"));
+    details.appendChild(row("时区", info.timezone || "—", "normal"));
+    details.appendChild(row("当前日期", info.date || "—"));
+    details.appendChild(row("设备像素比", info.device_pixel_ratio || "—"));
+    details.appendChild(row("CPU 核心", info.hardware_concurrency || "—"));
+    details.appendChild(row("内存 (GB)", info.device_memory || "—"));
+    details.appendChild(row("触摸点", info.max_touch_points || 0));
+    details.appendChild(row("网络", info.connection_type || (info.online ? "online" : "offline"), "normal"));
+    if (info.simchat_build) details.appendChild(row("SimChat 版本", info.simchat_build));
+    if (inst.tabs > 1) details.appendChild(row("标签页数", inst.tabs));
+
+    // 最后心跳 / 首次接入（时间戳，友好显示）
+    const lastHb = new Date(inst.last_heartbeat * 1000).toLocaleString();
+    details.appendChild(row("最后心跳", lastHb));
+
+    card.appendChild(details);
+
+    return card;
+  }
+
+  // 刷新按钮绑定
+  el.instRefresh?.addEventListener("click", loadInstances);
 })();
 

@@ -101,6 +101,16 @@ python -m web   # 打开浏览器，接入你的第一个模型
 
 ## 最近更新
 
+**2026-11-03** — Token 用量统计 + 额度限制（从 kirara 迁移）
+
+- **每日 token 用量统计（后端持久化）**：新增 `runtime/usage.py`（`UsageTracker`），按 YYYY-MM-DD 记录 input/output tokens 与会话次数，存 `data/usage.json`，线程安全 + 文件级原子写入。`chat_stream()` 和 `agent_run()` 入口结束后自动累加用量。
+- **后端 quota 硬闸**：`settings.json` 的 `quota.limit` 字段控制每日上限（0 = 不限额，默认）；`chat_stream` / `agent_run` 入口各有一次硬闸检查，超限返回 `code: quota_exceeded`（对话模式走 SSE error 事件、Agent 模式返回 HTTP 429）。支持锁定（`quota.lock=true` → 后端 403 拒绝修改）。
+- **前端本地每日统计（localStorage）**：`web/static/js/chat.js` 内置 `utReadAll()` / `recordDailyUsage()` / `utIsLimitExceeded()`，对话模式和 Agent 模式结束时各自结算，前端 `sendMessage` 入口做硬闸拦截（`updateQuotaUI()` 驱动超限横幅 + 进度条更新）。前后端双保险。
+- **Agent token 徽章 + 压缩提示渲染**：此前后端 AgentLoop 已 emit `token_usage` / `compaction` 事件，但前端静默丢弃；现在每次 `token_usage` 累加 prompt/completion tokens 并更新卡片头部徽章（按使用比例显示 ok/warn/critical 三级 + 颜色 + 临界态呼吸动画），`compaction` 事件渲染紫色提示卡片展示压缩前后条数和 token 变化。
+- **每日用量 UI**：composer 上方新增红色超限横幅（sticky），token-bar 下方新增每日用量进度条（跟随 token-bar 一起显隐、按使用比例变色），两者均硬编码在 `index.html`（非动态注入），首屏无闪烁。
+- **高级功能 → 使用情况面板接入**：原先占位的「该模块尚未接入」section 被替换为完整面板——4 张统计卡（今日总计 / 输入 / 输出 / 会话数）、近 7 天条形图（今天蓝色高亮、hover 显示 token 数）、额度限制配置卡（启用开关 + 限额输入 + 日/月周期选择 + 锁定开关 + 保存/重置按钮 + 后端保存失败时静默降级到 localStorage）。新增 3 个后端 API：`GET /api/console/usage`、`POST /api/console/usage/quota`、`POST /api/console/usage/reset-today`。
+- 文件：`runtime/usage.py`（新增）、`runtime/core.py`、`web/__init__.py`、`web/agent.py`、`web/templates/index.html`、`web/static/js/chat.js`、`web/static/css/chat.css`
+
 **2026-11-01** — 群机器人：OneBot v11 与 QQ 官方 API 双接入（真实收发）
 
 - 设置控制台新增「群机器人」分组，两种接入方式**按钮分开**：`Python 库（OneBot v11）` 与 `QQ 官方 API`，各自有独立的启动 / 停止 / 测试连接 / 测试发送与运行面板（连接方式、收发计数、最近错误、Webhook 回调地址一键复制、最近活跃群点选）。

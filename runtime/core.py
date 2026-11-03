@@ -13,6 +13,7 @@ from . import (
     settings as settings_mod,
     profile as profile_mod,
     workspace as workspace_mod,
+    usage as usage_mod,
 )
 from .providers import OllamaProvider, OpenAICompatProvider, ProviderError
 from .store import SessionStore
@@ -44,6 +45,8 @@ class SimChatCore:
             os.path.join(self.data_root, "sessions"),
             max_history=self.config.get("max_history", 40),
         )
+        # 每日 token 用量追踪器 + 后端 quota 硬闸
+        self.usage = usage_mod.UsageTracker(self.data_root)
 
     def _load_config(self):
         cfg = dict(DEFAULT_CONFIG)
@@ -106,6 +109,13 @@ class SimChatCore:
 
     def delete_session(self, sid):
         return self.store.delete(sid)
+
+    def update_session_overrides(self, sid, overrides):
+        """安全地更新 per-session overrides（白名单字段 + 合法值由 store 校验）。"""
+        result = self.store.update_overrides(sid, overrides)
+        if result is None:
+            raise ValueError("会话不存在: %s" % sid)
+        return result
 
     # ---------------- 服务商 ----------------
 
@@ -249,6 +259,16 @@ class SimChatCore:
         """生成 SSE 事件 dict：chat_started → token* → final | error。"""
         self.config = self._load_config()  # 热加载，改配置免重启
 
+        # 后端 quota 硬闸（从 settings.json 读 limit；0 = 不限额）
+        ok, reason, _usage, _quota_cfg = self.usage.check_quota(self.data_root)
+        if not ok:
+            yield {
+                "event": "error",
+                "code": "quota_exceeded",
+                "message": reason,
+            }
+            return
+
         chosen, error = self.resolve_provider(provider)
         if error:
             yield {
@@ -298,3 +318,11 @@ class SimChatCore:
         self.store.append(sid, "user", message)
         self.store.append(sid, "assistant", full)
         yield {"event": "final", "content": full, "session_id": sid}
+
+        # 用量记录：用 store._estimate_tokens 做后端估算（与前端口径一致）
+        try:
+            input_tok = self.store._estimate_tokens(messages)
+            output_tok = self.store._estimate_tokens([{"role": "assistant", "content": full}])
+            self.usage.record(input_tokens=input_tok, output_tokens=output_tok)
+        except Exception:
+            pass
