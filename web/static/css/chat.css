@@ -848,14 +848,42 @@ textarea {
   padding: 12px;
   border: 1px dashed var(--border);
   border-radius: 10px;
+  transition: border-color 0.15s ease, opacity 0.15s ease;
 }
 
 .agent-engine-params.is-locked {
   opacity: 0.72;
+  border-style: dotted;
+  border-color: var(--border-muted, #444);
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 6px,
+    rgba(255, 255, 255, 0.015) 6px,
+    rgba(255, 255, 255, 0.015) 12px
+  );
 }
 
-.agent-engine-params.is-locked input {
-  cursor: default;
+.agent-engine-params.is-locked .field-label::after {
+  content: "（预设锁定）";
+  font-size: 11px;
+  opacity: 0.5;
+  margin-left: 4px;
+}
+
+.agent-engine-params.is-locked input[type="range"] {
+  filter: grayscale(0.6) brightness(0.92);
+  cursor: not-allowed;
+}
+
+.agent-engine-params.is-locked input[type="number"] {
+  filter: grayscale(0.6) brightness(0.92);
+  cursor: not-allowed;
+}
+
+.agent-engine-params.is-locked .range-value {
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Switch 开关（agent-edit 专用，类名前缀 aswitch- 避免与 settings.css 的 .switch-track 冲突） */

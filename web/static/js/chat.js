@@ -4963,6 +4963,7 @@
     selectedAgentId: null,
     enginePresets: [],
     enginePresetId: "normal",
+    customEngineParams: null,  // 用户自定义模式下最后调的值，切 preset 时保留
   };
 
   async function loadAgents() {
@@ -5192,9 +5193,26 @@
   function selectEnginePreset(id) {
     const preset = state2.enginePresets.find((p) => p.id === id);
     if (!preset) return;
+
+    // 切 preset 前保存当前状态：如果之前是 custom，记住用户最后调的值
+    const prevIsCustom = state2.enginePresetId === "custom";
+    if (prevIsCustom) {
+      state2.customEngineParams = readEngineParams();
+    }
+
     state2.enginePresetId = id;
     document.getElementById("agent-edit-engine").value = id;
-    if (id !== "custom") setEngineParams(preset.params);
+
+    if (id === "custom") {
+      // 切回 custom：优先恢复用户之前调过的值，没有就用 custom 预设的默认值
+      if (state2.customEngineParams) {
+        setEngineParams(state2.customEngineParams);
+      } else {
+        setEngineParams(preset.params);
+      }
+    } else {
+      setEngineParams(preset.params);
+    }
     renderEnginePresets();
   }
 
@@ -5236,6 +5254,12 @@
       document.getElementById("agent-edit-engine").value = state2.enginePresetId;
       const preset = state2.enginePresets.find((p) => p.id === state2.enginePresetId)
         || state2.enginePresets.find((p) => p.id === "normal");
+      // 初始化 customEngineParams：如果已有实例是 custom，记住它存的参数；否则暂空
+      if (state2.enginePresetId === "custom" && agent.engine_params) {
+        state2.customEngineParams = agent.engine_params;
+      } else {
+        state2.customEngineParams = null;
+      }
       setEngineParams(agent.engine_params || (preset ? preset.params : null));
       renderEnginePresets();
       document.getElementById("agent-edit-agent-capable").checked = agent.agent_capable !== false;
@@ -5254,6 +5278,7 @@
       document.getElementById("agent-edit-system").value = "";
       document.getElementById("agent-edit-seed").value = "";
       state2.enginePresetId = "normal";
+      state2.customEngineParams = null;  // 新实例没有历史自定义值
       document.getElementById("agent-edit-engine").value = "normal";
       const preset = state2.enginePresets.find((p) => p.id === "normal");
       setEngineParams(preset ? preset.params : null);
@@ -5287,7 +5312,8 @@
       system_prompt: document.getElementById("agent-edit-system").value,
       seed: document.getElementById("agent-edit-seed").value.trim(),
       engine_preset: state2.enginePresetId,
-      engine_params: readEngineParams(),
+      // 只有 custom 模式才发用户手填的参数；非 custom 让后端用预设标准值覆盖
+      ...(state2.enginePresetId === "custom" ? { engine_params: readEngineParams() } : {}),
       agent_capable: document.getElementById("agent-edit-agent-capable").checked,
       allow_advanced: document.getElementById("agent-edit-allow-advanced").checked,
       desktop_pet: document.getElementById("agent-edit-desktop-pet").checked,
