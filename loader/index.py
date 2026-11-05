@@ -126,7 +126,7 @@ class Registry(object):
         return None
 
     def search(self, mod_type=None, abi=None, host_version=None):
-        """搜索 MOD，按 type / abi / requires.lmbrew 过滤。返回 entry 列表。"""
+        """搜索 MOD，按 type / abi / requires.simchat 过滤。返回 entry 列表。"""
         result = []
         for entry in self._entries:
             if mod_type and entry.get("type") != mod_type:
@@ -137,7 +137,9 @@ class Registry(object):
                 for ver in entry.get("versions", []):
                     if abi and ver.get("abi") != abi:
                         continue
-                    requires = (ver.get("requires") or {}).get("lmbrew", "")
+                    requires = ((ver.get("requires") or {}).get("simchat")
+                                or (ver.get("requires") or {}).get("lmbrew")
+                                or "")
                     if host_version and requires:
                         # 简单处理：requires 形如 ">=2.0,<3" 或 ">=2.0" ——
                         # 只取第一个 >=/==/> 约束的下限做比较

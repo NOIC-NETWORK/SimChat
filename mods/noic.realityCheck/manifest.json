@@ -1,17 +1,18 @@
 {
-  "id": "noic.skill-realitycheck",
+  "id": "noic.realitycheck",
   "type": "skill",
-  "name": "RealityCheck 现实审视技能",
-  "description": "检测模型回复中的偏见/不适内容，命中则触发气泡并切对话",
+  "layer": "block",
+  "name": "RealityCheck 内容安全技能",
+  "description": "检测模型输出中的违规内容、幻觉、角色扮演越界等问题",
   "version": "1.0.0",
-  "abi": "lmbrew-mod/1",
+  "abi": "simchat-mod/2",
   "entry": "realityCheck:register",
   "hooks": [
-    "agent.tool"
+    "agent.block"
   ],
   "capabilities": {},
   "requires": {
-    "lmbrew": ">=2.0,<3",
+    "simchat": ">=2.0,<3",
     "python": ">=3.9"
   },
   "license": "proprietary"

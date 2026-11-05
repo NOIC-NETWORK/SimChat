@@ -26,6 +26,18 @@ from .sandbox import run_isolated, register_handle, kill_all as _kill_all_sandbo
 from .verify import verify_package  # noqa: E402
 
 
+# binary MOD 独立数据根目录（每个 MOD 分配 data/mods/<mod_id>/）
+_MODS_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MOD_DATA_ROOT = os.path.join(_MODS_ROOT, "data", "mods")
+
+
+def _ensure_mod_data_dir(mod_id):
+    """为 MOD 创建并返回独立 data 目录路径。"""
+    path = os.path.join(MOD_DATA_ROOT, mod_id)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 class ModLoader(object):
     def __init__(self, mods_dir, host_version="2.0.0", services=None,
                  logger=None):
@@ -142,13 +154,20 @@ class ModLoader(object):
         # 本分支不得被 Phase 2 sandbox 改造删除——agent-config 的语义契约是"无代码执行"
         if manifest.get("type") == "agent-config":
             record["status"] = "loaded"
+            record["layer"] = "mod"
             self.mods[mod_id] = record
             self._log("[%s] agent-config 已加载（数据）" % mod_id)
             return record
 
         try:
+            # Phase 3 — 提前算好 data_dir（layer=mod 预分配独立数据目录，子进程 entry(api) 需要）
+            layer = manifest.get("layer") or DEFAULT_LAYER_BY_TYPE.get(mod_type, "block")
+            record["layer"] = layer
+            data_dir = _ensure_mod_data_dir(mod_id) if layer == "mod" else None
+
             # Phase 2 P2.3 — 把 entry(api) 放进独立子进程
-            handle = run_isolated(package_dir, manifest["entry"], manifest)
+            handle = run_isolated(package_dir, manifest["entry"], manifest,
+                                  data_dir=data_dir)
             if not handle.get("ok"):
                 return self._fail(record, handle.get("message") or "沙箱加载失败")
 
@@ -180,6 +199,16 @@ class ModLoader(object):
 
         except Exception as error:
             return self._fail(record, "加载失败: %s" % error)
+
+        # data_dir 在上面 try 块开始处已分配，此处直接记录到 record
+        if layer == "mod" and data_dir:
+            record["data_dir"] = data_dir
+        # agent-config 也标记 layer（虽然不需要 sandbox，保持一致性）
+        if manifest.get("type") == "agent-config":
+            record["layer"] = "mod"
+        # skill / automation 默认 layer=block
+        if "layer" not in record:
+            record["layer"] = "block"
 
         record["status"] = "loaded"
         self.mods[mod_id] = record
@@ -307,7 +336,7 @@ class ModLoader(object):
         return True
 
 
-# ---------- 全局单例（宿主 lmbrew.py 启动时调用 set_global_loader） ----------
+# ---------- 全局单例（宿主 SimChat 启动时调用 set_global_loader） ----------
 
 _GLOBAL_LOADER = None
 

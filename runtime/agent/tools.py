@@ -664,22 +664,123 @@ class ShellTool(BaseTool):
         return truncate_output(header + output)
 
 
-TOOL_REGISTRY = {}
+class BlockRegistry:
+    """方块注册表（类似 Minecraft Block.REGISTRY）。
+
+    同时持有：
+    - 引擎内建方块（FileReadTool、GlobTool 等硬编码注册，不可移除）
+    - skill MOD 注册的可插拔方块（运行时挂载，可被禁用）
+
+    统一通过 get_block() / list_blocks() 消费，调用方不感知方块来源。
+    """
+
+    def __init__(self):
+        self._blocks = {}           # name -> BaseTool 实例
+        self._builtin = frozenset()  # 内建方块名集合（不可移除）
+
+    def register(self, block, builtin=True):
+        """注册一个方块。builtin=True 表示引擎内建，不可被 MOD 覆盖。"""
+        name = getattr(block, 'name', None)
+        if not name:
+            raise ValueError("方块缺少 name 属性")
+        if builtin and name in self._blocks:
+            # 内建方块被重复注册（通常是模块重载），静默覆盖
+            pass
+        elif not builtin and name in self._builtin:
+            raise ValueError(f"skill MOD 不能覆盖引擎内建方块: {name}")
+        self._blocks[name] = block
+        if builtin:
+            self._builtin = frozenset(set(self._builtin) | {name})
+        return block
+
+    def register_external(self, block):
+        """skill MOD 注册可插拔方块（等同 register(block, builtin=False)）。"""
+        return self.register(block, builtin=False)
+
+    def unregister(self, name):
+        """移除一个可插拔方块；引擎内建方块拒绝移除。"""
+        if name in self._builtin:
+            raise ValueError(f"引擎内建方块不可移除: {name}")
+        self._blocks.pop(name, None)
+
+    def get(self, name):
+        return self._blocks.get(name)
+
+    def has(self, name):
+        return name in self._blocks
+
+    def list_all(self):
+        """返回全部已注册方块（内建 + 可插拔），按内建优先、字母序。"""
+        builtin = [(n, self._blocks[n]) for n in sorted(self._builtin)]
+        external = sorted(
+            [(n, b) for n, b in self._blocks.items() if n not in self._builtin],
+            key=lambda x: x[0]
+        )
+        return [b for _, b in builtin + external]
+
+    def is_builtin(self, name):
+        return name in self._builtin
+
+    def __contains__(self, name):
+        return self.has(name)
+
+    def __iter__(self):
+        return iter(self.list_all())
 
 
-def _register(tool):
-    TOOL_REGISTRY[tool.name] = tool
-    return tool
+# ---------- 全局单例 ----------
+BLOCK_REGISTRY = BlockRegistry()
+
+# 向后兼容别名：旧代码用 TOOL_REGISTRY，新代码用 BLOCK_REGISTRY
+# 旧的 list_agent_tools() / build_tool_protocol_section() 保持不动，
+# 内部用 BLOCK_REGISTRY.list_all() 替代 TOOL_REGISTRY.values()
 
 
-_register(FileReadTool())
-_register(ListDirTool())
-_register(GlobTool())
-_register(GrepTool())
-_register(WebSearchTool())
-_register(FileWriteTool())
-_register(FileEditTool())
-_register(ShellTool())
+def _register_builtin(tool):
+    """注册引擎内建方块（硬编码，不可移除）。"""
+    return BLOCK_REGISTRY.register(tool, builtin=True)
+
+
+_register_builtin(FileReadTool())
+_register_builtin(ListDirTool())
+_register_builtin(GlobTool())
+_register_builtin(GrepTool())
+_register_builtin(WebSearchTool())
+_register_builtin(FileWriteTool())
+_register_builtin(FileEditTool())
+_register_builtin(ShellTool())
+
+
+# 向后兼容：旧代码仍可 import TOOL_REGISTRY
+class _RegistryCompat:
+    """让 TOOL_REGISTRY dict-like 访问兼容旧代码。"""
+
+    def __iter__(self):
+        return iter(BLOCK_REGISTRY.list_all())
+
+    def __contains__(self, name):
+        return BLOCK_REGISTRY.has(name)
+
+    def __getitem__(self, name):
+        block = BLOCK_REGISTRY.get(name)
+        if block is None:
+            raise KeyError(name)
+        return block
+
+    def get(self, name, default=None):
+        return BLOCK_REGISTRY.get(name) or default
+
+    def values(self):
+        return list(BLOCK_REGISTRY.list_all())
+
+    def keys(self):
+        return [b.name for b in BLOCK_REGISTRY.list_all()]
+
+    def items(self):
+        return [(b.name, b) for b in BLOCK_REGISTRY.list_all()]
+
+
+TOOL_REGISTRY = _RegistryCompat()  # noqa: F841 — 向后兼容别名，保持 loop.py 等旧代码可 import
 
 
 def list_agent_tools(mode="agent"):
@@ -687,7 +788,7 @@ def list_agent_tools(mode="agent"):
 
     mode: "agent"（完整工具集）| "chat"（懒调用，只暴露 read 级 + skills/automation/MCP 能力标识）
     """
-    all_tools = list(TOOL_REGISTRY.values())
+    all_tools = BLOCK_REGISTRY.list_all()
     if mode == "chat":
         # Chat 模式（懒调用）：只暴露 read 级工具 + skills/automation/MCP 能力
         # 写操作和 shell 被完全隐藏（不是禁用，是根本不进工具清单）
@@ -706,7 +807,7 @@ def build_tool_protocol_section(mode="agent"):
 
     mode: "agent"（完整协议段，含写操作 + 审批流）| "chat"（懒调用协议，只给只读工具 + skill/automation/MCP 标识）
     """
-    all_tools = list(TOOL_REGISTRY.values())
+    all_tools = BLOCK_REGISTRY.list_all()
     shell_enabled = _shell_config['enabled']
 
     if mode == "chat":

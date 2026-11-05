@@ -10,7 +10,7 @@ MOD 不能触发；缺失必需依赖直接 fail-closed（status=failed）。
   这个约定在 MOD manifest schema 里同步注明。
 - 包内版本范围（如 ``requests>=2.28``）Phase 2.1 不解析，只检查模块是否存在。
   如果需要精确版本约束，留 Phase 4 CLI。
-- requires.python 用 semver 范围写法（与 requires.lmbrew 同格式），
+- requires.python 用 semver 范围写法（与 requires.simchat 同格式），
   如 ``">=3.9,<3.12"``、``"==3.11.*"``。缺省表示不限。
 """
 

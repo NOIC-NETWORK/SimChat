@@ -30,11 +30,15 @@ _DEFAULT_TIMEOUT = 30  # 秒：entry(api) 完成 + register 消息的最大等�
 _INVOKE_TIMEOUT = 60   # 秒：单次 invoke / invoke_tool 等待上限
 
 
-def run_isolated(package_dir, entry_spec, manifest, timeout=_DEFAULT_TIMEOUT):
+def run_isolated(package_dir, entry_spec, manifest, timeout=_DEFAULT_TIMEOUT,
+                 data_dir=None):
     """启动子进程跑 MOD 的 entry(api)，等 register 消息，返回 handle dict。
 
     失败时不 raise，而是把 ok=False + message 塞进 handle。
     成功后 handle["proc"] 保持运行，handle["_response_queue"] 持续接收 stdout。
+
+    data_dir: 为 binary MOD 预分配的独立数据目录（layer=mod），runner 侧
+              ModApi 会持有此路径，MOD 代码可读写。skill MOD 传 None。
     """
     handle = {
         "ok": False, "message": "",
@@ -46,13 +50,16 @@ def run_isolated(package_dir, entry_spec, manifest, timeout=_DEFAULT_TIMEOUT):
 
     # 启动 runner
     try:
+        args = [
+            sys.executable, _SCRIPT,
+            "--package-dir", package_dir,
+            "--entry-spec", entry_spec,
+            "--manifest-json", json.dumps(manifest, ensure_ascii=False),
+        ]
+        if data_dir:
+            args += ["--data-dir", data_dir]
         proc = subprocess.Popen(
-            [
-                sys.executable, _SCRIPT,
-                "--package-dir", package_dir,
-                "--entry-spec", entry_spec,
-                "--manifest-json", json.dumps(manifest, ensure_ascii=False),
-            ],
+            args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

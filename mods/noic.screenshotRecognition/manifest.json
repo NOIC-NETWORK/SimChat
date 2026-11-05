@@ -1,13 +1,14 @@
 {
-  "id": "noic.skill-screenshot-recognition",
+  "id": "noic.skill-screenshotrecognition",
   "type": "skill",
+  "layer": "block",
   "name": "ScreenshotRecognition 截图识别技能",
-  "description": "屏幕截图、图片上传识别，基于视觉模型进行文字识别和内容分析",
+  "description": "识别用户上传的截图内容，支持 OCR 文字提取和 UI 分析",
   "version": "1.0.0",
-  "abi": "lmbrew-mod/1",
+  "abi": "simchat-mod/2",
   "entry": "screenshotRecognition:register",
   "hooks": [
-    "agent.tool"
+    "agent.block"
   ],
   "capabilities": {
     "fs": {
@@ -17,7 +18,7 @@
     }
   },
   "requires": {
-    "lmbrew": ">=2.0,<3",
+    "simchat": ">=2.0,<3",
     "python": ">=3.9"
   },
   "license": "proprietary"

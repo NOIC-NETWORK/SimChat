@@ -126,6 +126,36 @@ def create_app(core=None):
         create_agent_blueprint("simchat_agent"), url_prefix="/api/simchat/agent"
     )
 
+    # Phase 3 — MOD 前端静态资源自动路由：/mods/<mod_id>/<path> → MOD 的 web/ 目录
+    @app.route("/mods/<mod_id>/<path:filename>")
+    def _serve_mod_asset(mod_id, filename):
+        from loader.lifecycle import get_global_loader
+        from flask import send_from_directory, abort
+        loader = get_global_loader()
+        if loader is None:
+            abort(404)
+        mod_record = loader.mods.get(mod_id)
+        if not mod_record or mod_record.get("status") != "loaded":
+            abort(404)
+        web_dir = os.path.join(mod_record["path"], "web")
+        if not os.path.isdir(web_dir):
+            abort(404)
+        # 路径安全：拒绝 ../ 越界
+        safe_path = os.path.normpath(os.path.join(web_dir, filename))
+        if not safe_path.startswith(web_dir):
+            abort(403)
+        return send_from_directory(web_dir, filename)
+
+    # MOD 静态资源同样 anti-cache
+    @app.after_request
+    def _no_cache_mod_static(resp):
+        path = request.path
+        if path.startswith("/mods/"):
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            resp.headers["Pragma"] = "no-cache"
+            resp.headers["Expires"] = "0"
+        return resp
+
     @app.before_request
     def _mark_request_start():
         g.simchat_started = time.time()

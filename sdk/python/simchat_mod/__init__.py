@@ -1,9 +1,13 @@
-"""SimChat MOD SDK（ABI：lmbrew-mod/1）。
+"""SimChat MOD SDK（ABI：simchat-mod/2）。
 
 MOD 只允许通过本模块与本体交互，不得 import 宿主内部实现。
+
+v2 变更（Phase 1 + Phase 3）：
+- ABI 从 lmbrew-mod/1 升级为 simchat-mod/2
+- ModApi 新增 data_dir 属性（binary MOD 独立数据目录）
 """
 
-ABI_VERSION = "lmbrew-mod/1"
+ABI_VERSION = "simchat-mod/2"
 
 _MODE_ID_CHARS = set("abcdefghijklmnopqrstuvwxyz0123456789._-")
 _TOOL_NAME_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
@@ -147,10 +151,12 @@ class ModApi(object):
     只暴露 manifest 声明的能力与少量只读宿主服务（inference / skill_manager / memory）。
     """
 
-    def __init__(self, mod_id, manifest, package_dir, services=None, emit_event=None):
+    def __init__(self, mod_id, manifest, package_dir, services=None,
+                 emit_event=None, data_dir=None):
         self.mod_id = mod_id
         self.manifest = dict(manifest or {})
         self.package_dir = package_dir
+        self.data_dir = data_dir  # binary MOD 独立数据目录；skill MOD 为 None
         self.modes = []
         self.tools = []  # P2.4 新增：agent.tool 注册
         self._services = dict(services or {})

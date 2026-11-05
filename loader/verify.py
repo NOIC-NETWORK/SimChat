@@ -55,9 +55,15 @@ def verify_package(package_dir, manifest):
     - 签名格式非法 → '签名字段格式非法'
     - 无可用公钥能验证 → '签名无效'
     - 签名匹配但 key_id 在吊销列表里 → '签名已吊销'
+
+    开发模式：设置环境变量 SIMCHAT_SKIP_VERIFY=1 可跳过 binary MOD 的完整性 + 签名校验。
     """
     if manifest.get("type") != "binary":
         return True, ""
+
+    # 开发模式跳过校验（Phase 1~Phase 3 改造期间用，生产部署时移除）
+    if os.environ.get("SIMCHAT_SKIP_VERIFY") == "1":
+        return True, "开发模式跳过签名校验"
 
     # 阶段 1：integrity
     expected = manifest.get("integrity")

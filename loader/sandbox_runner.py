@@ -77,10 +77,11 @@ class _LocalModApi(object):
 
     Phase 1 只存已注册的 ModeSpec / ToolSpec 元数据，不承载任何宿主服务引用。
     """
-    def __init__(self, mod_id, manifest, package_dir, services=None):
+    def __init__(self, mod_id, manifest, package_dir, services=None, data_dir=None):
         self.mod_id = mod_id
         self.manifest = manifest
         self.package_dir = package_dir
+        self.data_dir = data_dir  # Phase 3: binary MOD 独立数据目录；skill MOD 为 None
         self.services = services or {}
         self.modes = []  # ModeSpec dict 列表
         self.tools = []  # ToolSpec dict 列表（P2.4 新增）
@@ -150,11 +151,13 @@ def _main():
     parser.add_argument("--package-dir", required=True)
     parser.add_argument("--entry-spec", required=True)
     parser.add_argument("--manifest-json", required=True)
+    parser.add_argument("--data-dir", default=None)  # Phase 3: binary MOD 独立数据目录
     args = parser.parse_args()
 
     manifest = json.loads(args.manifest_json)
     mod_id = manifest.get("id", "unknown")
     package_dir = os.path.abspath(args.package_dir)
+    data_dir = os.path.abspath(args.data_dir) if args.data_dir else None
 
     # 3a. patch subprocess（在 MOD 代码 import 之前）
     _patch_subprocess(manifest)
@@ -166,6 +169,13 @@ def _main():
 
     try:
         # 3c. 解析 entry spec
+        manifest_type = manifest.get("type", "")
+        if manifest_type == "automation" and ":" not in args.entry_spec:
+            # automation 的 entry 可以是 flow.json 路径（不需要执行 Python entry）
+            print(json.dumps({"type": "register", "modes": [], "tools": []},
+                             ensure_ascii=False), flush=True)
+            sys.exit(0)
+
         module_name, attribute = args.entry_spec.split(":")
         module = importlib.import_module(module_name)
         entry = getattr(module, attribute)
@@ -175,7 +185,8 @@ def _main():
         # 3d. 创建 runner 侧 ModApi，调 entry(api)
         api = _LocalModApi(
             mod_id=mod_id, manifest=manifest, package_dir=package_dir,
-            services={}  # Phase 1 不透传宿主 services
+            services={},  # Phase 1 不透传宿主 services
+            data_dir=data_dir,  # Phase 3: binary MOD 独立数据目录
         )
         entry(api)
 

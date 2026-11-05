@@ -1,6 +1,6 @@
 """manifest.json 的结构校验与版本约束检查（纯标准库）。
 
-只做"加载前"校验：结构、hook 白名单、类型约束、本体版本范围。
+只做"加载前"校验：结构、hook 白名单、类型约束、本体版本范围、层级归属。
 签名与包完整性属于安装期校验，见 verify.py。
 """
 
@@ -8,26 +8,44 @@ import re
 
 MANIFEST_NAME = "manifest.json"
 
+# 当前 ABI 版本；同时接受旧版 "lmbrew-mod/1"（过渡期兼容，下个大版本移除）
+CURRENT_ABI = "simchat-mod/2"
+LEGACY_ABI = "lmbrew-mod/1"
+SUPPORTED_ABIS = frozenset([CURRENT_ABI, LEGACY_ABI])
+
 KNOWN_HOOKS = frozenset([
     "chat.mode",
-    "agent.tool",
+    "agent.block",           # 新：方块层原子能力注册
+    "agent.tool",            # 旧别名：过渡期同时接受
     "agent.context",
     "agent.system_prompt",
     "agent.safety",
     "agent.memory",
     "agent.event",
+    "agent.completed",       # automation 完成触发
     "ui.slot",
     "provider.model",
     "automation.hook",
+    "web.blueprint",         # 新：Mod 层独立 Flask Blueprint 注册
 ])
 
 KNOWN_TYPES = frozenset(["agent-config", "skill", "automation", "binary"])
 
+KNOWN_LAYERS = frozenset(["block", "mod"])
+
 TOP_LEVEL_KEYS = frozenset([
-    "$schema", "id", "type", "name", "description", "version", "abi", "entry",
+    "$schema", "id", "type", "layer", "name", "description", "version", "abi", "entry",
     "hooks", "capabilities", "requires", "assets", "license", "homepage",
     "repository", "signature", "integrity", "config", "automation",
 ])
+
+# 类型 → 默认层级归属（layer 缺省时按此推断）
+DEFAULT_LAYER_BY_TYPE = {
+    "skill": "block",         # skill = 可插拔方块
+    "automation": "block",    # automation 是方块层的工作流原子能力
+    "agent-config": "mod",    # agent-config 是 Mod 层的配置数据包
+    "binary": "mod",          # binary = 完整应用包
+}
 
 CAPABILITY_KEYS = frozenset([
     "fs", "net", "shell", "process", "credentials", "schedule",
@@ -79,8 +97,20 @@ def validate_manifest(data):
     if _is_str(version) and not VERSION_RE.match(version):
         errors.append("version 不是合法语义化版本: %s" % version)
 
-    if data.get("abi") != "lmbrew-mod/1":
-        errors.append("不支持的 ABI: %s" % data.get("abi"))
+    abi = data.get("abi")
+    if abi not in SUPPORTED_ABIS:
+        errors.append("不支持的 ABI: %s（当前 %s，旧版 %s 仍兼容）" % (abi, CURRENT_ABI, LEGACY_ABI))
+    elif abi == LEGACY_ABI:
+        warnings.append("使用旧版 ABI %s，建议迁移到 %s（过渡期兼容，下个大版本移除旧版）" % (LEGACY_ABI, CURRENT_ABI))
+
+    # layer 字段校验：可缺省，缺省时按 type 推断
+    layer = data.get("layer")
+    if layer is not None:
+        if not _is_str(layer) or layer not in KNOWN_LAYERS:
+            errors.append("layer 必须是 'block' 或 'mod': %s" % layer)
+    else:
+        # 自动推断并写回供下游消费（调用方应读取 data['layer']）
+        data["layer"] = DEFAULT_LAYER_BY_TYPE.get(mod_type, "block")
 
     hooks = data.get("hooks")
     if hooks is not None:
@@ -101,7 +131,7 @@ def validate_manifest(data):
     if requires is not None and not isinstance(requires, dict):
         errors.append("requires 必须是对象")
     elif isinstance(requires, dict):
-        unknown = sorted(set(requires) - {"lmbrew", "python", "packages"})
+        unknown = sorted(set(requires) - {"simchat", "lmbrew", "python", "packages"})
         if unknown:
             errors.append("requires 含未知字段: %s" % ", ".join(unknown))
         if "packages" in requires and not _is_str_list(requires["packages"]):
@@ -109,7 +139,10 @@ def validate_manifest(data):
 
     entry = data.get("entry")
     if entry is not None:
-        if not _is_str(entry) or not ENTRY_RE.match(entry):
+        if mod_type == "automation":
+            # automation 的 entry 可以是 flow.json 路径或 module:attr，不强制 ENTRY_RE
+            pass
+        elif not _is_str(entry) or not ENTRY_RE.match(entry):
             errors.append("entry 必须形如 module:attr")
     if mod_type in ("skill", "automation", "binary"):
         if not entry:
@@ -227,9 +260,9 @@ def _satisfies(version, spec):
 
 
 def check_requires(manifest, host_version):
-    """返回 (ok, message)。"""
+    """返回 (ok, message)。优先读 requires.simchat，回退兼容 requires.lmbrew（过渡期）。"""
     requires = manifest.get("requires") or {}
-    spec = (requires.get("lmbrew") or "").strip()
+    spec = (requires.get("simchat") or requires.get("lmbrew") or "").strip()
     if spec and not _satisfies(host_version, spec):
-        return False, "本体版本 %s 不满足 requires.lmbrew=%s" % (host_version, spec)
+        return False, "本体版本 %s 不满足 requires.simchat=%s" % (host_version, spec)
     return True, ""

@@ -44,10 +44,11 @@ AGENT_CONFIG_TEMPLATE = {
     "$schema": "../../simchat/spec/mod-manifest.schema.json",
     "id": "com.example.mypersona",
     "type": "agent-config",
+    "layer": "mod",
     "name": "My Persona",
     "description": "一个自定义人设 MOD",
     "version": "0.1.0",
-    "abi": "lmbrew-mod/1",
+    "abi": "simchat-mod/2",
     "license": "MIT",
     "config": {
         "persona": "custom",
@@ -64,17 +65,18 @@ SKILL_TEMPLATE_MANIFEST = {
     "$schema": "../../simchat/spec/mod-manifest.schema.json",
     "id": "com.example.helloskill",
     "type": "skill",
+    "layer": "block",
     "name": "Hello Skill",
-    "description": "一个最简单的 skill MOD 示例",
+    "description": "一个最简单的 skill MOD（可插拔方块）示例",
     "version": "0.1.0",
-    "abi": "lmbrew-mod/1",
+    "abi": "simchat-mod/2",
     "entry": "hello_skill:register",
-    "hooks": ["agent.tool"],
+    "hooks": ["agent.block"],
     "capabilities": {
         "fs": {"read": ["workspace"]}
     },
     "requires": {
-        "lmbrew": ">=2.0,<3",
+        "simchat": ">=2.0,<3",
         "python": ">=3.9"
     },
     "license": "MIT"
@@ -115,10 +117,11 @@ AUTOMATION_TEMPLATE_MANIFEST = {
     "$schema": "../../simchat/spec/mod-manifest.schema.json",
     "id": "com.example.daily-digest",
     "type": "automation",
+    "layer": "block",
     "name": "Daily Digest Automation",
     "description": "每天 9 点生成工作区变更摘要（示例）",
     "version": "0.1.0",
-    "abi": "lmbrew-mod/1",
+    "abi": "simchat-mod/2",
     "entry": "flow.json",
     "hooks": ["automation.hook"],
     "capabilities": {
@@ -126,7 +129,7 @@ AUTOMATION_TEMPLATE_MANIFEST = {
         "fs": {"write": ["workspace"]}
     },
     "requires": {
-        "lmbrew": ">=2.0,<3"
+        "simchat": ">=2.0,<3"
     },
     "automation": {
         "flow_file": "flow.json"
@@ -166,17 +169,18 @@ BINARY_TEMPLATE_MANIFEST = {
     "$schema": "../../simchat/spec/mod-manifest.schema.json",
     "id": "com.example.mybinary",
     "type": "binary",
+    "layer": "mod",
     "name": "My Binary MOD",
-    "description": "一个 binary MOD 模板 —— 发布时需要签名",
+    "description": "一个 binary MOD（完整应用包）模板 —— 发布时需要签名",
     "version": "0.1.0",
-    "abi": "lmbrew-mod/1",
+    "abi": "simchat-mod/2",
     "entry": "mybinary.pipeline:register",
     "hooks": ["chat.mode"],
     "capabilities": {
         "net": {"domains": ["example.com"]}
     },
     "requires": {
-        "lmbrew": ">=2.0,<3",
+        "simchat": ">=2.0,<3",
         "python": ">=3.9"
     },
     "license": "proprietary"
@@ -524,7 +528,7 @@ def cmd_publish(args):
         "homepage": manifest.get("homepage", ""),
         "versions": [{
             "version": manifest["version"],
-            "abi": manifest.get("abi", "lmbrew-mod/1"),
+            "abi": manifest.get("abi", "simchat-mod/2"),
             "requires": manifest.get("requires", {}),
             "download": {
                 "type": "git-path",

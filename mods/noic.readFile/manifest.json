@@ -1,13 +1,14 @@
 {
   "id": "noic.skill-readfile",
   "type": "skill",
+  "layer": "block",
   "name": "ReadFile 文件读取技能",
   "description": "读取用户上传的文件内容，支持文本/PDF/Word/Excel/图片元数据等多种格式",
   "version": "1.0.0",
-  "abi": "lmbrew-mod/1",
+  "abi": "simchat-mod/2",
   "entry": "readFile:register",
   "hooks": [
-    "agent.tool"
+    "agent.block"
   ],
   "capabilities": {
     "fs": {
@@ -17,7 +18,7 @@
     }
   },
   "requires": {
-    "lmbrew": ">=2.0,<3",
+    "simchat": ">=2.0,<3",
     "python": ">=3.9"
   },
   "license": "proprietary"
