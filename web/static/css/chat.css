@@ -858,7 +858,7 @@ textarea {
   cursor: default;
 }
 
-/* Switch 开关 */
+/* Switch 开关（agent-edit 专用，类名前缀 aswitch- 避免与 settings.css 的 .switch-track 冲突） */
 .agent-edit-switches {
   display: flex;
   flex-direction: column;
@@ -866,7 +866,7 @@ textarea {
   padding: 6px 0;
 }
 
-.switch {
+.aswitch {
   display: grid;
   grid-template-columns: auto 1fr;
   grid-template-areas:
@@ -882,15 +882,15 @@ textarea {
   transition: background 0.15s ease;
 }
 
-.switch:hover {
+.aswitch:hover {
   background: var(--hover);
 }
 
-.switch input {
+.aswitch input {
   display: none;
 }
 
-.switch-track {
+.aswitch-track {
   grid-area: track;
   width: 36px;
   height: 20px;
@@ -901,7 +901,7 @@ textarea {
   flex-shrink: 0;
 }
 
-.switch-track::before {
+.aswitch-track::before {
   content: "";
   position: absolute;
   top: 2px;
@@ -914,22 +914,22 @@ textarea {
   transition: transform 0.2s ease;
 }
 
-.switch input:checked + .switch-track {
+.aswitch input:checked + .aswitch-track {
   background: var(--accent, #3b82f6);
 }
 
-.switch input:checked + .switch-track::before {
+.aswitch input:checked + .aswitch-track::before {
   transform: translateX(16px);
 }
 
-.switch-label {
+.aswitch-label {
   grid-area: label;
   font-size: 13.5px;
   font-weight: 500;
   color: var(--text);
 }
 
-.switch-desc {
+.aswitch-desc {
   grid-area: desc;
   font-size: 11.5px;
   color: var(--text-muted);

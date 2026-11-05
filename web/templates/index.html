@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SimChat | Everything, Harnessed.</title>
 <link rel="icon" type="image/png" href="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261103c">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261103d">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261103a">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
@@ -1268,25 +1268,25 @@
         </div>
 
         <div class="agent-edit-switches">
-          <label class="switch">
+          <label class="aswitch">
             <input type="checkbox" id="agent-edit-agent-capable" checked>
-            <span class="switch-track"></span>
-            <span class="switch-label">Agent 能力</span>
-            <span class="switch-desc">允许该实例以 Agent 模式运行（自主调用工具、多轮推理）。</span>
+            <span class="aswitch-track"></span>
+            <span class="aswitch-label">Agent 能力</span>
+            <span class="aswitch-desc">允许该实例以 Agent 模式运行（自主调用工具、多轮推理）。</span>
           </label>
 
-          <label class="switch">
+          <label class="aswitch">
             <input type="checkbox" id="agent-edit-allow-advanced">
-            <span class="switch-track"></span>
-            <span class="switch-label">允许高级功能</span>
-            <span class="switch-desc">开放 Skill、命令和自动化等高级能力入口。</span>
+            <span class="aswitch-track"></span>
+            <span class="aswitch-label">允许高级功能</span>
+            <span class="aswitch-desc">开放 Skill、命令和自动化等高级能力入口。</span>
           </label>
 
-          <label class="switch">
+          <label class="aswitch">
             <input type="checkbox" id="agent-edit-desktop-pet">
-            <span class="switch-track"></span>
-            <span class="switch-label">桌面宠物</span>
-            <span class="switch-desc">让该实例以桌面宠物形式常驻系统托盘。</span>
+            <span class="aswitch-track"></span>
+            <span class="aswitch-label">桌面宠物</span>
+            <span class="aswitch-desc">让该实例以桌面宠物形式常驻系统托盘。</span>
           </label>
         </div>
       </div>
