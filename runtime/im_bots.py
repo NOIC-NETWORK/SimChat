@@ -98,6 +98,16 @@ def _blank_runtime(transport=""):
     }
 
 
+def _can_autostart(channel_id, config):
+    """自动上线前的配置完备性检查（不含网络探测，失败留给重连循环处理）。"""
+    if channel_id == ONEBOT_CHANNEL:
+        if str(config.get("transport") or "ws") == "http":
+            return bool(str(config.get("http_url") or "").strip())
+        return bool(str(config.get("ws_url") or "").strip())
+    return bool(str(config.get("app_id") or "").strip() and
+                str(config.get("app_secret") or "").strip())
+
+
 def _extract_onebot_text(message, raw_message, self_qq):
     """从 OneBot 消息段中提取纯文本，并判断是否 @ 了机器人。"""
     mentioned = False
@@ -926,6 +936,47 @@ class BotManager:
         if active == channel_id:
             comms.set_active(self.core.data_root, None)
         return self.status(channel_id)
+
+    # ---- 自动上线 ----
+
+    def autostart(self):
+        """按通道配置里的 auto_online 自动上线（Web 服务启动时调用）。
+
+        同一时间只允许一个群机器人运行：优先启动 comms.active 指向的通道，
+        否则按 QQ_CHANNELS 登记顺序取第一个。连接参数不完整的通道跳过。
+        """
+        candidates = []
+        for channel_id in QQ_CHANNELS:
+            try:
+                config = self._runtime_config(channel_id)
+            except Exception as error:
+                self._log(channel_id, "读取配置失败，跳过自动上线：%s" % error, "warn")
+                continue
+            if not config.get("auto_online"):
+                continue
+            if not _can_autostart(channel_id, config):
+                self._log(channel_id, "自动上线已开启，但连接参数不完整，跳过", "warn")
+                continue
+            candidates.append(channel_id)
+
+        if not candidates:
+            return None
+
+        try:
+            active = comms.list_channels(self.core.data_root).get("active")
+        except Exception:
+            active = None
+        channel_id = active if active in candidates else candidates[0]
+        if len(candidates) > 1:
+            self._log(channel_id, "多个通道开启自动上线，本次只启动 %s" % channel_id, "warn")
+
+        try:
+            runtime = self.start(channel_id)
+        except Exception as error:
+            self._log(channel_id, "自动上线失败：%s" % error, "error")
+            return None
+        self._log(channel_id, "自动上线完成（%s）" % runtime.get("transport", ""))
+        return runtime
 
     # ---- 测试 ----
 

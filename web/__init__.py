@@ -27,6 +27,7 @@ from flask import (
 __all__ = ["create_app"]
 
 _core_lock = threading.Lock()
+_bots_lock = threading.Lock()
 
 # 进程启动时间（调试面板展示 uptime 用）
 _WEB_STARTED_AT = time.time()
@@ -88,10 +89,13 @@ def _get_bot_manager(app):
     """群机器人运行时管理器（进程级单例）。"""
     manager = app.extensions.get("simchat_bots")
     if manager is None:
-        from simchat.runtime import im_bots
+        with _bots_lock:
+            manager = app.extensions.get("simchat_bots")
+            if manager is None:
+                from simchat.runtime import im_bots
 
-        manager = im_bots.BotManager(_get_core(app))
-        app.extensions["simchat_bots"] = manager
+                manager = im_bots.BotManager(_get_core(app))
+                app.extensions["simchat_bots"] = manager
     return manager
 
 

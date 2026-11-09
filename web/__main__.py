@@ -85,6 +85,17 @@ def _install_lifecycle_hooks(host, port):
             pass
 
 
+def _bot_autostart(app):
+    """服务进程就绪后按配置自动上线群机器人（失败只记日志，不影响 Web 服务）。"""
+    try:
+        from . import _get_bot_manager
+
+        manager = _get_bot_manager(app)
+        manager.autostart()
+    except Exception as error:
+        print("[SimChat] 群机器人自动上线失败：%s" % error)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="python -m simchat.web",
@@ -111,6 +122,9 @@ def main(argv=None):
     app = create_app()
     _install_lifecycle_hooks(args.host, args.port)
     print("[SimChat] Web 界面已启动: %s" % (url or "http://%s:%s" % (args.host, args.port)))
+    # 只在真正跑服务的进程里自动上线，避免 debug reloader 重复拉起机器人
+    if not args.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        threading.Thread(target=_bot_autostart, args=(app,), daemon=True).start()
     if should_open:
         threading.Thread(
             target=open_browser_when_ready,

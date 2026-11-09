@@ -35,3 +35,7 @@ Thumbs.db
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+#涉密文件
+
+project_relic.md
