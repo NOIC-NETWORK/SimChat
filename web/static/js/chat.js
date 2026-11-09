@@ -51,7 +51,7 @@
     modelSelect: document.getElementById("model-select"),
     modelRefresh: document.getElementById("model-refresh"),
     approvalMode: document.getElementById("approval-mode"),
-    orbiterMode: document.getElementById("orbiter-mode"),
+    agentPicker: document.getElementById("agent-picker"),
     voiceInputMode: document.getElementById("voice-input-mode"),
     agentToggle: document.getElementById("agent-toggle"),
     agentToggleLabel: document.getElementById("agent-toggle-label"),
@@ -4616,8 +4616,23 @@
   el.approvalMode?.addEventListener("change", () => {
     state.approvalMode = el.approvalMode.value;
   });
-  bindReservedToggle(el.orbiterMode);
   bindReservedToggle(el.voiceInputMode);
+  el.agentPicker?.addEventListener("change", () => {
+    const id = el.agentPicker.value || null;
+    state.activeAgentId = id;
+    try {
+      if (id) localStorage.setItem("simchat.active_agent_id", id);
+      else localStorage.removeItem("simchat.active_agent_id");
+    } catch (_) {}
+    if (id) {
+      const agent = state2.agents.find((a) => a.id === id);
+      if (agent?.system_prompt) {
+        try { localStorage.setItem("simchat.system_prompt", agent.system_prompt); } catch (_) {}
+      }
+    }
+    state2.selectedAgentId = id;
+    renderAgentList();
+  });
   el.openIde?.addEventListener("click", openIde);
   el.setupBack.addEventListener("click", hideSetup);
   el.providerForm.addEventListener("submit", (event) => {
@@ -4986,11 +5001,30 @@
         try { localStorage.removeItem("simchat.active_agent_id"); } catch (_) {}
       }
       renderAgentList();
+      renderAgentPicker();
     } catch (err) {
       console.error("[agents] 加载失败:", err);
       state2.agents = [];
       renderAgentList();
+      renderAgentPicker();
     }
+  }
+
+  function renderAgentPicker() {
+    const picker = document.getElementById("agent-picker");
+    if (!picker) return;
+    const current = state.activeAgentId || "";
+    picker.innerHTML = '<option value="">— 直接对话 —</option>' +
+      state2.agents.map((a) => {
+        const icon = (a.avatar_type === "emoji" && a.avatar)
+          ? a.avatar
+          : (a.avatar_type === "image" && a.avatar
+              ? "🖼"
+              : "🤖");
+        const label = a.name + (a.agent_capable ? "" : "（对话）");
+        return `<option value="${a.id}" data-capable="${a.agent_capable ? "1" : "0"}">${icon} ${label}</option>`;
+      }).join("");
+    picker.value = current;
   }
 
   function renderAgentList() {
@@ -5119,6 +5153,7 @@
       try { localStorage.setItem("simchat.system_prompt", agent.system_prompt); } catch (_) {}
     }
     hideAgentList();
+    renderAgentPicker();  // composer 里的下拉也同步选中
     // 聚焦输入框
     setTimeout(() => document.getElementById("input")?.focus(), 50);
   }

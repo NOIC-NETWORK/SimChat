@@ -1,5 +1,13 @@
 # 最近更新
 
+**2026-11-09 夜** — Orbiter 落地：composer 里的 AI 实例下拉
+
+- 占位了很久的 Orbiter 按钮（`.agent-only`）正式变成了 `<select id="agent-picker">`。选项列表：`— 直接对话 —` + 每个 AI 实例的头像 emoji + 名称；非 Agent 模式的实例后缀 `（对话）`。
+- 选中即激活实例：写入 `state.activeAgentId` / `localStorage.simchat.active_agent_id` / `state2.selectedAgentId`，composer 里的 `/api/chat` 请求自动带上 `agent_id`，前端 SSE 渲染和后端 Agent 模式一起联动；选回空值则回到"直接对话"（不带实例）。
+- 双向同步：agent-list 浮层里点「激活」会反向刷新 picker；picker 里选了也会刷新 agent-list 高亮。`loadAgents` / 新建 / 删除 / 更新实例后都重绘。
+- 文案替代：以前要手敲 `/@gremlin`，现在点一下就行。未来如果要加 Orbiter 路由器（"轻量大模型做路由"那个混合推理架构），可以在这个下拉旁边加一个模式切换，但**实例选择这个核心已经解决了**。
+- 文件：`web/templates/index.html`、`web/static/js/chat.js`
+
 **2026-11-09 晚** — Agent 模式终于接通 AgentLoop
 
 - **根因**：`/api/chat` handler 从来没读 `agent.agent_capable`，所有带 AI 实例的对话都走 `core.chat_stream` 普通聊天流，后端已实现好的 `runtime/agent/` 包（AgentLoop + SimChatAgentBackend + ReAct 协议 + 工具集）一直是死代码。用户截图里 `/@gremlin 你好吗` 返回的是模型自由发挥的闲聊而不是工具调用，直接命中这个根因。

@@ -295,7 +295,11 @@
               <option value="custom">审批 · 自定义</option>
             </select>
           </div>
-          <button type="button" class="composer-chip agent-only hidden" id="orbiter-mode" title="Orbiter：调用子 Agent 协同处理任务（预留）">Orbiter</button>
+          <div class="model-select-wrap agent-only hidden">
+            <select class="model-select" id="agent-picker" title="选择要调用的 AI 实例（可替代输入 /@ 实例名）" aria-label="选择 AI 实例">
+              <option value="">— 直接对话 —</option>
+            </select>
+          </div>
           <button type="button" class="composer-btn" id="voice-input-mode" title="语音输入（预留）" aria-label="语音输入">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="9" y="2" width="6" height="12" rx="3"/>
@@ -1298,6 +1302,6 @@
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261109c"></script>
+<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261109d"></script>
 </body>
 </html>
