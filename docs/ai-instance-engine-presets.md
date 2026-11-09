@@ -1,6 +1,6 @@
 # 创建和配置 AI 实例（神经引擎预设教程）
 
-> SimChat 的 AI 实例 = Minecraft 的"世界存档"。创建一个实例就是选一张世界类型、填好种子和出生点，然后开始玩。
+> SimChat 的 AI 实例 = Minecraft 的"世界存档"。创建一个实例就是选一张世界类型、调好生成参数和出生点，然后开始玩。
 
 ---
 
@@ -14,7 +14,6 @@
 | `system_prompt` | 系统提示词（人设、角色指令） | 世界出生点设置 |
 | `engine_preset` | 神经引擎预设 ID | **世界类型**（普通 / 超平坦 / 大型生物群系） |
 | `engine_params` | 生成参数（温度 / Top P / 重复惩罚 / 最大 tokens） | 世界生成种子和游戏规则 |
-| `seed` | 随机种子（可选） | 地图种子 |
 | `agent_capable` | 是否启用 Agent 模式（调用工具） | 允许作弊开关 |
 | `entity_id` | 绑定的实体（多用户场景用） | — |
 | `created_at` / `updated_at` | 创建和更新时间 | — |
@@ -211,7 +210,6 @@ Ollama / API / Llama.cpp
     "max_tokens": 4096
   },
   "system_prompt": "",
-  "seed": "",
   "agent_capable": true,
   "allow_advanced": false,
   "desktop_pet": false,

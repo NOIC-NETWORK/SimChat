@@ -262,7 +262,7 @@ def serve_mod_asset(mod_id, filename):
 // 每个 AI 实例（地图）的配置快照
 {
   "world_type": "creative",          // 神经引擎预设（普通/工作/代码/创意/W-Synk）
-  "seed": "ollama::televi/JRVS-7B",  // 模型选择
+  "model": "ollama::televi/JRVS-7B",  // 模型选择
   "blocks_enabled": ["file_read", "glob", "web_fetch"],  // 这个实例启用哪些方块
   "mods_enabled": ["barry.galax"],    // 这个实例加载哪些 Mod
   "memory": "...",                    // 长期记忆（类似玩家经验值）

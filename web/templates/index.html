@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SimChat | Everything, Harnessed.</title>
 <link rel="icon" type="image/png" href="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261103d">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261109a">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261103a">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
@@ -123,6 +123,9 @@
         <span class="status-dot" id="status-dot" title="空闲"></span>
       </div>
     </header>
+
+    <!-- 实例创建：视口右上角进度浮层 -->
+    <div class="agent-boot-stack" id="agent-boot-stack" aria-live="polite"></div>
 
     <div class="conversation" id="conversation">
       <!-- ======= 基础设置 ======= -->
@@ -639,7 +642,7 @@
 
       <section class="setting-section" data-section="comms" hidden>
         <h3 data-block="console.section.comms">通讯</h3>
-        <p class="section-desc">即时通讯与邮件通道的接入配置。「群机器人」提供两种独立接入方式：Python 库（OneBot v11）与 QQ 官方 API，各自拥有独立的启动按钮与运行时状态。敏感字段在本机加密存储，永不明文回显。</p>
+        <p class="section-desc">即时通讯与邮件通道的接入配置。「群机器人」提供两种独立接入方式：Python 库（OneBot v11）与 QQ 官方 API，各自拥有独立的启动按钮与运行时状态。打开「自动上线」后，每次启动 SimChat 会自动连接该机器人；连接断开时按退避策略自动重连。敏感字段在本机加密存储，永不明文回显。</p>
 
         <!-- 通道选择（tab 串列，按钮由 JS 动态填充） -->
         <div class="comm-channel-tabs" id="comm-channel-tabs"></div>
@@ -1168,7 +1171,7 @@
       <button class="agent-edit-close" id="agent-edit-close" type="button" aria-label="关闭">✕</button>
     </header>
 
-    <form class="agent-edit-form" id="agent-edit-form" novalidate>
+    <form class="agent-edit-form" id="agent-edit-form" novalidate autocomplete="off">
       <input type="hidden" id="agent-edit-id">
 
       <!-- Tab 切换 -->
@@ -1182,11 +1185,11 @@
         <div class="agent-edit-row">
           <label class="field">
             <span class="field-label">实例名称 <span class="field-required">*</span></span>
-            <input type="text" id="agent-edit-name" class="field-input" maxlength="40" required placeholder="给这个实例起个名字">
+            <input type="text" id="agent-edit-name" class="field-input" maxlength="40" required autocomplete="off" placeholder="给这个实例起个名字">
           </label>
           <label class="field">
             <span class="field-label">ID（entity_id）</span>
-            <input type="text" id="agent-edit-entity" class="field-input" maxlength="32" placeholder="用于 /@ 调用，留空自动生成">
+            <input type="text" id="agent-edit-entity" class="field-input" maxlength="32" autocomplete="off" placeholder="用于 /@ 调用，留空自动生成">
             <span class="field-hint">Orbiter 的 /@指令识别用，唯一标识这个实例。</span>
           </label>
         </div>
@@ -1208,25 +1211,19 @@
 
           <label class="field">
             <span class="field-label">描述</span>
-            <input type="text" id="agent-edit-desc" class="field-input" maxlength="200" placeholder="一句话介绍（可选）">
+            <input type="text" id="agent-edit-desc" class="field-input" maxlength="200" autocomplete="off" placeholder="一句话介绍（可选）">
           </label>
         </div>
 
         <label class="field">
           <span class="field-label">系统提示词</span>
-          <textarea id="agent-edit-system" class="field-input" rows="6" placeholder="你是一个专业的……请用……语气……" style="resize:vertical;font-family:monospace;"></textarea>
+          <textarea id="agent-edit-system" class="field-input" rows="6" autocomplete="off" placeholder="你是一个专业的……请用……语气……" style="resize:vertical;font-family:monospace;"></textarea>
           <span class="field-hint">每次对话开头会注入这段提示词，定义这个实例的人格和行为。</span>
         </label>
       </div>
 
       <!-- ===== 高级设置 Tab ===== -->
       <div class="agent-edit-tab-pane" data-pane="advanced">
-        <label class="field">
-          <span class="field-label">种子（Seed）</span>
-          <input type="text" id="agent-edit-seed" class="field-input" maxlength="128" placeholder="神经引擎识别的特殊 TOE（可选）">
-          <span class="field-hint">用于后方神经引擎识别的特殊 Token，定义该实例的行为基底。</span>
-        </label>
-
         <div class="field">
           <span class="field-label">神经引擎预设</span>
           <input type="hidden" id="agent-edit-engine" value="normal">
@@ -1262,7 +1259,7 @@
             </label>
             <label class="field">
               <span class="field-label">最大 tokens</span>
-              <input type="number" id="agent-engine-max-tokens" class="field-input" min="128" max="32768" step="1" value="4096">
+              <input type="number" id="agent-engine-max-tokens" class="field-input" min="128" max="32768" step="1" value="4096" autocomplete="off">
             </label>
           </div>
         </div>
@@ -1301,6 +1298,6 @@
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261103c"></script>
+<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261109c"></script>
 </body>
 </html>

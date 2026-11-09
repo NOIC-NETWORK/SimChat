@@ -29,7 +29,7 @@
 | `mirostat` | Mirostat 动态截断采样模式（0/1/2） | 未接 |
 | `mirostat_tau` | Mirostat 目标熵 | 未接 |
 | `mirostat_eta` | Mirostat 学习率 | 未接 |
-| `seed` | 固定随机种子 | 实例 JSON 里存了，但从未传给 Ollama |
+| `seed` | 固定随机种子 | 未接。实例里的 `seed` 字段已废弃（只保留旧存档兜底，不再读写） |
 | `stop` | 自定义停止词 | 完全没有 |
 | `num_predict` | 最大生成 token 数 | 已接，实例预设里的“最大 tokens” |
 | `num_keep` | 保留开头提示词的 token 数 | 未接 |

@@ -1,4 +1,4 @@
-﻿/* SimChat Web — 会话侧边栏 + 服务商配置 + 流式对话 */
+﻿﻿﻿﻿/* SimChat Web — 会话侧边栏 + 服务商配置 + 流式对话 */
 (() => {
   "use strict";
 
@@ -3910,6 +3910,7 @@
     try {
       const data = await api("/api/gateway/connect", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: el.gwPassword?.value || null }),
       });
       if (data.ok) {
@@ -4231,9 +4232,18 @@
     return html;
   }
 
+  function _commAutoOnline(channel) {
+    const field = (channel.fields || []).find((f) => f.key === "auto_online");
+    if (!field) return false;
+    const raw = String(field.value ?? "").trim().toLowerCase();
+    return field.value === true || raw === "true" || raw === "1" ||
+      (raw === "" && field.default === true);
+  }
+
   function _commRuntimeMeta(channel, runtime) {
     const transport = runtime.transport || _commTransportValue(channel);
     const parts = [];
+    parts.push("自动上线：" + (_commAutoOnline(channel) ? "开启" : "关闭"));
     parts.push("连接方式：" + _commTransportLabel(channel, transport));
     if (runtime.started_at) parts.push("启动于 " + runtime.started_at);
     if (runtime.last_message_at) parts.push("最近收消息 " + runtime.last_message_at);
@@ -5249,7 +5259,6 @@
       document.getElementById("agent-edit-avatar-type").value = agent.avatar_type || "emoji";
       document.getElementById("agent-edit-desc").value = agent.description || "";
       document.getElementById("agent-edit-system").value = agent.system_prompt || "";
-      document.getElementById("agent-edit-seed").value = agent.seed || "";
       state2.enginePresetId = agent.engine_preset || "normal";
       document.getElementById("agent-edit-engine").value = state2.enginePresetId;
       const preset = state2.enginePresets.find((p) => p.id === state2.enginePresetId)
@@ -5276,7 +5285,6 @@
       document.getElementById("agent-edit-avatar-type").value = "emoji";
       document.getElementById("agent-edit-desc").value = "";
       document.getElementById("agent-edit-system").value = "";
-      document.getElementById("agent-edit-seed").value = "";
       state2.enginePresetId = "normal";
       state2.customEngineParams = null;  // 新实例没有历史自定义值
       document.getElementById("agent-edit-engine").value = "normal";
@@ -5297,6 +5305,107 @@
     document.getElementById("agent-edit-modal")?.classList.add("hidden");
   }
 
+  // ===== 实例创建进度浮层（视口右上角） =====
+  function showAgentBoot({ name, avatar, avatarType, onDiscard }) {
+    const stack = document.getElementById("agent-boot-stack");
+    const noop = { finish() {}, dismiss() {}, wasDiscarded: () => false };
+    if (!stack) return noop;
+
+    const card = document.createElement("div");
+    card.className = "agent-boot-card";
+    card.innerHTML = `
+      <div class="agent-boot-head">
+        <div class="agent-boot-avatar"></div>
+        <div class="agent-boot-name"></div>
+        <button type="button" class="agent-boot-discard">放弃</button>
+      </div>
+      <div class="agent-boot-lines">
+        <span class="agent-boot-line is-active">加载模型中</span>
+        <span class="agent-boot-line">生成神经网络中</span>
+      </div>
+      <div class="agent-boot-bar"><i></i></div>
+    `;
+    card.querySelector(".agent-boot-name").textContent = name;
+    const avatarHost = card.querySelector(".agent-boot-avatar");
+    if (avatarType === "image" && avatar) {
+      const img = document.createElement("img");
+      img.src = avatar;
+      img.alt = "";
+      avatarHost.appendChild(img);
+    } else {
+      avatarHost.textContent = avatar || "🤖";
+    }
+    stack.appendChild(card);
+
+    const fill = card.querySelector(".agent-boot-bar > i");
+    const lines = card.querySelectorAll(".agent-boot-line");
+    const startedAt = performance.now();
+    let progress = 0;
+    let timer = null;
+    let leaving = false;
+    let discarded = false;
+    let requestDone = false;
+    let finishAt = 0;
+
+    function paint() {
+      fill.style.width = progress + "%";
+      const stage = progress < 55 ? 0 : 1;
+      lines.forEach((line, i) => {
+        line.classList.toggle("is-active", i === stage);
+        line.classList.toggle("is-done", i < stage);
+      });
+    }
+
+    function tick() {
+      if (leaving) return;
+      if (requestDone && performance.now() >= finishAt) {
+        // 收尾阶段：平滑推到 100%，再让卡片飞出去
+        progress = Math.min(100, progress + 4.2);
+        paint();
+        if (progress >= 100) {
+          timer = setTimeout(dismiss, 560);
+          return;
+        }
+        timer = setTimeout(tick, 55);
+        return;
+      }
+      progress = Math.min(92, progress + Math.max(0.8, (92 - progress) * 0.12));
+      paint();
+      timer = setTimeout(tick, 140 + Math.random() * 130);
+    }
+
+    function dismiss() {
+      if (leaving) return;
+      leaving = true;
+      clearTimeout(timer);
+      card.classList.add("is-leaving");
+      const drop = () => card.remove();
+      card.addEventListener("animationend", drop, { once: true });
+      setTimeout(drop, 800);
+    }
+
+    card.querySelector(".agent-boot-discard").addEventListener("click", () => {
+      if (discarded) return;
+      discarded = true;
+      dismiss();
+      onDiscard?.();
+    });
+
+    paint();
+    timer = setTimeout(tick, 120);
+
+    return {
+      finish() {
+        if (requestDone || leaving) return;
+        requestDone = true;
+        // 接口通常秒回，这里保证两行加载文案至少停留可读
+        finishAt = Math.max(performance.now(), startedAt + 1300);
+      },
+      dismiss,
+      wasDiscarded: () => discarded,
+    };
+  }
+
   async function saveAgentEdit(e) {
     e.preventDefault();
     const msgEl = document.getElementById("agent-edit-message");
@@ -5310,7 +5419,6 @@
       avatar: document.getElementById("agent-edit-avatar-input").value || "🤖",
       avatar_type: document.getElementById("agent-edit-avatar-type").value || "emoji",
       system_prompt: document.getElementById("agent-edit-system").value,
-      seed: document.getElementById("agent-edit-seed").value.trim(),
       engine_preset: state2.enginePresetId,
       // 只有 custom 模式才发用户手填的参数；非 custom 让后端用预设标准值覆盖
       ...(state2.enginePresetId === "custom" ? { engine_params: readEngineParams() } : {}),
@@ -5321,22 +5429,70 @@
 
     if (!payload.name) {
       msgEl.textContent = "名称不能为空";
+      document.getElementById("agent-edit-name").focus();
       return;
     }
 
-    try {
-      let data;
-      if (id) {
-        data = await api(`/api/agents/${id}`, { method: "PUT", body: JSON.stringify(payload) });
-      } else {
-        data = await api("/api/agents", { method: "POST", body: JSON.stringify(payload) });
+    // 编辑已有实例：同步保存
+    if (id) {
+      try {
+        const data = await api(`/api/agents/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        closeAgentEdit();
+        await loadAgents();
+        if (data?.agent?.id) state2.selectedAgentId = data.agent.id;
+        renderAgentList();
+      } catch (err) {
+        msgEl.textContent = err?.message || "保存失败";
       }
-      closeAgentEdit();
+      return;
+    }
+
+    // 新建实例：关闭弹窗，右上角浮层展示后台创建进度
+    closeAgentEdit();
+    let createdId = null;
+    const boot = showAgentBoot({
+      name: payload.name,
+      avatar: payload.avatar,
+      avatarType: payload.avatar_type,
+      onDiscard: () => {
+        // 已落盘就顺手删掉；还在请求中则由下面的 await 分支处理
+        if (!createdId) return;
+        api(`/api/agents/${createdId}`, { method: "DELETE" })
+          .then(() => loadAgents())
+          .then(() => renderAgentList())
+          .catch(() => {});
+      },
+    });
+
+    try {
+      const data = await api("/api/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      createdId = data?.agent?.id || null;
+      if (boot.wasDiscarded()) {
+        if (createdId) {
+          await api(`/api/agents/${createdId}`, { method: "DELETE" }).catch(() => {});
+        }
+        return;
+      }
+      boot.finish();
       await loadAgents();
-      if (data?.agent?.id) state2.selectedAgentId = data.agent.id;
-      renderAgentList();
+      if (createdId) {
+        state2.selectedAgentId = createdId;
+        renderAgentList();
+      }
     } catch (err) {
-      msgEl.textContent = err?.message || "保存失败";
+      if (boot.wasDiscarded()) return;
+      boot.dismiss();
+      // 失败时把弹窗还回来，保留已填内容并显示原因
+      document.getElementById("agent-edit-modal")?.classList.remove("hidden");
+      msgEl.textContent = err?.message || "创建失败";
     }
   }
 
@@ -5391,6 +5547,11 @@
 
     // 编辑弹窗
     document.getElementById("agent-edit-form")?.addEventListener("submit", saveAgentEdit);
+    // 用户一开始修改输入，就清掉上次的校验提示，避免旧报错一直挂着
+    document.getElementById("agent-edit-form")?.addEventListener("input", () => {
+      const msg = document.getElementById("agent-edit-message");
+      if (msg) msg.textContent = "";
+    });
     document.getElementById("agent-edit-close")?.addEventListener("click", closeAgentEdit);
     document.getElementById("agent-edit-cancel")?.addEventListener("click", closeAgentEdit);
     document.getElementById("agent-edit-avatar-reroll")?.addEventListener("click", pickRandomAvatar);
