@@ -736,6 +736,11 @@ def create_app(core=None):
 
         return agents_mod
 
+    def _agent_mod():
+        from simchat.runtime import agent as agent_mod
+
+        return agent_mod
+
     @app.get("/api/agents")
     def list_agents():
         agents_mod = _agents_mod()
@@ -1218,6 +1223,10 @@ def create_app(core=None):
         system = data.get("system")
         if not system and agent:
             system = agent.get("system_prompt") or None
+        agent_capable = bool(agent and agent.get("agent_capable", True))
+
+        def _stream_out(event):
+            return "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
 
         def generate():
             kwargs = {}
@@ -1234,8 +1243,62 @@ def create_app(core=None):
                 "provider": data.get("provider") or "",
                 "model": data.get("model") or "",
                 "chars": len(message),
+                "agent_mode": agent_capable,
             })
             try:
+                # ---- Agent 模式：ReAct 循环 ----
+                if agent_capable:
+                    agent_mod = _agent_mod()
+                    backend = agent_mod.SimChatAgentBackend(
+                        core,
+                        provider=data.get("provider"),
+                        model=data.get("model"),
+                        temperature=kwargs.get("temperature", 0.7),
+                        max_tokens=kwargs.get("max_tokens", 1024),
+                        top_p=kwargs.get("top_p"),
+                        repetition_penalty=kwargs.get("repetition_penalty"),
+                    )
+                    # quota 硬闸（与 chat_stream 同源）
+                    ok, reason, _usage, _quota_cfg = core.usage.check_quota(core.data_root)
+                    if not ok:
+                        yield _stream_out({
+                            "event": "error", "code": "quota_exceeded",
+                            "message": reason,
+                        })
+                        return
+                    sess = core.store.get_or_create(data.get("session_id"), mode="agent")
+                    if sess.get("mode") != "agent":
+                        sess = core.store.create(mode="agent")
+                    sid = sess["id"]
+                    yield _stream_out({"event": "chat_started", "schema": 1,
+                                        "session_id": sid, "agent_mode": True})
+
+                    history = [{"role": m["role"], "content": m["content"]}
+                               for m in sess.get("messages", [])]
+
+                    loop = agent_mod.AgentLoop(
+                        backend,
+                        workdir=(core.workspace_status() or {}).get("path"),
+                        max_turns=10,
+                        mode="agent",
+                        shell_enabled=False,
+                    )
+                    agent_events = []
+                    loop.run(
+                        message,
+                        history=history,
+                        session_id=sid,
+                        persona=(agent or {}).get("name"),
+                        run_id=sid,
+                        system_prompt=system,
+                        emit=lambda evt: agent_events.append(evt),
+                    )
+                    # loop.run 同步返回后，把 ReAct 过程中积累的事件逐条 SSE 发出
+                    for evt in agent_events:
+                        yield _stream_out(evt)
+                    return
+
+                # ---- 普通对话模式 ----
                 for event in core.chat_stream(
                     message,
                     session_id=data.get("session_id"),
@@ -1245,7 +1308,7 @@ def create_app(core=None):
                     regenerate=bool(data.get("regenerate")),
                     **kwargs,
                 ):
-                    yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+                    yield _stream_out(event)
             except Exception as error:
                 _record_event("chat.error", {"error": str(error)[:200]})
                 raise

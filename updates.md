@@ -1,5 +1,14 @@
 # 最近更新
 
+**2026-11-09 晚** — Agent 模式终于接通 AgentLoop
+
+- **根因**：`/api/chat` handler 从来没读 `agent.agent_capable`，所有带 AI 实例的对话都走 `core.chat_stream` 普通聊天流，后端已实现好的 `runtime/agent/` 包（AgentLoop + SimChatAgentBackend + ReAct 协议 + 工具集）一直是死代码。用户截图里 `/@gremlin 你好吗` 返回的是模型自由发挥的闲聊而不是工具调用，直接命中这个根因。
+- **修复**：`web/__init__.py` chat handler 新增 agent_capable 分支，构造 SimChatAgentBackend（复用 engine_params 的温度 / Top-P / 重复惩罚 / max_tokens，复用 SimChatCore 的服务商解析）+ AgentLoop（mode="agent"，workdir 取 workspace_status().path，shell 暂关闭），loop.run() 同步跑 ReAct 循环，emit 回调把事件收集到 list，再逐条 SSE 发出。
+- **配套**：新增 `_agent_mod()` 懒加载函数；Agent 会话用 `mode="agent"` 隔离，不复用普通 chat 会话；quota 硬闸在进 AgentLoop 前先做一次。
+- **修复 Gateway 握手 JSON 丢失**（上一次表单修复里的同类问题）。
+- 实测：gremlin 实例（agent_capable=True）打 `/api/chat` 带 agent_id，正确发出 `chat_started / thought / final` 事件，session mode 正确落盘为 "agent"。
+- 文件：`web/__init__.py`、`updates.md`、`README.md`
+
 **2026-11-09** — AI 实例后台创建浮层 + 表单提交修复
 
 - **实例创建改为后台执行**：点「保存」后弹窗立即关闭，视口右上角出现进度浮层（`#agent-boot-stack`），包含实例头像 / 名称 / 放弃按钮，以及「加载模型中 / 生成神经网络中」两行文案与进度条。进度先缓慢逼近 92%，接口返回后仍保留约 1.3 秒可读时间，再平滑补到 100%，最后卡片向右飞出视口并淡出。
