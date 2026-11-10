@@ -6977,3 +6977,224 @@
   el.instRefresh?.addEventListener("click", loadInstances);
 })();
 
+
+/* =====================================================
+   SimChat IDE 布局初始化
+   负责 Activity Bar 切换、抽屉控制、快捷键、事件流
+   ===================================================== */
+window.SimChatIDELayout = (function () {
+  const STATE = {
+    activity: "chat",
+    sideBarCollapsed: false,
+    inspectorCollapsed: false,
+    panelOpen: false,
+  };
+
+  // 事件流转播到 Panel
+  function emitEvent(level, text) {
+    const panel = document.getElementById("bottom-panel");
+    if (!panel) return;
+    const events = document.getElementById("panel-events");
+    if (!events) return;
+    // 清空"等待事件..."占位
+    const empty = events.querySelector(".panel-empty");
+    if (empty) empty.remove();
+    const line = document.createElement("div");
+    line.className = "panel-event-line";
+    line.dataset.level = level || "info";
+    const ts = new Date().toLocaleTimeString();
+    line.textContent = `[${ts}] ${text}`;
+    events.appendChild(line);
+    // 限制 200 行
+    while (events.children.length > 200) events.removeChild(events.firstChild);
+    events.scrollTop = events.scrollHeight;
+  }
+
+  function switchActivity(activity) {
+    if (!activity) return;
+    STATE.activity = activity;
+    // 更新 Activity Bar 高亮
+    document.querySelectorAll(".activity-item").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.activity === activity);
+    });
+    // 切换 Side Bar pane
+    document.querySelectorAll(".side-bar-pane").forEach((pane) => {
+      pane.hidden = pane.dataset.activityPane !== activity;
+    });
+    // 更新 Side Bar 标题
+    const titles = {
+      chat: "对话",
+      instances: "AI 实例",
+      extensions: "扩展",
+      automation: "自动化",
+      gateway: "网关",
+      settings: "设置",
+    };
+    const titleEl = document.getElementById("side-bar-title");
+    if (titleEl) titleEl.textContent = titles[activity] || "SimChat";
+
+    // Activity 间事件
+    emitEvent("info", `切换到 ${titles[activity] || activity}`);
+
+    // 特定 Activity 触发现有初始化
+    if (activity === "extensions" && typeof window.loadMods === "function") {
+      // 复用已有的 MOD 加载逻辑（如果全局暴露）
+    }
+    if (activity === "instances" && typeof window.loadAgents === "function") {
+      window.loadAgents();
+    }
+  }
+
+  function toggleSideBar() {
+    const wrapper = document.getElementById("side-bar-wrapper");
+    if (!wrapper) return;
+    STATE.sideBarCollapsed = !STATE.sideBarCollapsed;
+    wrapper.classList.toggle("is-collapsed", STATE.sideBarCollapsed);
+    emitEvent("info", `侧边栏 ${STATE.sideBarCollapsed ? "收起" : "展开"}`);
+  }
+
+  function toggleInspector() {
+    const el = document.getElementById("inspector");
+    if (!el) return;
+    STATE.inspectorCollapsed = !STATE.inspectorCollapsed;
+    el.classList.toggle("is-collapsed", STATE.inspectorCollapsed);
+    emitEvent("info", `检查器 ${STATE.inspectorCollapsed ? "收起" : "展开"}`);
+  }
+
+  function togglePanel(force) {
+    const panel = document.getElementById("bottom-panel");
+    if (!panel) return;
+    if (typeof force === "boolean") STATE.panelOpen = force;
+    else STATE.panelOpen = !STATE.panelOpen;
+    panel.hidden = !STATE.panelOpen;
+    emitEvent("info", `底部面板 ${STATE.panelOpen ? "打开" : "关闭"}`);
+  }
+
+  function switchPanelTab(tabName) {
+    document.querySelectorAll(".panel-tab").forEach((t) => {
+      t.classList.toggle("is-active", t.dataset.panel === tabName);
+    });
+    document.querySelectorAll(".panel-pane").forEach((p) => {
+      p.hidden = p.dataset.panelPane !== tabName;
+    });
+    emitEvent("info", `面板切换到 ${tabName}`);
+  }
+
+  function setStatus(state, text) {
+    // state: "idle" | "busy" | "error"
+    const dot = document.getElementById("status-dot");
+    if (dot) {
+      dot.classList.remove("status-dot--busy", "status-dot--error");
+      if (state === "busy") dot.classList.add("status-dot--busy");
+      else if (state === "error") dot.classList.add("status-dot--error");
+      dot.title = text || state;
+    }
+    // 同步 topbar 旧状态点（如果还存在）
+    const old = document.querySelector(".topbar-right .status-dot");
+    if (old) old.className = "status-dot" + (state === "busy" ? " status-dot--busy" : state === "error" ? " status-dot--error" : "");
+  }
+
+  function setStatusBarField(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  function init() {
+    // Activity Bar 绑定
+    document.querySelectorAll(".activity-item").forEach((btn) => {
+      btn.addEventListener("click", () => switchActivity(btn.dataset.activity));
+    });
+
+    // 抽屉按钮
+    document.getElementById("toggle-side-bar")?.addEventListener("click", toggleSideBar);
+    document.getElementById("toggle-inspector")?.addEventListener("click", toggleInspector);
+    document.getElementById("toggle-panel")?.addEventListener("click", () => togglePanel());
+    document.getElementById("inspector-close")?.addEventListener("click", toggleInspector);
+    document.getElementById("panel-close")?.addEventListener("click", () => togglePanel(false));
+    document.getElementById("panel-clear-events")?.addEventListener("click", () => {
+      const events = document.getElementById("panel-events");
+      if (events) events.innerHTML = '<div class="panel-empty">已清空，等待新事件…</div>';
+    });
+
+    // Panel Tab 切换
+    document.querySelectorAll(".panel-tab").forEach((tab) => {
+      tab.addEventListener("click", () => switchPanelTab(tab.dataset.panel));
+    });
+
+    // 侧边栏实例创建按钮 → 打开 agent edit modal
+    document.getElementById("side-create-agent")?.addEventListener("click", () => {
+      const btn = document.getElementById("mc-singleplayer");
+      // 复用原有点击逻辑
+      if (btn) btn.click();
+      else if (typeof window.openAgentEdit === "function") window.openAgentEdit();
+    });
+
+    // 设置快捷入口 → 打开对应 console section
+    document.querySelectorAll(".side-bar-settings-item[data-setting]").forEach((item) => {
+      item.addEventListener("click", (e) => {
+        e.preventDefault();
+        const section = item.dataset.setting;
+        const btn = document.getElementById("open-setup");
+        if (btn) {
+          btn.click();
+          // 等待 console 出现后切 section
+          setTimeout(() => {
+            const navItem = document.querySelector(`.console-nav-item[data-section="${section}"]`);
+            if (navItem) navItem.click();
+          }, 100);
+        }
+      });
+    });
+
+    // 快捷键
+    document.addEventListener("keydown", (e) => {
+      // 不拦截输入框内的 Ctrl+快捷键
+      const tag = (e.target && e.target.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) {
+        // 允许 Ctrl+B 作为加粗等文本编辑快捷键，但保留 Ctrl+, 和 Ctrl+J
+        if ((e.ctrlKey || e.metaKey) && (e.key === "," || e.key === "j" || e.key === "J")) {
+          e.preventDefault();
+          if (e.key === ",") switchActivity("settings");
+          else togglePanel();
+        }
+        return;
+      }
+      if (e.ctrlKey || e.metaKey) {
+        switch (e.key) {
+          case "b": case "B":
+            e.preventDefault(); toggleSideBar(); break;
+          case "i": case "I":
+            e.preventDefault(); toggleInspector(); break;
+          case "j": case "J":
+            e.preventDefault(); togglePanel(); break;
+          case ",":
+            e.preventDefault(); switchActivity("settings"); break;
+          case "1":
+            e.preventDefault(); switchActivity("chat"); break;
+          case "2":
+            e.preventDefault(); switchActivity("instances"); break;
+          case "3":
+            e.preventDefault(); switchActivity("extensions"); break;
+          case "4":
+            e.preventDefault(); switchActivity("automation"); break;
+          case "5":
+            e.preventDefault(); switchActivity("gateway"); break;
+        }
+      }
+    });
+
+    // 初始化状态栏字段
+    setStatusBarField("status-provider", "—");
+    setStatusBarField("status-port", location.host || "127.0.0.1:5000");
+
+    emitEvent("success", "SimChat IDE 布局就绪");
+    emitEvent("info", `快捷键: Ctrl+B 侧边栏 · Ctrl+I 检查器 · Ctrl+J 面板 · Ctrl+, 设置 · Ctrl+1-5 切换活动`);
+
+    // 暴露到全局
+    window.SimChatSetStatus = setStatus;
+    window.SimChatEmitEvent = emitEvent;
+    window.SimChatSwitchActivity = switchActivity;
+  }
+
+  return { init, switchActivity, toggleSideBar, toggleInspector, togglePanel, setStatus, emitEvent, setStatusBarField };
+})();

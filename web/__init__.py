@@ -62,12 +62,8 @@ def _ensure_logging(data_root, level=None):
     except Exception:
         pass
 
-# IDE 界面演示页：项目根目录下的单文件 HTML（templates 之外，读文件原文返回）
+# 项目根目录（某些 API 仍用到）
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-def _ide_page_path():
-    return os.path.join(_PROJECT_ROOT, "ide-demo.html")
 
 
 def _get_core(app):
@@ -224,16 +220,13 @@ def create_app(core=None):
 
     @app.get("/ide")
     def ide_page():
-        """IDE 界面（单文件演示页），与 / 的对话界面共用同一后端。"""
-        path = _ide_page_path()
-        if not os.path.isfile(path):
-            return "IDE 界面文件缺失：ide-demo.html", 404
-        with open(path, "r", encoding="utf-8") as f:
-            html = f.read()
-        resp = Response(html, mimetype="text/html")
-        # 开发期避免浏览器缓存旧版页面
-        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        return resp
+        """SimChat IDE 六区布局（桌面端）。与 / 的对话界面共用同一后端。"""
+        return render_template("ide.html")
+
+    @app.get("/wap")
+    def wap_page():
+        """SimChat 移动端单列堆栈界面。"""
+        return render_template("wap.html")
 
     # ---------------- 服务商配置 ----------------
 

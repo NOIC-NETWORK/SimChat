@@ -1,5 +1,15 @@
 # 最近更新
 
+**2026-11-10** — IDE 六区布局 + WAP 移动端独立落地（毛坯房地基）
+
+- **桌面端 `/ide` 页面**：从 ide-demo.html 拆出独立 Flask 模板 `web/templates/ide.html`，不再是单文件 HTML 被读原文返回。完整六区布局（Activity Bar / Side Bar / 中央工作区 / Inspector / 底部 Panel / 状态栏），全部接真实 `/api/*`：会话列表、新建会话、流式对话（SSE）、Agent 任务与审批、MOD/工具、服务商模型列表、工作目录浏览选择器。Activity Bar 5 个 Tab（对话 / 任务 / 扩展 / 自动化 / 设置），底部 Panel 三 Tab（事件流 / 沙箱输出 / 日志），Inspector 自动跟随当前上下文刷新。快捷键：Ctrl+1~4 切 Activity、Ctrl+B 抽屉、Ctrl+J Panel、Ctrl+I Inspector、Ctrl+, 设置、Ctrl+K 命令面板、Esc 收起所有浮层。
+- **移动端 `/wap` 页面**：全新单列堆栈壳（max-width 520px，safe-area-inset-bottom 适配），底部 TabBar 三 Tab（对话 / 任务 / 我的），会话列表空态带品牌欢迎卡，对话页走同一条 `/api/chat` SSE，工作目录未配置时 composer 自动锁定并提示。
+- **无弹层**：移动端所有交互（模型切换 / 主题切换 / 工作目录选择）全部用「我的页内联展开选项组」或「独立 route（ws-picker）」完成，没有任何 bottom sheet 或 backdrop 覆盖层。路由 history 用 `state.routeStack` 维护，back 按钮回到上一层。
+- **Splash Screen**：全屏启动画面，并行拉 listSessions / listProviders / listAgentTasks / getWorkspace 四个 API，进度条逐阶段推进，4s 超时保护，全部完成后淡出显示主壳。带 logo 旋转缩放入场动画 + 标题 + 加载文案 + 「跳过」按钮（1.2s 后出现）。
+- **共享层**：`web/static/js/ide-api.js` 作为 fetch + SSE 封装层被 IDE 和 WAP 共用，所有请求显式 `Content-Type: application/json`；`ide.css` 提供设计令牌 + 桌面六区布局样式，`wap.css` `@import` 拿令牌后覆写移动端壳；两端数据层完全独立，不污染 `index.html` 的 DOM。
+- **ide-demo.html 保留在项目根目录**：它是最初的设计稿，里面的 CSS/JS 被拆到 `static/css/ide.css` 和 `static/js/ide.js` 后不再由 Flask 路由，留作参考。
+- 文件：`web/__init__.py`（路由改为 render_template + 新增 /wap）、`web/templates/ide.html`（新增）、`web/templates/wap.html`（新增）、`web/static/css/ide.css`（新增）、`web/static/css/wap.css`（新增）、`web/static/js/ide-api.js`（新增）、`web/static/js/ide.js`（新增）、`web/static/js/wap.js`（新增）、`ide-demo.html`（保留不删）、`docs/kirara-reboot-investigation.md`（新增调研）、`updates.md`
+
 **2026-11-09 夜** — Orbiter 落地：composer 里的 AI 实例下拉
 
 - 占位了很久的 Orbiter 按钮（`.agent-only`）正式变成了 `<select id="agent-picker">`。选项列表：`— 直接对话 —` + 每个 AI 实例的头像 emoji + 名称；非 Agent 模式的实例后缀 `（对话）`。
