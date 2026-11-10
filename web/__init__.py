@@ -363,6 +363,15 @@ def create_app(core=None):
             return jsonify({"ok": False, "error": str(error)}), 400
         return jsonify({"ok": True, **listing})
 
+    @app.get("/api/workspace/read")
+    def read_workspace_file():
+        path = request.args.get("path") or ""
+        try:
+            data = _get_core(app).read_workspace_file(path)
+        except ValueError as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
+        return jsonify({"ok": True, **data})
+
     # ---------------- 健康检查 / 生命周期 ----------------
 
     def _lifecycle():

@@ -1,5 +1,16 @@
 # 最近更新
 
+**2026-11-10 下午** — IDE VSCode 风格重构：中央固定编辑器，对话降级到底部 Panel
+
+- **布局重定向**：中央区从「随 Activity Bar 切换的五视图」改成**永远是标签页 + 代码编辑器**（`.workspace > .editor-tabs + .editor-surface`），不再按 activity 切换中央 DOM。Activity Bar 首位换成 Explorer（资源管理器），其余五键 Search / Agent / Extensions / Debug / Settings。
+- **对话移到底部 Chat Panel**：原来在中央 view 的对话渲染链路全部搬到 `#panel-chat-messages` + `#panel-composer`，composer 事件绑定从 `#composer-input` 换成 `#panel-composer`，Ctrl+Enter 发送；工作目录锁定横幅也挪到 Panel Chat Tab 内。
+- **文件树**：Explorer activity 下 Side Bar 显示文件树（目录箭头折叠/展开、文件图标按扩展名着色），点击文件 → 中央开标签页 + 真实内容。
+- **后端新增 `/api/workspace/read`**：工作区内文本文件读取端点（`runtime/workspace.read_file`）。扩展名白名单 45 种（py/js/ts/tsx/html/css/md/json/yaml/toml…），512KB 上限，编码自动尝试 utf-8 → gbk → utf-16 → latin-1。之前前端 openFile 里的 placeholder 假内容全部移除。
+- **旧代码清理**：`renderChat` / `renderTasks` / `renderExt` / `renderSettings` 四个 view 入口函数全部删除；`setActivity` 里的 `$$(".view")` 切换逻辑删除；快捷键映射从 `1=chat/2=tasks/3=ext/4=automation` 改成 `1=explorer/2=search/3=agent/4=extensions/5=debug/6=settings`。
+- **Inspector 跟随 activity 切换**：Explorer 显示工作目录 + 编辑器概览；Agent 显示当前会话 + ReAct 时间线；Extensions 显示 MOD/工具统计；Settings 显示当前模式 + 子 section 详情。
+- **编辑器语法高亮暂未接入**：Monaco 或轻量 highlighter 是下一步，但布局和数据链路已经通了。
+- 文件：`runtime/workspace.py`（新增 `read_file`）、`runtime/core.py`（新增 `read_workspace_file`）、`web/__init__.py`（新增 `/api/workspace/read`）、`web/templates/ide.html`（重写中央区 + body 默认属性）、`web/static/css/ide.css`（追加 200+ 行 VSCode 风格样式：标签栏、文件树、Chat Panel）、`web/static/js/ide-api.js`（新增 `readWorkspaceFile`）、`web/static/js/ide.js`（完整重写 1180 行）
+
 **2026-11-10** — IDE 六区布局 + WAP 移动端独立落地（毛坯房地基）
 
 - **桌面端 `/ide` 页面**：从 ide-demo.html 拆出独立 Flask 模板 `web/templates/ide.html`，不再是单文件 HTML 被读原文返回。完整六区布局（Activity Bar / Side Bar / 中央工作区 / Inspector / 底部 Panel / 状态栏），全部接真实 `/api/*`：会话列表、新建会话、流式对话（SSE）、Agent 任务与审批、MOD/工具、服务商模型列表、工作目录浏览选择器。Activity Bar 5 个 Tab（对话 / 任务 / 扩展 / 自动化 / 设置），底部 Panel 三 Tab（事件流 / 沙箱输出 / 日志），Inspector 自动跟随当前上下文刷新。快捷键：Ctrl+1~4 切 Activity、Ctrl+B 抽屉、Ctrl+J Panel、Ctrl+I Inspector、Ctrl+, 设置、Ctrl+K 命令面板、Esc 收起所有浮层。

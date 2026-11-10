@@ -618,6 +618,200 @@ body[data-panel="expanded"] .panel { display: flex; }
 }
 .toast.err { background: var(--danger); color: #fff; }
 
+/* ============ VSCode 风格：中央工作区 · 标签页 · 编辑器 ============ */
+.workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--main-bg); overflow: hidden; }
+
+/* 标签栏 */
+.editor-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  height: 36px;
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.editor-tabs::-webkit-scrollbar { height: 0; }
+.editor-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 100%;
+  padding: 0 12px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: var(--sidebar-bg);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: var(--font-ui);
+  white-space: nowrap;
+  min-width: 120px;
+  max-width: 260px;
+  position: relative;
+}
+.editor-tab:hover { background: var(--hover); color: var(--text); }
+.editor-tab.active {
+  background: var(--main-bg);
+  color: var(--text);
+  border-bottom: 1px solid var(--main-bg);
+  margin-bottom: -1px;
+}
+.editor-tab.active::before {
+  content: "";
+  position: absolute; top: 0; left: 0; right: 0; height: 1.5px;
+  background: var(--accent);
+}
+.editor-tab .et-name {
+  flex: 1;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.editor-tab .et-close {
+  width: 16px; height: 16px;
+  border-radius: 4px; border: 0; background: transparent; color: var(--text-faint);
+  display: grid; place-items: center;
+  flex: 0 0 auto;
+}
+.editor-tab .et-close:hover { background: var(--border-strong); color: var(--text); }
+.editor-tab .et-icon { flex: 0 0 auto; width: 14px; height: 14px; color: var(--text-faint); display: inline-block; }
+.editor-tab .et-icon.py { color: #e6a428; }
+.editor-tab .et-icon.js { color: #6fbdff; }
+.editor-tab .et-icon.html { color: #ff6f4a; }
+.editor-tab .et-icon.css { color: #4db2ff; }
+.editor-tab .et-icon.md { color: var(--text-muted); }
+.editor-tab .et-icon.json { color: #cbcb41; }
+
+/* 编辑器表面 */
+.editor-surface {
+  flex: 1; min-height: 0; overflow: hidden; display: flex;
+  background: var(--main-bg);
+}
+.editor-gutter {
+  flex: 0 0 auto;
+  width: 48px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  padding: 12px 8px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-faint);
+  user-select: none;
+  overflow: hidden;
+}
+.editor-gutter > div { padding-right: 6px; }
+.editor-code {
+  flex: 1; min-width: 0; overflow: auto;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre;
+}
+.editor-code::-webkit-scrollbar { width: 10px; height: 10px; }
+.editor-code::-webkit-scrollbar-thumb {
+  background: var(--border-strong); border-radius: 6px;
+}
+
+/* 空编辑器欢迎（无文件打开时） */
+.editor-empty {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: var(--text-faint); gap: 10px;
+}
+.editor-empty svg { width: 54px; height: 54px; opacity: 0.35; }
+.editor-empty h3 { font-size: 15px; color: var(--text-muted); margin: 0; }
+.editor-empty p { font-size: 12px; margin: 0; text-align: center; }
+
+/* ============ 侧栏：文件树 ============ */
+.file-tree { padding: 4px 0; }
+.ft-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 10px 3px 14px;
+  font-size: 12.5px;
+  cursor: pointer;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  border-radius: 4px;
+}
+.ft-item:hover { background: var(--hover); }
+.ft-item[data-active="true"] { background: var(--accent-soft); color: var(--accent); }
+.ft-item[data-active="true"] .ft-name { color: var(--accent); }
+.ft-icon {
+  width: 14px; height: 14px; flex: 0 0 auto;
+  display: inline-grid; place-items: center;
+  color: var(--text-faint);
+}
+.ft-name { overflow: hidden; text-overflow: ellipsis; }
+.ft-arrow {
+  width: 14px; height: 14px; flex: 0 0 auto;
+  display: grid; place-items: center;
+  color: var(--text-faint);
+  transition: transform 0.12s;
+}
+.ft-arrow.open { transform: rotate(90deg); }
+.ft-group { padding-left: 10px; }
+.ft-group[data-level="1"] .ft-item { padding-left: 26px; }
+.ft-group[data-level="2"] .ft-item { padding-left: 38px; }
+.ft-group[data-level="3"] .ft-item { padding-left: 50px; }
+
+/* ============ 底部 Panel：Chat Tab ============ */
+.panel-body.chat-panel {
+  display: flex; flex-direction: column; height: 100%;
+  padding: 0; overflow: hidden;
+  font-family: var(--font-ui); font-size: 12.5px;
+}
+.panel-body.chat-panel .chat-panel-messages {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 12px 14px 6px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.panel-body.chat-panel .chat-panel-messages .msg { margin-bottom: 10px; gap: 8px; }
+.panel-body.chat-panel .chat-panel-messages .msg .avatar { width: 22px; height: 22px; font-size: 10px; border-radius: 6px; }
+.panel-body.chat-panel .chat-panel-messages .bubble-user { padding: 6px 10px; font-size: 12.5px; max-width: 520px; }
+.panel-body.chat-panel .chat-panel-messages .md { font-size: 12.5px; }
+.panel-body.chat-panel .chat-panel-input {
+  flex: 0 0 auto; border-top: 1px solid var(--border); padding: 8px 10px;
+  background: var(--sidebar-bg);
+}
+.panel-body.chat-panel .chat-panel-input textarea {
+  width: 100%; min-height: 38px; max-height: 80px;
+  padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: 7px;
+  background: var(--main-bg); color: var(--text);
+  font-size: 12.5px; font-family: var(--font-ui);
+  outline: none; resize: none;
+}
+.panel-body.chat-panel .chat-panel-input textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.panel-body.chat-panel .chat-panel-bar {
+  display: flex; gap: 6px; padding: 6px 2px 0; align-items: center;
+}
+.panel-body.chat-panel .chat-panel-bar .grow { flex: 1; }
+.panel-body.chat-panel .chat-panel-bar .send-btn { width: 28px; height: 28px; border-radius: 8px; }
+
+/* ============ Activity Bar 图标补全 ============ */
+body[data-activity="explorer"] .act-btn[data-activity="explorer"],
+body[data-activity="agent"] .act-btn[data-activity="agent"],
+body[data-activity="search"] .act-btn[data-activity="search"],
+body[data-activity="extensions"] .act-btn[data-activity="extensions"],
+body[data-activity="debug"] .act-btn[data-activity="debug"],
+body[data-activity="settings"] .act-btn[data-activity="settings"] { color: var(--text); background: var(--hover); }
+body[data-activity="explorer"] .act-btn[data-activity="explorer"]::before,
+body[data-activity="agent"] .act-btn[data-activity="agent"]::before,
+body[data-activity="search"] .act-btn[data-activity="search"]::before,
+body[data-activity="extensions"] .act-btn[data-activity="extensions"]::before,
+body[data-activity="debug"] .act-btn[data-activity="debug"]::before,
+body[data-activity="settings"] .act-btn[data-activity="settings"]::before {
+  content: ""; position: absolute; left: -6px; top: 9px; bottom: 9px;
+  width: 3px; border-radius: 3px; background: var(--accent);
+}
+
 /* ============ 断点形态 ============ */
 @media (max-width: 1180px) {
   .app { --ins: 0px; }

@@ -47,6 +47,10 @@
       const qs = path ? "?path=" + encodeURIComponent(path) : "";
       return API.get("/api/workspace/browse" + qs);
     },
+    readWorkspaceFile(path) {
+      const qs = "?path=" + encodeURIComponent(path);
+      return API.get("/api/workspace/read" + qs);
+    },
 
     /** ===== 设置 ===== */
     getSettings() { return API.get("/api/settings"); },

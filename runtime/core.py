@@ -186,6 +186,9 @@ class SimChatCore:
     def browse_workspace(self, path=None):
         return workspace_mod.browse(path)
 
+    def read_workspace_file(self, path):
+        return workspace_mod.read_file(path)
+
     def is_workspace_ready(self):
         """已选择工作目录且目录仍存在，才允许对话 / Agent 运行。"""
         status = self.workspace_status()

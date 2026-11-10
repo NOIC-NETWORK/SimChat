@@ -190,3 +190,59 @@ def browse(path=None):
         "roots": _roots(),
         "truncated": truncated,
     }
+
+
+# 文本文件读取的扩展名白名单
+_TEXT_EXTS = {
+    "py", "js", "ts", "tsx", "jsx", "html", "htm", "css", "scss", "less",
+    "md", "markdown", "txt", "json", "yaml", "yml", "toml", "ini", "cfg",
+    "xml", "svg", "csv", "log", "sql", "sh", "bat", "ps1", "rb", "go",
+    "java", "c", "h", "cpp", "hpp", "cs", "rs", "php", "swift", "kt",
+    "vue", "svelte", "astro",
+}
+
+_MAX_FILE_BYTES = 512 * 1024  # 512KB 上限
+
+
+def read_file(path):
+    """读取工作区内任意文件的文本内容（给 IDE 编辑器用）。
+
+    只读、不带写操作。扩展名白名单 + 512KB 上限双重保险。
+    非文本或超上限文件返回 ok=False，前端可以降级提示。
+    """
+    raw = str(path).strip().strip('"').strip("'")
+    if raw.startswith("~"):
+        raw = os.path.expanduser(raw)
+    if not os.path.isabs(raw):
+        raise ValueError("请提供绝对路径")
+    full = os.path.abspath(os.path.normpath(raw))
+    if not os.path.exists(full):
+        raise ValueError("文件不存在: %s" % full)
+    if os.path.isdir(full):
+        raise ValueError("目标是目录不是文件: %s" % full)
+
+    ext = (os.path.splitext(full)[1] or "").lstrip(".").lower()
+    if ext not in _TEXT_EXTS:
+        raise ValueError("不支持读取该类型文件 (.%s)" % ext)
+
+    size = os.path.getsize(full)
+    if size > _MAX_FILE_BYTES:
+        raise ValueError("文件过大 (%d 字节)，请先用 Agent file_read 片段读取" % size)
+
+    for enc in ("utf-8", "gbk", "utf-16", "latin-1"):
+        try:
+            with open(full, "r", encoding=enc) as fh:
+                content = fh.read()
+            return {
+                "path": full,
+                "name": os.path.basename(full),
+                "size": size,
+                "encoding": enc,
+                "content": content,
+            }
+        except UnicodeDecodeError:
+            continue
+        except OSError as e:
+            raise ValueError("读取失败: %s" % e)
+
+    raise ValueError("无法识别文件编码")
