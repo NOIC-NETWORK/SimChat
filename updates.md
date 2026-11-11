@@ -1,5 +1,12 @@
 # 最近更新
 
+**2026-11-11** — IDE 对话移到右侧 + 顶部菜单栏
+
+- **对话迁到视口右侧**：原来塞在底部 Panel 的 Chat Tab 整体搬到右侧 Inspector 栏，与「检查器」组成双 Tab 面板（对话 / 检查器），底部 Panel 只保留控制台（事件流 / 沙箱输出 / 日志）。选择会话、新建会话、以及 Agent 请求审批时自动切到对应 Tab 并展开右栏。
+- **顶部菜单栏**：新增 35px 高的 VSCode 风格菜单栏（File / Edit / View / Run / Terminal / Help），下拉项覆盖新建会话、刷新文件树、选择工作目录、关闭编辑器、清空各类日志、六个 Activity 视图、侧栏 / 右侧面板 / 底部面板开关、对话与 Agent 模式切换、审批操作与审批策略、面板 Tab 切换、快捷键与关于。支持点击展开、悬停切换菜单、点击外部或 Esc 关闭，下拉项带快捷键提示、禁用态与勾选态；菜单栏中央显示当前工作目录。
+- **布局与快捷键**：网格新增顶栏行，`Ctrl+I` 控制右侧对话栏、`Ctrl+J` 控制底部控制台、`Ctrl+Shift+N` 新建会话；窗口标题与状态栏文案同步更新，窄屏断点整体下移 35px 适配。
+- 文件：`web/templates/ide.html`、`web/static/css/ide.css`、`web/static/js/ide.js`、`updates.md`
+
 **2026-11-10 下午** — IDE VSCode 风格重构：中央固定编辑器，对话降级到底部 Panel
 
 - **布局重定向**：中央区从「随 Activity Bar 切换的五视图」改成**永远是标签页 + 代码编辑器**（`.workspace > .editor-tabs + .editor-surface`），不再按 activity 切换中央 DOM。Activity Bar 首位换成 Explorer（资源管理器），其余五键 Search / Agent / Extensions / Debug / Settings。

@@ -1,8 +1,6 @@
 /* ========================================================
-   SimChat IDE · VSCode 风格六区布局
-   Activity Bar: Explorer / Search / Agent / Extensions / Debug / Settings
-   中央: 标签页 + 代码编辑器
-   底部: Panel (Chat / 事件流 / 沙箱 / 日志)
+   SimChat IDE · VSCode 风格布局
+   菜单栏 / Activity Bar / 中央编辑器 / 右侧对话与检查器 / 底部控制台
    ======================================================== */
 (function () {
   "use strict";
@@ -49,7 +47,8 @@
     approval: readStore().approval || "on_demand",
     mode: readStore().mode || "chat",
     sessionQuery: "",
-    panelTab: "chat",
+    panelTab: "events",
+    railTab: "chat",
     events: [], sandbox: [], logs: [],
     pendingApproval: null,
     workspace: { configured: false, exists: false, path: "", name: "" },
@@ -347,7 +346,7 @@
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg>' +
         "<h3>欢迎使用 SimChat IDE</h3>" +
         "<p>选择左侧资源管理器中的文件开始编辑</p>" +
-        '<p style="font-size:11px;color:var(--text-faint)">Ctrl+E 切换资源管理器 · Ctrl+J 打开底部 Chat Panel</p>' +
+        '<p style="font-size:11px;color:var(--text-faint)">Ctrl+B 侧栏 · Ctrl+I 右侧对话 · Ctrl+J 底部控制台</p>' +
       "</div>";
   }
 
@@ -417,9 +416,9 @@
     renderSidebar();
   }
 
-  /* ==================== 底部 Panel：Chat Tab ==================== */
+  /* ==================== 右侧面板：对话 ==================== */
   function renderPanelMessages() {
-    const msgEl = $("#panel-chat-messages");
+    const msgEl = $("#chat-messages");
     if (!msgEl) return;
     const list = state.sessionMessages || [];
     if (!list.length) {
@@ -449,29 +448,30 @@
 
   function syncComposer() {
     const gate = !(state.workspace.configured && state.workspace.exists);
-    const input = $("#panel-composer");
-    const send = $("#panel-send");
-    const hint = $("#panel-session-hint");
-    const lockBanner = $("#panel-lock-banner");
+    const input = $("#chat-composer");
+    const send = $("#chat-send");
+    const hint = $("#chat-session-hint");
+    const lockBanner = $("#chat-lock-banner");
+    if (!input || !send || !hint || !lockBanner) return;
     // 锁定状态
     lockBanner.classList.toggle("hidden", !gate);
     input.disabled = gate || !state.model;
-    input.placeholder = gate ? "请先选择工作目录…" : !state.model ? "请先配置模型…" : "在底部对话… (Ctrl+Enter 发送)";
+    input.placeholder = gate ? "请先选择工作目录…" : !state.model ? "请先配置模型…" : "输入消息…（Ctrl+Enter 发送）";
     send.disabled = gate || !state.model || !input.value.trim();
     // 会话提示
     const s = state.sessions.find((x) => x.id === state.sessionId);
     hint.textContent = s
-      ? "会话: " + esc((s.title || "未命名").slice(0, 24)) + " · " + state.mode
+      ? "会话: " + (s.title || "未命名").slice(0, 24) + " · " + state.mode
       : "当前无会话";
     // 模型选择器
-    const modelSel = $("#panel-model");
+    const modelSel = $("#chat-model");
     if (modelSel && modelSel.value !== state.model) modelSel.value = state.model || "";
     // mode pill
-    $$("#panel-mode button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === state.mode)));
+    $$("#chat-mode button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === state.mode)));
   }
 
   async function sendMessage() {
-    const input = $("#panel-composer");
+    const input = $("#chat-composer");
     const text = input.value.trim();
     if (!text) return;
     if (!(state.workspace.configured && state.workspace.exists)) { toast("请先配置工作目录", true); return; }
@@ -485,7 +485,7 @@
 
     pushEvent(state.mode === "agent" ? "run_started" : "chat_started", { mode: state.mode, model: state.model });
 
-    const msgEl = $("#panel-chat-messages");
+    const msgEl = $("#chat-messages");
     let assistantBubble = null;
 
     try {
@@ -514,6 +514,7 @@
           state.pendingApproval = data;
           toast("Agent 请求审批", false);
           pushEvent("approval_required", data, "approval");
+          setRailTab("inspector");
           renderInspector();
         }
         if (eventName === "tool_call") pushEvent("tool_call", data, "info");
@@ -547,9 +548,11 @@
     $("#side-ws-name").textContent = name;
     $("#status-ws-name").textContent = ws.configured ? ws.path : "未配置工作目录";
     $("#side-ws-chip").classList.toggle("missing", !ok);
-    // Panel Chat Tab 里的锁定横幅
-    const lockBanner = $("#panel-lock-banner");
+    // 右侧对话面板里的锁定横幅
+    const lockBanner = $("#chat-lock-banner");
     if (lockBanner) lockBanner.classList.toggle("hidden", ok);
+    const title = $("#menubar-title");
+    if (title) title.textContent = ws.configured ? ws.path : "SimChat IDE";
     syncComposer();
     renderInspector();
   }
@@ -787,26 +790,16 @@
           "</div></div>";
       }
     }
-    $("#ins-title").textContent = title;
     $("#ins-scroll").innerHTML = html;
   }
 
-  /* ==================== 底部 Panel ==================== */
+  /* ==================== 底部控制台 Panel ==================== */
   function renderPanel() {
-    const chatPanel = $("#panel-chat");
     const body = $("#panel-body");
+    if (!body) return;
+    if (!["events", "sandbox", "logs"].includes(state.panelTab)) state.panelTab = "events";
     // 同步 tab 选中态
     $$(".panel-tab").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.panelTab === state.panelTab)));
-
-    if (state.panelTab === "chat") {
-      chatPanel.hidden = false;
-      body.hidden = true;
-      renderPanelMessages();
-      return;
-    }
-    // 非 Chat Tab：隐藏 Chat Panel，显示 events/sandbox/logs
-    chatPanel.hidden = true;
-    body.hidden = false;
 
     let rows = [];
     if (state.panelTab === "events") {
@@ -825,6 +818,33 @@
     }
     body.innerHTML = rows.length ? rows.join("") : '<div class="panel-empty">暂无内容</div>';
     body.scrollTop = body.scrollHeight;
+  }
+
+  /* ==================== 右侧面板切换 ==================== */
+  function setRailTab(tab) {
+    state.railTab = tab === "inspector" ? "inspector" : "chat";
+    document.body.dataset.inspector = "expanded";
+    $$(".rail-tab").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.railTab === state.railTab)));
+    const chatView = $("#rail-chat");
+    const insView = $("#rail-inspector");
+    if (chatView) chatView.hidden = state.railTab !== "chat";
+    if (insView) insView.hidden = state.railTab !== "inspector";
+    if (state.railTab === "chat") renderPanelMessages();
+    else renderInspector();
+  }
+
+  /* ==================== 新建会话 ==================== */
+  function createSessionFlow() {
+    API.createSession().then((s) => {
+      state.sessions.unshift(s);
+      state.sessionId = s.id;
+      state.sessionMessages = [];
+      persist();
+      setRailTab("chat");
+      renderSidebar();
+      renderInspector();
+      toast("新会话已创建");
+    }).catch((err) => toast(err.message || "创建失败", true));
   }
 
   /* ==================== 审批 / 中止 ==================== */
@@ -892,7 +912,6 @@
   }
   function closeDrawers() {
     if (window.innerWidth <= 1023) document.body.dataset.sidebar = "collapsed";
-    if (window.innerWidth <= 1180) document.body.dataset.inspector = "collapsed";
     $("#drawer-backdrop").classList.remove("open");
   }
 
@@ -931,14 +950,14 @@
       const modelOpts = availableModels.length
         ? availableModels.map((m) => '<option value="' + esc(m.value) + '">' + esc(m.label) + "</option>").join("")
         : '<option value="">—</option>';
-      // 填充 Panel Chat 和状态栏的模型下拉框
-      ["#panel-model", "#status-model"].forEach((sel) => {
+      // 填充右侧对话面板和状态栏的模型下拉框
+      ["#chat-model", "#status-model"].forEach((sel) => {
         const el = $(sel); if (el) { el.innerHTML = modelOpts; el.value = state.model || ""; }
       });
       if (!availableModels.find((m) => m.value === state.model) && availableModels.length) {
         state.model = availableModels[0].value; persist();
       }
-      $("#panel-model").value = state.model || "";
+      $("#chat-model").value = state.model || "";
       $("#status-model").value = state.model || "";
       $("#status-provider").textContent = "服务商 " + ((data && data.provider) || "—");
     }).catch(() => { state.models = []; }));
@@ -955,6 +974,199 @@
     }
 
     await loadWorkspace();
+  }
+
+  /* ==================== 顶部菜单栏 ==================== */
+  let openMenuName = null;
+
+  function menuItems(name) {
+    if (name === "file") {
+      return [
+        { label: "新建会话", key: "Ctrl+Shift+N", action: "new-session" },
+        { label: "刷新文件树", action: "refresh-tree" },
+        { label: "选择工作目录…", action: "pick-workspace" },
+        { sep: true },
+        { label: "关闭当前编辑器", action: "close-editor", disabled: !state.editorActive },
+        { sep: true },
+        { label: "返回对话界面", action: "exit-ide" },
+      ];
+    }
+    if (name === "edit") {
+      return [
+        { label: "清空对话显示", action: "clear-chat" },
+        { label: "清空事件流", action: "clear-events" },
+        { label: "清空沙箱输出", action: "clear-sandbox" },
+        { label: "清空日志", action: "clear-logs" },
+      ];
+    }
+    if (name === "view") {
+      return [
+        { label: "资源管理器", key: "Ctrl+1", action: "act-explorer", checked: state.activity === "explorer" },
+        { label: "搜索", key: "Ctrl+2", action: "act-search", checked: state.activity === "search" },
+        { label: "Agent 与会话", key: "Ctrl+3", action: "act-agent", checked: state.activity === "agent" },
+        { label: "扩展", key: "Ctrl+4", action: "act-extensions", checked: state.activity === "extensions" },
+        { label: "调试", key: "Ctrl+5", action: "act-debug", checked: state.activity === "debug" },
+        { label: "设置", key: "Ctrl+6", action: "act-settings", checked: state.activity === "settings" },
+        { sep: true },
+        { label: "显示/隐藏侧栏", key: "Ctrl+B", action: "toggle-sidebar" },
+        { label: "显示/隐藏右侧面板", key: "Ctrl+I", action: "toggle-rail" },
+        { label: "显示/隐藏底部面板", key: "Ctrl+J", action: "toggle-panel" },
+        { sep: true },
+        { label: "切换主题", action: "toggle-theme" },
+      ];
+    }
+    if (name === "run") {
+      return [
+        { label: "对话模式", action: "mode-chat", checked: state.mode === "chat" },
+        { label: "Agent 模式", action: "mode-agent", checked: state.mode === "agent" },
+        { sep: true },
+        { label: "批准待审批操作", action: "approve", disabled: !state.pendingApproval },
+        { label: "拒绝待审批操作", action: "reject", disabled: !state.pendingApproval },
+        { label: "中止运行", action: "abort", disabled: !state.pendingApproval },
+        { sep: true },
+        { label: "审批：按需", action: "approval-on-demand", checked: state.approval === "on_demand" },
+        { label: "审批：全部允许", action: "approval-allow", checked: state.approval === "always_allow" },
+        { label: "审批：全部拒绝", action: "approval-deny", checked: state.approval === "always_deny" },
+      ];
+    }
+    if (name === "terminal") {
+      return [
+        { label: "事件流", action: "panel-events", checked: state.panelTab === "events" },
+        { label: "沙箱输出", action: "panel-sandbox", checked: state.panelTab === "sandbox" },
+        { label: "日志", action: "panel-logs", checked: state.panelTab === "logs" },
+        { sep: true },
+        { label: "显示/隐藏面板", key: "Ctrl+J", action: "toggle-panel" },
+        { label: "清空当前面板", action: "clear-panel" },
+      ];
+    }
+    return [
+      { label: "快捷键", action: "shortcuts" },
+      { label: "关于 SimChat IDE", action: "about" },
+      { sep: true },
+      { label: "返回对话界面", action: "back-chat" },
+    ];
+  }
+
+  function closeMenu() {
+    const dd = $("#menu-dropdown");
+    if (dd) { dd.classList.remove("open"); dd.innerHTML = ""; }
+    $$("#menubar-menus .menu-btn").forEach((b) => b.classList.remove("open"));
+    openMenuName = null;
+  }
+
+  function openMenuByName(name) {
+    const dd = $("#menu-dropdown");
+    const btn = $('#menubar-menus .menu-btn[data-menu="' + name + '"]');
+    if (!dd || !btn) return;
+    openMenuName = name;
+    $$("#menubar-menus .menu-btn").forEach((b) => b.classList.toggle("open", b.dataset.menu === name));
+    dd.innerHTML = menuItems(name).map((it) => {
+      if (it.sep) return '<div class="menu-sep"></div>';
+      return '<button class="menu-item" role="menuitem" data-menu-action="' + esc(it.action) + '"' + (it.disabled ? " disabled" : "") + ">" +
+        '<span class="menu-check">' + (it.checked ? "✓" : "") + "</span>" +
+        "<span>" + esc(it.label) + "</span>" +
+        (it.key ? '<span class="menu-key">' + esc(it.key) + "</span>" : "") +
+        "</button>";
+    }).join("");
+    dd.classList.add("open");
+    const r = btn.getBoundingClientRect();
+    dd.style.left = Math.max(6, Math.min(r.left, window.innerWidth - dd.offsetWidth - 8)) + "px";
+    dd.style.top = r.bottom + 3 + "px";
+  }
+
+  function setMode(mode) {
+    state.mode = mode === "agent" ? "agent" : "chat";
+    persist();
+    syncComposer();
+    updateStatusbar();
+    renderInspector();
+  }
+
+  function setApproval(value) {
+    state.approval = value;
+    persist();
+    const sel = $("#status-approval");
+    if (sel) sel.value = value;
+    renderInspector();
+  }
+
+  function runMenuAction(action) {
+    switch (action) {
+      case "new-session": createSessionFlow(); break;
+      case "refresh-tree": refreshFileTree(); break;
+      case "pick-workspace": openWorkspacePicker(); break;
+      case "close-editor": if (state.editorActive) closeFile(state.editorActive); break;
+      case "exit-ide":
+      case "back-chat": location.href = "/"; break;
+      case "clear-chat": state.sessionMessages = []; renderPanelMessages(); toast("对话显示已清空"); break;
+      case "clear-events": state.events = []; renderPanel(); break;
+      case "clear-sandbox": state.sandbox = []; renderPanel(); break;
+      case "clear-logs": state.logs = []; renderPanel(); break;
+      case "act-explorer": setActivity("explorer"); break;
+      case "act-search": setActivity("search"); break;
+      case "act-agent": setActivity("agent"); break;
+      case "act-extensions": setActivity("extensions"); break;
+      case "act-debug": setActivity("debug"); break;
+      case "act-settings": setActivity("settings"); break;
+      case "toggle-sidebar": toggleSidebar(); break;
+      case "toggle-rail": toggleInspector(); break;
+      case "toggle-panel": togglePanel(); break;
+      case "toggle-theme": toggleTheme(); break;
+      case "mode-chat": setMode("chat"); break;
+      case "mode-agent": setMode("agent"); break;
+      case "approve": handleApproval("approved"); break;
+      case "reject": handleApproval("rejected"); break;
+      case "abort": abortRun(); break;
+      case "approval-on-demand": setApproval("on_demand"); break;
+      case "approval-allow": setApproval("always_allow"); break;
+      case "approval-deny": setApproval("always_deny"); break;
+      case "panel-events": showPanelTab("events"); break;
+      case "panel-sandbox": showPanelTab("sandbox"); break;
+      case "panel-logs": showPanelTab("logs"); break;
+      case "clear-panel":
+        if (state.panelTab === "events") state.events = [];
+        else if (state.panelTab === "sandbox") state.sandbox = [];
+        else state.logs = [];
+        renderPanel();
+        break;
+      case "shortcuts": toast("Ctrl+B 侧栏 · Ctrl+I 右侧面板 · Ctrl+J 底部面板 · Ctrl+Enter 发送"); break;
+      case "about": toast("SimChat IDE · 会话式集成开发环境"); break;
+      default: break;
+    }
+  }
+
+  function showPanelTab(tab) {
+    state.panelTab = tab;
+    document.body.dataset.panel = "expanded";
+    renderPanel();
+  }
+
+  function bindMenubar() {
+    const menus = $("#menubar-menus");
+    menus.addEventListener("click", (e) => {
+      const b = e.target.closest(".menu-btn");
+      if (!b) return;
+      if (openMenuName === b.dataset.menu) closeMenu();
+      else openMenuByName(b.dataset.menu);
+    });
+    menus.addEventListener("mouseover", (e) => {
+      const b = e.target.closest(".menu-btn");
+      if (b && openMenuName && b.dataset.menu !== openMenuName) openMenuByName(b.dataset.menu);
+    });
+    $("#menu-dropdown").addEventListener("click", (e) => {
+      const it = e.target.closest("[data-menu-action]");
+      if (!it || it.disabled) return;
+      const action = it.dataset.menuAction;
+      closeMenu();
+      runMenuAction(action);
+    });
+    document.addEventListener("mousedown", (e) => {
+      if (!openMenuName) return;
+      if (e.target.closest("#menu-dropdown") || e.target.closest("#menubar-menus")) return;
+      closeMenu();
+    });
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("blur", closeMenu);
   }
 
   /* ==================== 事件绑定 ==================== */
@@ -978,9 +1190,8 @@
         state.sessionId = b.dataset.session;
         state.sessionMessages = [];
         API.getSession(state.sessionId).then((s) => { state.sessionMessages = (s && s.messages) || []; renderPanelMessages(); }).catch(() => {});
-        renderSidebar(); renderPanelMessages(); renderInspector();
-        // 自动展开 Panel
-        document.body.dataset.panel = "expanded";
+        renderSidebar(); renderInspector();
+        setRailTab("chat");
         pushEvent("activity_switch", { to: "agent" });
         return;
       }
@@ -1007,15 +1218,7 @@
     // Side Bar action 按钮（新会话 / 刷新文件树 / 刷新扩展）
     $("#side-action").addEventListener("click", () => {
       if (state.activity === "agent") {
-        API.createSession().then((s) => {
-          state.sessions.unshift(s);
-          state.sessionId = s.id;
-          state.sessionMessages = [];
-          persist();
-          document.body.dataset.panel = "expanded";
-          renderSidebar(); renderPanelMessages(); renderInspector();
-          toast("新会话已创建");
-        }).catch((err) => toast(err.message || "创建失败", true));
+        createSessionFlow();
       } else if (state.activity === "explorer") {
         refreshFileTree();
       } else if (state.activity === "extensions") {
@@ -1044,8 +1247,8 @@
       const el = $(sel); if (el) el.addEventListener("click", openWorkspacePicker);
     });
 
-    // Panel Chat Tab composer
-    const panelComposer = $("#panel-composer");
+    // 右侧对话面板 composer
+    const panelComposer = $("#chat-composer");
     if (panelComposer) {
       panelComposer.addEventListener("input", () => syncComposer());
       panelComposer.addEventListener("keydown", (e) => {
@@ -1056,19 +1259,19 @@
         }
       });
     }
-    const panelSend = $("#panel-send");
+    const panelSend = $("#chat-send");
     if (panelSend) panelSend.addEventListener("click", sendMessage);
-    const panelMode = $("#panel-mode");
+    const panelMode = $("#chat-mode");
     if (panelMode) panelMode.addEventListener("click", (e) => {
       const b = e.target.closest("button[data-mode]"); if (b) { state.mode = b.dataset.mode; persist(); syncComposer(); updateStatusbar(); renderInspector(); }
     });
-    const panelModel = $("#panel-model");
+    const panelModel = $("#chat-model");
     if (panelModel) panelModel.addEventListener("change", (e) => { state.model = e.target.value; persist(); updateStatusbar(); renderPanelMessages(); renderInspector(); });
 
     // 状态栏
     $("#status-model").addEventListener("change", (e) => {
       state.model = e.target.value; persist();
-      const pm = $("#panel-model"); if (pm) pm.value = state.model;
+      const pm = $("#chat-model"); if (pm) pm.value = state.model;
       updateStatusbar(); renderPanelMessages();
     });
     $("#status-approval").addEventListener("change", (e) => { state.approval = e.target.value; persist(); renderInspector(); });
@@ -1086,12 +1289,17 @@
     // Panel Tab 切换
     $$(".panel-tab").forEach((b) => b.addEventListener("click", () => { state.panelTab = b.dataset.panelTab; renderPanel(); }));
     $("#panel-clear").addEventListener("click", () => {
-      if (state.panelTab === "chat") state.sessionMessages = [];
-      else if (state.panelTab === "events") state.events = [];
+      if (state.panelTab === "events") state.events = [];
       else if (state.panelTab === "sandbox") state.sandbox = [];
       else state.logs = [];
       renderPanel();
     });
+
+    // 右侧面板 Tab 切换
+    $$(".rail-tab").forEach((b) => b.addEventListener("click", () => setRailTab(b.dataset.railTab)));
+
+    // 顶部菜单栏
+    bindMenubar();
 
     // Inspector 里的审批按钮（事件委托）
     $("#ins-scroll").addEventListener("click", (e) => {
@@ -1123,12 +1331,14 @@
     document.addEventListener("keydown", (e) => {
       const mod = e.ctrlKey || e.metaKey;
       if (e.key === "Escape") {
+        if (openMenuName) { closeMenu(); e.preventDefault(); return; }
         if ($("#pal-backdrop").classList.contains("open")) { closePalette(); e.preventDefault(); return; }
         if ($("#wp-backdrop").classList.contains("open")) { closeWorkspacePicker(); e.preventDefault(); return; }
         closeDrawers(); return;
       }
       if (!mod) return;
       const key = e.key.toLowerCase();
+      if (key === "n" && e.shiftKey) { e.preventDefault(); createSessionFlow(); return; }
       if (key === "k") { e.preventDefault(); openPalette(); return; }
       if (key === "b") { e.preventDefault(); toggleSidebar(); return; }
       if (key === "j") { e.preventDefault(); togglePanel(); return; }
@@ -1142,7 +1352,6 @@
     window.addEventListener("resize", () => {
       if (window.innerWidth <= 1023) { document.body.dataset.sidebar = "collapsed"; document.body.dataset.panel = "collapsed"; }
       $("#drawer-backdrop").classList.toggle("open", document.body.dataset.sidebar === "expanded" && window.innerWidth <= 1023);
-      if (window.innerWidth <= 1180) document.body.dataset.inspector = "collapsed";
     });
   }
 
@@ -1150,12 +1359,9 @@
   async function init() {
     applyTheme();
 
-    // 根据窗口大小设置初始形态
+    // 根据窗口大小设置初始形态（窄屏默认收起侧栏与底部面板，保留右侧对话）
     if (window.innerWidth <= 1023) {
       document.body.dataset.sidebar = "collapsed"; document.body.dataset.inspector = "collapsed"; document.body.dataset.panel = "collapsed";
-    } else if (window.innerWidth <= 1180) {
-      document.body.dataset.inspector = "collapsed";
-      // Panel 在中等屏幕默认展开
     }
     // 大屏：Panel 默认展开（ide.html body 已设 data-panel="expanded"）
 
@@ -1163,8 +1369,9 @@
     renderEditorEmpty();
     renderEditorTabs();
     renderSidebar();
-    renderPanel();  // 这会正确显示 Chat Tab
+    renderPanel();
     renderInspector();
+    renderPanelMessages();
     updateStatusbar();
     syncComposer();
 
@@ -1183,6 +1390,7 @@
     renderSidebar();
     renderPanel();
     renderInspector();
+    renderPanelMessages();
     updateStatusbar();
     renderEditorEmpty(); // 如果没有打开的文件，保持空态
   }

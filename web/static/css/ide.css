@@ -86,14 +86,14 @@ a { color: var(--accent); }
 .hidden { display: none !important; }
 .mono { font-family: var(--font-mono); }
 
-/* ============ 桌面壳：六区网格 ============ */
+/* ============ 桌面壳：菜单栏 + 六区网格 ============ */
 .desktop-shell { height: 100dvh; }
 .app {
   --sb: 268px;
-  --ins: 316px;
+  --ins: 340px;
   display: grid;
   grid-template-columns: 52px var(--sb) minmax(0, 1fr) var(--ins);
-  grid-template-rows: minmax(0, 1fr) 26px;
+  grid-template-rows: 35px minmax(0, 1fr) 26px;
   height: 100dvh;
   position: relative;
 }
@@ -102,9 +102,38 @@ body[data-inspector="collapsed"] .app { --ins: 0px; }
 body[data-sidebar="collapsed"] .sidebar { display: none; }
 body[data-inspector="collapsed"] .inspector { display: none; }
 
+/* 0. 菜单栏 */
+.menubar {
+  grid-column: 1 / -1; grid-row: 1;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 10px; min-width: 0;
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--border);
+  user-select: none; z-index: 70;
+}
+.menu-brand {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 10px 0 2px; font-size: 11.5px; font-weight: 600;
+  color: var(--accent); flex: 0 0 auto;
+}
+.menubar-menus { display: flex; align-items: center; gap: 1px; flex: 0 0 auto; }
+.menu-btn {
+  border: 0; background: transparent; color: var(--text-muted);
+  font-size: 12px; padding: 4px 9px; border-radius: 5px;
+}
+.menu-btn:hover, .menu-btn.open { background: var(--hover); color: var(--text); }
+.menubar-title {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11.5px; color: var(--text-faint); pointer-events: none;
+}
+@media (max-width: 1280px) {
+  .menubar-title { display: none; }
+}
+
 /* A. Activity Bar */
 .activity-bar {
-  grid-column: 1; grid-row: 1;
+  grid-column: 1; grid-row: 2;
   display: flex; flex-direction: column; align-items: center;
   gap: 2px; padding: 10px 0;
   background: var(--sidebar-bg);
@@ -140,7 +169,7 @@ body[data-inspector="collapsed"] .inspector { display: none; }
 
 /* B. Side Bar */
 .sidebar {
-  grid-column: 2; grid-row: 1;
+  grid-column: 2; grid-row: 2;
   display: flex; flex-direction: column; min-width: 0;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
@@ -208,7 +237,7 @@ body[data-inspector="collapsed"] .inspector { display: none; }
 .side-section { padding: 10px 10px 4px; font-size: 10.5px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-faint); }
 
 /* C. 中央区 */
-.center { grid-column: 3; grid-row: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--main-bg); }
+.center { grid-column: 3; grid-row: 2; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--main-bg); }
 .workarea { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .view { flex: 1; min-height: 0; display: none; flex-direction: column; }
 .view.active { display: flex; }
@@ -221,18 +250,26 @@ body[data-inspector="collapsed"] .inspector { display: none; }
 .view-head .grow { flex: 1; }
 .view-body { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px 28px; }
 
-/* D. Inspector */
+/* D. 右侧面板（对话 / 检查器） */
 .inspector {
-  grid-column: 4; grid-row: 1;
+  grid-column: 4; grid-row: 2;
   display: flex; flex-direction: column; min-width: 0;
   background: var(--main-bg); border-left: 1px solid var(--border); overflow: hidden;
 }
-.ins-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 13px 12px 13px 16px; border-bottom: 1px solid var(--border);
-  font-size: 12.5px; font-weight: 600; flex: 0 0 auto;
+.rail-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 8px; height: 36px; flex: 0 0 auto;
+  border-bottom: 1px solid var(--border);
 }
-.ins-head .grow { flex: 1; }
+.rail-tabs { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; }
+.rail-tab {
+  border: 0; background: transparent; color: var(--text-muted);
+  font-size: 11.5px; padding: 4px 10px; border-radius: 6px; white-space: nowrap;
+}
+.rail-tab:hover { background: var(--hover); color: var(--text); }
+.rail-tab[aria-selected="true"] { background: var(--active); color: var(--text); font-weight: 600; }
+.rail-view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.rail-view[hidden] { display: none; }
 .ins-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 14px 24px; }
 .ins-section { margin-bottom: 20px; }
 .ins-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-faint); margin-bottom: 7px; }
@@ -270,7 +307,7 @@ body[data-panel="expanded"] .panel { display: flex; }
 
 /* F. 状态栏 */
 .statusbar {
-  grid-column: 1 / -1; grid-row: 2;
+  grid-column: 1 / -1; grid-row: 3;
   display: flex; align-items: center; gap: 10px;
   padding: 0 10px; font-size: 11.5px; color: var(--text-muted);
   background: var(--sidebar-bg); border-top: 1px solid var(--border);
@@ -759,41 +796,62 @@ body[data-panel="expanded"] .panel { display: flex; }
 .ft-group[data-level="2"] .ft-item { padding-left: 38px; }
 .ft-group[data-level="3"] .ft-item { padding-left: 50px; }
 
-/* ============ 底部 Panel：Chat Tab ============ */
-.panel-body.chat-panel {
-  display: flex; flex-direction: column; height: 100%;
-  padding: 0; overflow: hidden;
-  font-family: var(--font-ui); font-size: 12.5px;
-}
-.panel-body.chat-panel .chat-panel-messages {
+/* ============ 右侧面板：Chat 视图 ============ */
+.chat-messages {
   flex: 1; min-height: 0; overflow-y: auto;
-  padding: 12px 14px 6px;
+  padding: 14px 14px 6px;
   font-family: var(--font-ui);
   font-size: 13px;
   line-height: 1.55;
 }
-.panel-body.chat-panel .chat-panel-messages .msg { margin-bottom: 10px; gap: 8px; }
-.panel-body.chat-panel .chat-panel-messages .msg .avatar { width: 22px; height: 22px; font-size: 10px; border-radius: 6px; }
-.panel-body.chat-panel .chat-panel-messages .bubble-user { padding: 6px 10px; font-size: 12.5px; max-width: 520px; }
-.panel-body.chat-panel .chat-panel-messages .md { font-size: 12.5px; }
-.panel-body.chat-panel .chat-panel-input {
-  flex: 0 0 auto; border-top: 1px solid var(--border); padding: 8px 10px;
-  background: var(--sidebar-bg);
+.chat-messages .msg { margin-bottom: 16px; gap: 8px; }
+.chat-messages .msg .avatar { width: 22px; height: 22px; font-size: 10px; border-radius: 6px; }
+.chat-messages .msg-name { font-size: 10.5px; margin-bottom: 3px; }
+.chat-messages .bubble-user { padding: 7px 10px; font-size: 12.5px; max-width: 100%; }
+.chat-messages .md { font-size: 12.5px; }
+.chat-messages .md pre { padding: 8px 10px; }
+.chat-messages .md code { font-size: 11.5px; }
+.chat-composer-wrap {
+  flex: 0 0 auto; border-top: 1px solid var(--border);
+  padding: 9px 10px; background: var(--sidebar-bg);
 }
-.panel-body.chat-panel .chat-panel-input textarea {
-  width: 100%; min-height: 38px; max-height: 80px;
-  padding: 7px 10px;
-  border: 1px solid var(--border); border-radius: 7px;
+.chat-composer-wrap textarea {
+  display: block; width: 100%; min-height: 44px; max-height: 150px;
+  padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 8px;
   background: var(--main-bg); color: var(--text);
   font-size: 12.5px; font-family: var(--font-ui);
-  outline: none; resize: none;
+  line-height: 1.55; outline: none; resize: none;
 }
-.panel-body.chat-panel .chat-panel-input textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.panel-body.chat-panel .chat-panel-bar {
-  display: flex; gap: 6px; padding: 6px 2px 0; align-items: center;
+.chat-composer-wrap textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.chat-composer-wrap textarea::placeholder { color: var(--text-faint); }
+.chat-bar { display: flex; align-items: center; gap: 6px; padding-top: 7px; }
+.chat-bar .comp-select { flex: 0 1 auto; max-width: 132px; min-width: 0; }
+.chat-bar .grow { flex: 1; }
+.chat-bar .send-btn { width: 28px; height: 28px; border-radius: 8px; }
+.chat-hint { font-size: 10px; color: var(--text-faint); margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ============ 菜单下拉 ============ */
+.menu-dropdown {
+  position: fixed; z-index: 110;
+  min-width: 228px; max-width: 320px;
+  background: var(--main-bg); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: var(--shadow-lg);
+  padding: 5px; display: none;
 }
-.panel-body.chat-panel .chat-panel-bar .grow { flex: 1; }
-.panel-body.chat-panel .chat-panel-bar .send-btn { width: 28px; height: 28px; border-radius: 8px; }
+.menu-dropdown.open { display: block; animation: pop 0.12s ease; }
+.menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  border: 0; background: transparent; color: var(--text);
+  font-size: 12.5px; padding: 6px 10px; border-radius: 5px; text-align: left;
+}
+.menu-item:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.menu-item:hover:not(:disabled) .menu-key { color: rgba(255, 255, 255, 0.85); }
+.menu-item:disabled { color: var(--text-faint); cursor: default; }
+.menu-check { width: 11px; flex: 0 0 11px; color: var(--accent); font-weight: 700; }
+.menu-item:hover:not(:disabled) .menu-check { color: #fff; }
+.menu-key { margin-left: auto; font-size: 10.5px; color: var(--text-faint); font-family: var(--font-mono); white-space: nowrap; }
+.menu-sep { height: 1px; background: var(--border); margin: 4px 7px; }
 
 /* ============ Activity Bar 图标补全 ============ */
 body[data-activity="explorer"] .act-btn[data-activity="explorer"],
@@ -813,14 +871,9 @@ body[data-activity="settings"] .act-btn[data-activity="settings"]::before {
 }
 
 /* ============ 断点形态 ============ */
-@media (max-width: 1180px) {
-  .app { --ins: 0px; }
-  .inspector { display: none; position: fixed; top: 0; bottom: 26px; right: 0; width: 330px; z-index: 65; box-shadow: var(--shadow-lg); }
-  body[data-inspector="expanded"] .inspector { display: flex; }
-}
 @media (max-width: 1023px) {
   .app { --sb: 0px; }
-  .sidebar { display: none; position: fixed; top: 0; bottom: 26px; left: 52px; width: 280px; z-index: 64; box-shadow: var(--shadow-lg); }
+  .sidebar { display: none; position: fixed; top: 35px; bottom: 26px; left: 52px; width: 280px; z-index: 64; box-shadow: var(--shadow-lg); }
   body[data-sidebar="expanded"] .sidebar { display: flex; }
   .backdrop.drawer.open { display: block; background: rgba(0,0,0,0.28); padding: 0; }
   .view-body { padding: 14px 14px 24px; }
