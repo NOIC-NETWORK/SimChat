@@ -1512,8 +1512,11 @@
         updateModelSelect();
       }
     } else if (next === "console") {
-      // 控制台全屏盖下来
+      // 控制台全屏盖下来（独立蒙版，只由 enterMode 管理，不参与统一蒙版切换）
       el.conversation.style.display = "none";
+      // 清掉其他蒙版可能残留的 hidden（display:none !important 会压过 .is-open）
+      // 以及上一次退场动画残留的 is-closing（console-out 会把面板停在 opacity:0）
+      el.settingsConsole.classList.remove("hidden", "is-closing");
       el.settingsConsole.classList.add("is-open");
       document.body.style.overflow = "hidden";
     }
@@ -5104,9 +5107,13 @@
   // ====== 统一全屏蒙版切换 ======
 
   // 所有全屏蒙版的 id（打开一个会关闭其他）
-  const ALL_OVERLAYS = ["agent-list", "gateway-console", "mod-console", "settings-console"];
+  // 高级功能设置（settings-console）不在此列：它由 enterMode 的 mode 状态机独立管理，
+  // 混进来会被这里的 hidden 类永久压住，导致「高级功能设置打不开」。
+  const ALL_OVERLAYS = ["agent-list", "gateway-console", "mod-console"];
 
   function openOverlay(id) {
+    // 打开其他蒙版前，先退出独立的控制台 mode（否则两层全屏蒙版叠在一起）
+    if (state.mode === "console") enterMode("chat");
     // 先关掉所有其他蒙版
     ALL_OVERLAYS.forEach((otherId) => {
       if (otherId === id) return;
