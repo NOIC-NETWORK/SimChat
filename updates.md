@@ -1,5 +1,17 @@
 # 最近更新
 
+**2026-11-13** — 目录重构：本体收进 `.simchat/`，启动入口统一为 `scripts/entry.py`
+
+- **目录拆分**：为了给原生启动器腾出仓库根目录，Python 本体整体迁入 `.simchat/`（`web` / `runtime` / `loader` / `automation` / `cli` / `spec` / `mods` / `docs` / `sdk` / `scripts` 等），仓库根只保留 `README.md` / `updates.md` / `tidbit.md` / `.gitignore` / `launcher.cpp` / `.simchatLc/`。
+- **新启动入口**：`.simchat` 目录名带点，不能被 `import simchat` 找到，新增 `scripts/entry.py` 把自身以 `simchat` 之名注册进 `sys.modules`，再转入原入口：`python .simchat/scripts/entry.py web|cli|lifecycle ...`。
+- **启动脚本适配**：`run.ps1` / `run.bat` / `run.sh` / `run-harmony.sh` 的路径推导从「仓库根」改为「`.simchat/scripts` 的上一级」，工作目录切到包根，删掉手工注入的 `PYTHONPATH`；`deploy_daemon.sh` 生成的 systemd 单元 `WorkingDirectory` / `ExecStart` 同步改写，`README.md` 的文档路径指向仓库根。
+- **守护与自启链路**：`runtime/lifecycle.py` 里 `-m simchat.web` / `-m simchat.runtime.lifecycle` 的子进程拉起、HKCU Run 包装脚本、macOS LaunchAgent、XDG desktop 全部改走 `scripts/entry.py`——不改的话「自动拉起」会拉起一个立刻退出的死进程。
+- **换行修复**：`run.sh` / `run-harmony.sh` 在搬迁过程中被写成 CRLF，bash 直接报 `syntax error near unexpected token 'do\r'`，已统一转回 LF。
+- **gitignore 修补**：`mods/uploads/`、`mods/.simchat_state.json` 这类含斜杠的规则锚定仓库根，搬迁后失效，改成 `**/mods/...`；Ollama 离线包（`ollama-*.tgz`，约 21MB）排除出版本控制。
+- **文档同步**：`README.md` 快速开始、`docs/api-endpoints.md`、`harmony-webview/README.md`、`Index.ets` 提示文案、CLI 与 `--help` 的输出里的 `python -m simchat.*` 全部改为 `python .simchat/scripts/entry.py ...`。
+- **启动器工程落位**：仓库根新增 `launcher.cpp`，`.simchatLc/` 放 `_includes/Compile.h`、`process.h` 两个占位头与 `readme.md`；确定 CMake 构建、启动器只负责「找解释器 → 起本体 → 建窗口」的契约。
+- 文件：`scripts/entry.py`（新增）、`scripts/run.ps1`、`scripts/run.bat`、`scripts/run.sh`、`scripts/run-harmony.sh`、`scripts/deploy_daemon.sh`、`runtime/lifecycle.py`、`cli/main.py`、`cli/__main__.py`、`web/__main__.py`、`web/__init__.py`、`.gitignore`、`README.md`、`docs/api-endpoints.md`、`harmony-webview/*`、`launcher.cpp`（新增）、`.simchatLc/readme.md`（新增）、`updates.md`
+
 **2026-11-11** — IDE 对话移到右侧 + 顶部菜单栏
 
 - **对话迁到视口右侧**：原来塞在底部 Panel 的 Chat Tab 整体搬到右侧 Inspector 栏，与「检查器」组成双 Tab 面板（对话 / 检查器），底部 Panel 只保留控制台（事件流 / 沙箱输出 / 日志）。选择会话、新建会话、以及 Agent 请求审批时自动切到对应 Tab 并展开右栏。

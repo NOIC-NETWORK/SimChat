@@ -10,9 +10,9 @@ data/
 secrets*
 dev-keys/
 
-# MOD 运行时上传目录与启停状态
-mods/uploads/
-mods/.simchat_state.json
+# MOD 运行时上传目录与启停状态（本体在 .simchat/ 内，用通配匹配任意层级）
+**/mods/uploads/
+**/mods/.simchat_state.json
 
 # Python
 __pycache__/
@@ -36,6 +36,12 @@ Thumbs.db
 .mypy_cache/
 .ruff_cache/
 
+# Ollama 离线包（体积大，不进仓库）
+**/ollama-*.tgz
+
 #涉密文件
 
 project_relic.md
+
+# 实验性项目（不进入版本控制）
+experiments/bionic/
