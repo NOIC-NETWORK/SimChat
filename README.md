@@ -2,7 +2,7 @@
 
 # Everything, Harnessed.
 
-![logo](/web/static/sprites/logos/simChat-2.png)
+![logo](.simchat/web/static/sprites/logos/simChat-2.png)
 
 SimChat的吉祥物：Televi（电视君）。Televi的造型来自UHF时代的CRT电视，也是TeleVideo Enterprise的吉祥物，象征着媒介革命。
 
@@ -23,6 +23,10 @@ SimChat的吉祥物：Televi（电视君）。Televi的造型来自UHF时代的C
 ## 巴里君国内唯一联系方式
 
 [发送邮件](mailto:1066344121@qq.com)
+
+# 新手教程
+
+请看[tutorials.md](.simchat/docs/tutorials/README.md)
 
 # 开发花絮
 
