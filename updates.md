@@ -1,5 +1,20 @@
 # 最近更新
 
+**2026-11-15** — MOD 体系可用性修复：宿主接线、`skills/` 分层、安全能力内建、P2 隔离闸门
+
+- **MOD 终于真的被加载**：`create_app()` 启动进程级 `ModLoader`（`discover()` + `set_global_loader()`，`atexit` 统一清理），已加载包的工具经 `ModToolBlock` / `sync_loader_blocks()` 同步进 `BLOCK_REGISTRY`；`/mods/<id>/<path>` 路由改为包内导入 `get_loader`，越界校验换成 `realpath + commonpath`。此前 6 个包在磁盘上但从未进入运行时，Agent 无法调用。
+- **协议卫生**：runner 的所有协议输出加私有前缀 `@@simchat-ipc@@`，宿主只消费带前缀的行；MOD 在 entry 阶段 `print()` 不再顶掉 `register` 首行（原会被判「沙箱输出格式非法」），转而写入宿主 stderr。
+- **`mods/` 与 `skills/` 分层**：新增 `.simchat/skills/`（`noic.readFile` / `webSearch` / `screenshotRecognition` / `barry.galax` / `automation.daily-digest`），`mods/` 只留真正的 MOD（`agent-config-minimal`）；`ModLoader` 支持 `extra_dirs` 一次扫描两处，`/api/console/mods` 与 `/api/console/skills` 接口分开，新增 `/api/console/skills/<id>/toggle`（状态独立落在 `skills/.simchat_state.json`）；上传目录固定为 `.simchat/uploads`。
+- **安全能力内建**：`realityCheck` / `areYouUnderTrouble` 从可停用的 skill 包迁入 `runtime/safety/` 并注册为原生方块，不再经过验签、沙箱与开关；对应 registry 条目删除。
+- **P1 资产与服务语义**：MOD 子进程 `cwd` 切到包目录，`scripts/` 注入 `sys.path`，`assets.root` 可通过 `api.assets_dir` 访问；所有 layer 都分配 `data_dir`（`data/mods/<id>` / `data/blocks/<id>`）；runner 复用 SDK `ModApi`，补齐 `service` / `has_capability` / `capabilities` / `emit_event`，宿主服务（`inference`、`skill_manager`）经 IPC 回调真实可用；`register_mode` 不再丢 `description` / `requires_capabilities`，dict 注册 tool 会走 SDK 默认值。
+- **`barry.galax` 恢复**：包内容未改，仅用 `dev-keys/official.ed25519.pem` 对当前 `build_signing_payload(manifest, integrity)` 重新签名，`verify_package=True`，四阶段输出与实时检索召回实测通过。
+- **P2 invoke 并发**：宿主侧引入 per-request future（`request_id → 独立队列`），stdout 读线程按 `request_id` 投递、按 `type + mode/tool` 兜底，超时/进程退出会注销或唤醒等待者；`service_call` 改独立线程执行，慢推理不再阻塞协议读取。runner 仍单线程执行，但并发调用不再串包。
+- **P2 capabilities 执行层**：`capabilities.fs` 变成真正的白名单——基础可访问仅包目录（读）、`data_dir` 与 `uploads`（读写）、解释器/site-packages（只读），scope 支持 `workspace` / `mod-data` / `package` / `uploads` / `temp` / 绝对与相对子路径，覆盖 `open`、`io.open`、`os.open`（按 flags 判读写）、`remove/unlink/mkdir/makedirs/rename/replace`、`listdir/scandir`；`capabilities.net` 未声明时拒绝所有 `getaddrinfo`，支持精确域名、`*.example.com` 与 `*`，`connect/connect_ex` 只放行已解析或声明的 IP。补丁函数用非描述符包装，修掉 `pathlib._NormalAccessor.open = os.open` 把函数绑定成方法导致的 `screenshotRecognition` 加载失败。
+- **schema 与实现同步**：`abi` 改为 `enum[simchat-mod/2, lmbrew-mod/1]`，新增 `layer`，hooks 补 `agent.block` / `agent.completed` / `web.blueprint`（保留 `agent.tool`），`entry` 允许 automation 指向包内 `*.json`，`requires` 补 `simchat`，`automation` 必填改为 `flow_file`，`capabilities.fs` 描述与实现对齐；8 个真实 manifest 全部通过 Draft 2020-12 校验。
+- **界面语义**：IDE 侧栏分区改为「方块 / MOD」，控制台区分 MOD 与技能方块并支持技能启停，摘要文案按 `MOD / 技能 / 工具` 分别计数。
+- **验证**：6/6 包 loaded（mods 1 + skills 5）；`BLOCK_REGISTRY` 13 个（10 内建 + 3 技能工具）；合成 MOD 25/25 PASS（并发无串包、未声明 fs 读写/list 全拒绝、声明式 fs/net 放行、未声明域名拒绝）；`readFile` 读 uploads 正常、越界读取被拒；`webSearch` 外连正常；`/api/console/mods`、`/api/console/skills`、`/api/agent/tools` 均 200。
+- 文件：`.simchat/loader/lifecycle.py`、`.simchat/loader/sandbox.py`、`.simchat/loader/sandbox_runner.py`、`.simchat/loader/sandbox_contract.md`、`.simchat/runtime/agent/tools.py`、`.simchat/runtime/safety/`（新增）、`.simchat/runtime/mods_index.py`、`.simchat/sdk/python/simchat_mod/__init__.py`、`.simchat/spec/mod-manifest.schema.json`、`.simchat/web/__init__.py`、`.simchat/web/static/js/chat.js`、`.simchat/web/static/js/ide.js`、`.simchat/skills/`（新增）、`.simchat/mods/`（清理）、`.simchat/registry/index.json`、`.simchat/docs/mod-availability-diagnosis.md`（新增）、`README.md`、`updates.md`
+
 **2026-11-13** — 目录重构：本体收进 `.simchat/`，启动入口统一为 `scripts/entry.py`
 
 - **目录拆分**：为了给原生启动器腾出仓库根目录，Python 本体整体迁入 `.simchat/`（`web` / `runtime` / `loader` / `automation` / `cli` / `spec` / `mods` / `docs` / `sdk` / `scripts` 等），仓库根只保留 `README.md` / `updates.md` / `tidbit.md` / `.gitignore` / `launcher.cpp` / `.simchatLc/`。

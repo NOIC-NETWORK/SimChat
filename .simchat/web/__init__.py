@@ -7,6 +7,7 @@
 启动：python .simchat/scripts/entry.py web
 """
 
+import atexit
 import json
 import logging
 import os
@@ -65,6 +66,80 @@ def _ensure_logging(data_root, level=None):
 # 项目根目录（某些 API 仍用到）
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# MOD / 技能目录（进程级单例）
+_MODS_DIR = os.path.join(_PROJECT_ROOT, "mods")
+_SKILLS_DIR = os.path.join(_PROJECT_ROOT, "skills")
+_MODS_HOST_VERSION = "2.3.0"
+_mod_loader = None
+_mod_loader_lock = threading.Lock()
+
+
+def _shutdown_mod_loader():
+    global _mod_loader
+    loader, _mod_loader = _mod_loader, None
+    if loader is not None:
+        try:
+            loader.cleanup()
+        except Exception:
+            pass
+
+
+class _InferenceService(object):
+    """暴露给 MOD 的只读推理服务：api.service("inference").generate_raw(...)"""
+
+    def __init__(self, app):
+        self._app = app
+
+    def generate_raw(self, prompt, temperature=0.7, system_prompt=None,
+                     max_tokens=1024):
+        core = _get_core(self._app)
+        provider_id, error = core.resolve_provider()
+        if not provider_id:
+            raise RuntimeError(error or "尚未配置可用的服务商")
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        chunks = core._provider(provider_id).stream_chat(
+            messages, temperature=temperature, max_tokens=max_tokens,
+        )
+        return "".join(chunks)
+
+
+def _ensure_mod_loader(app=None):
+    """启动 MOD 加载器并同步方块；失败只记日志，不阻塞 Web 启动。"""
+    global _mod_loader
+    if _mod_loader is not None:
+        return _mod_loader
+    with _mod_loader_lock:
+        if _mod_loader is not None:
+            return _mod_loader
+        try:
+            from simchat.loader import ModLoader
+            from simchat.loader.lifecycle import set_global_loader
+            from simchat.loader.skill_manager_facade import SkillManager
+            from simchat.runtime.agent.tools import sync_loader_blocks
+
+            services = {"skill_manager": SkillManager()}
+            if app is not None:
+                services["inference"] = _InferenceService(app)
+
+            loader = ModLoader(
+                _MODS_DIR,
+                host_version=_MODS_HOST_VERSION,
+                services=services,
+                logger=lambda message: _request_log.info("[mods] %s", message),
+                extra_dirs=[_SKILLS_DIR],
+            )
+            loader.discover()
+            set_global_loader(loader)
+            sync_loader_blocks(loader)
+            _mod_loader = loader
+            atexit.register(_shutdown_mod_loader)
+        except Exception:
+            _request_log.exception("MOD 加载器初始化失败，跳过 MOD 能力")
+    return _mod_loader
+
 
 def _get_core(app):
     """首次使用时实例化 SimChatCore（失败时由调用方返回 500）。"""
@@ -118,6 +193,8 @@ def create_app(core=None):
         app.extensions["simchat_core"] = core
         _ensure_logging(core.data_root)
 
+    app.extensions["simchat_mod_loader"] = _ensure_mod_loader(app)
+
     # Agent 模式（ReAct 循环）：/api/agent 与冻结 fixture 使用的 /api/simchat/agent
     from .agent import create_agent_blueprint
 
@@ -129,20 +206,25 @@ def create_app(core=None):
     # Phase 3 — MOD 前端静态资源自动路由：/mods/<mod_id>/<path> → MOD 的 web/ 目录
     @app.route("/mods/<mod_id>/<path:filename>")
     def _serve_mod_asset(mod_id, filename):
-        from loader.lifecycle import get_global_loader
-        from flask import send_from_directory, abort
-        loader = get_global_loader()
+        from flask import abort, send_from_directory
+
+        from simchat.loader.lifecycle import get_loader
+
+        loader = app.extensions.get("simchat_mod_loader") or get_loader()
         if loader is None:
             abort(404)
         mod_record = loader.mods.get(mod_id)
         if not mod_record or mod_record.get("status") != "loaded":
             abort(404)
-        web_dir = os.path.join(mod_record["path"], "web")
+        web_dir = os.path.realpath(os.path.join(mod_record["path"], "web"))
         if not os.path.isdir(web_dir):
             abort(404)
         # 路径安全：拒绝 ../ 越界
-        safe_path = os.path.normpath(os.path.join(web_dir, filename))
-        if not safe_path.startswith(web_dir):
+        safe_path = os.path.realpath(os.path.join(web_dir, filename))
+        try:
+            if os.path.commonpath([safe_path, web_dir]) != web_dir:
+                abort(403)
+        except ValueError:
             abort(403)
         return send_from_directory(web_dir, filename)
 
@@ -899,23 +981,25 @@ def create_app(core=None):
     @app.get("/api/console/skills")
     def console_skills():
         try:
-            snapshot = _mods_snapshot()
+            from simchat.runtime import mods_index
+
+            data = mods_index.skills_snapshot()
         except Exception as error:
             return jsonify({"available": False, "reason": str(error), "data": None}), 500
-        items = [item for item in snapshot["local"] if item["type"] == "skill"]
-        return jsonify({
-            "available": True,
-            "reason": "",
-            "data": {
-                "mods_dir": snapshot["mods_dir"],
-                "items": items,
-                "counts": {
-                    "total": len(items),
-                    "enabled": sum(1 for item in items if item["enabled"]),
-                    "error": sum(1 for item in items if item["status"] == "err"),
-                },
-            },
-        })
+        return jsonify({"available": True, "reason": "", "data": data})
+
+    @app.post("/api/console/skills/<skill_id>/toggle")
+    def console_skill_toggle(skill_id):
+        data = request.get_json(silent=True) or {}
+        enabled = data.get("enabled")
+        if not isinstance(enabled, bool):
+            return jsonify({"ok": False, "error": "enabled 必须是布尔值"}), 400
+        from simchat.runtime import mods_index
+
+        result = mods_index.set_enabled(
+            skill_id, enabled, directory=mods_index.DEFAULT_SKILLS_DIR)
+        _record_event("skill.toggle", {"skill_id": skill_id, "enabled": enabled})
+        return jsonify({"ok": True, "data": mods_index.skills_snapshot(), "result": result})
 
     # ---------------- 控制台：节点（客户端 + 网关节点） ----------------
 
@@ -1085,10 +1169,14 @@ def create_app(core=None):
     @app.get("/api/console/automation")
     def console_automation():
         try:
+            from simchat.runtime import mods_index
+
             snapshot = _mods_snapshot()
+            skills = mods_index.skills_snapshot()
         except Exception as error:
             return jsonify({"available": False, "reason": str(error), "data": None}), 500
         items = [item for item in snapshot["local"] if item["type"] == "automation"]
+        items += [item for item in skills["items"] if item["type"] == "automation"]
         return jsonify({
             "available": True,
             "reason": "",
@@ -1124,8 +1212,10 @@ def create_app(core=None):
         agents_mod = _agents_mod()
         agents_mod._default(core.data_root)
         try:
-            snapshot = _mods_snapshot()
-            skill_mods = [item for item in snapshot["local"] if item["type"] == "skill"]
+            from simchat.runtime import mods_index
+
+            skills = mods_index.skills_snapshot()
+            skill_mods = [item for item in skills["items"] if item["type"] == "skill"]
         except Exception:
             skill_mods = []
 

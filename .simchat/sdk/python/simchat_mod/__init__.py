@@ -152,11 +152,12 @@ class ModApi(object):
     """
 
     def __init__(self, mod_id, manifest, package_dir, services=None,
-                 emit_event=None, data_dir=None):
+                 emit_event=None, data_dir=None, assets_dir=None):
         self.mod_id = mod_id
         self.manifest = dict(manifest or {})
         self.package_dir = package_dir
-        self.data_dir = data_dir  # binary MOD 独立数据目录；skill MOD 为 None
+        self.data_dir = data_dir  # 每个包独立的可写数据目录
+        self.assets_dir = assets_dir or package_dir  # manifest.assets.root 的绝对路径
         self.modes = []
         self.tools = []  # P2.4 新增：agent.tool 注册
         self._services = dict(services or {})

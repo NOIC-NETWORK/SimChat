@@ -9,12 +9,15 @@
 - 模式：chat 模式（懒调用）只暴露 read 级工具；agent 模式暴露全部工具但有红线拦截。
 - 红线：即使在 agent 模式下也绝对禁止的路径（/system、/etc/passwd 等），fail-closed。
 """
+import json
 import os
 import re
 import sys
 import time
 import glob as globlib
 import subprocess
+
+from ..safety import analyze_crisis, reality_check
 
 # 项目根目录（tools.py 位于 simchat/runtime/agent/，上两级即 simchat 根）
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
@@ -731,6 +734,43 @@ class BlockRegistry:
 # ---------- 全局单例 ----------
 BLOCK_REGISTRY = BlockRegistry()
 
+
+class RealityCheckTool(BaseTool):
+    """运行时内置：输出侧现实审视（不可被 MOD 停用）。"""
+
+    name = 'realityCheck'
+    label = '现实审视'
+    description = '检测文本中的偏见/仇恨/暴力/心理伤害内容；命中时返回自省提示'
+    risk = 'read'
+    usage = 'realityCheck PARAMS:{"text": "<要检测的文本>"}'
+
+    def run(self, params, ctx):
+        text = params.get('text')
+        if not isinstance(text, str) or not text.strip():
+            raise ToolError('text 为空')
+        return reality_check(text)
+
+
+class AreYouUnderTroubleTool(BaseTool):
+    """运行时内置：输入侧危机信号识别与应急建议（不可被 MOD 停用）。"""
+
+    name = 'areYouUnderTrouble'
+    label = '危险信号检测'
+    description = '检测用户输入中的自杀/自残/暴力/危机信号，并给出紧急联系建议'
+    risk = 'read'
+    usage = ('areYouUnderTrouble PARAMS:{"query": "<用户输入>", '
+             '"user_location": "中国", "user_contact": ""}')
+
+    def run(self, params, ctx):
+        query = params.get('query')
+        if not isinstance(query, str) or not query.strip():
+            raise ToolError('query 为空')
+        return analyze_crisis(
+            query,
+            params.get('user_location') or '中国',
+            params.get('user_contact') or '',
+        )
+
 # 向后兼容别名：旧代码用 TOOL_REGISTRY，新代码用 BLOCK_REGISTRY
 # 旧的 list_agent_tools() / build_tool_protocol_section() 保持不动，
 # 内部用 BLOCK_REGISTRY.list_all() 替代 TOOL_REGISTRY.values()
@@ -749,6 +789,9 @@ _register_builtin(WebSearchTool())
 _register_builtin(FileWriteTool())
 _register_builtin(FileEditTool())
 _register_builtin(ShellTool())
+# 安全能力硬编码进运行时，不依赖 MOD 加载
+_register_builtin(RealityCheckTool())
+_register_builtin(AreYouUnderTroubleTool())
 
 
 # 向后兼容：旧代码仍可 import TOOL_REGISTRY
@@ -781,6 +824,57 @@ class _RegistryCompat:
 
 
 TOOL_REGISTRY = _RegistryCompat()  # noqa: F841 — 向后兼容别名，保持 loop.py 等旧代码可 import
+
+
+class ModToolBlock(BaseTool):
+    """把已加载 MOD 注册的工具包装成引擎方块，统一经 BLOCK_REGISTRY 调用。"""
+
+    source = 'mod'
+
+    def __init__(self, loader, spec, mod_id):
+        spec = spec or {}
+        self._loader = loader
+        self._mod_id = mod_id
+        self.name = spec.get('name') or ''
+        self.label = spec.get('label') or self.name
+        self.description = spec.get('description') or ''
+        self.risk = spec.get('risk') or 'read'
+        self.usage = spec.get('usage') or ('%s PARAMS:{}' % self.name)
+
+    def meta(self):
+        data = super().meta()
+        data['source'] = self.source
+        data['mod_id'] = self._mod_id
+        return data
+
+    def run(self, params, ctx):
+        if not isinstance(params, dict):
+            raise ToolError('参数必须是对象')
+        resp = self._loader.call_tool(self.name, params)
+        if not resp.get('ok'):
+            raise ToolError(resp.get('error') or 'MOD 工具执行失败')
+        output = resp.get('output')
+        if output is None:
+            return ''
+        return output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
+
+
+def sync_loader_blocks(loader):
+    """把已加载 MOD 的工具同步进方块注册表；重复调用幂等，返回本次挂载的工具名。"""
+    names = []
+    for record in loader.list_mods():
+        if record.get('status') != 'loaded':
+            continue
+        for spec in record.get('tools') or []:
+            name = spec.get('name')
+            if not name or BLOCK_REGISTRY.is_builtin(name):
+                continue
+            existing = BLOCK_REGISTRY.get(name)
+            if existing is not None and getattr(existing, 'source', None) != 'mod':
+                continue
+            BLOCK_REGISTRY.register(ModToolBlock(loader, spec, record.get('id')), builtin=False)
+            names.append(name)
+    return names
 
 
 def list_agent_tools(mode="agent"):

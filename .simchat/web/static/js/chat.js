@@ -6136,8 +6136,23 @@
     }
   }
 
-  async function toggleSkill(modId, enabled) {
-    await toggleMod(modId, enabled);
+  async function toggleSkill(skillId, enabled) {
+    if (consoleState.modBusy) return;
+    consoleState.modBusy = true;
+    try {
+      const payload = await api("/api/console/skills/" + encodeURIComponent(skillId) + "/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      consoleState.skills = payload.data;
+      loadSkills(true);
+      showConsoleToast(enabled ? "已启用技能（重启后生效）" : "已停用技能（重启后生效）");
+    } catch (error) {
+      showConsoleToast("操作失败：" + error.message);
+    } finally {
+      consoleState.modBusy = false;
+    }
   }
 
   // ---------------- 节点 ----------------
@@ -6209,7 +6224,7 @@
       const agents = data.agents || [];
       const skills = data.skill_mods || [];
       if (summary) {
-        summary.textContent = agents.length + " 个实例 · " + skills.length + " 个技能 MOD";
+        summary.textContent = agents.length + " 个实例 · " + skills.length + " 个技能方块";
       }
 
       const stat = (label, value, hint) =>
@@ -6242,7 +6257,7 @@
         ? '<div class="mod-chips">' + skills.map((item) =>
             '<span class="mod-chip">' + escapeHtml(item.name) + (item.enabled ? "" : "（停用）") + "</span>"
           ).join("") + "</div>"
-        : '<div class="mod-detail-muted">没有 Skill MOD，Agent 暂时没有可调用工具。</div>';
+        : '<div class="mod-detail-muted">没有技能方块，Agent 暂时没有可调用工具。</div>';
 
       node.innerHTML =
         '<div class="overview-section"><div class="overview-title">运行参数</div>' + optionsHtml + "</div>" +

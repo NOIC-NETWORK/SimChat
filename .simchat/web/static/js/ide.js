@@ -248,7 +248,7 @@
 
   /* ==================== 侧栏：Extensions activity ==================== */
   function extensionsActivityHtml() {
-    let html = '<div class="side-section">MOD</div>' +
+    let html = '<div class="side-section">方块 / MOD</div>' +
       (state.mods.length
         ? state.mods.map((m) =>
             '<div class="list-item" style="cursor:default">' +
@@ -298,7 +298,7 @@
       sub = state.sessions.length + " 个会话" + (state.runs.length ? " · " + state.runs.length + " 次运行" : "");
     } else if (state.activity === "extensions") {
       html = extensionsActivityHtml();
-      sub = state.mods.length + " MOD · " + state.tools.length + " 工具";
+      sub = state.mods.length + " 个 MOD · " + state.tools.length + " 个工具";
     } else if (state.activity === "debug") {
       html = '<div class="panel-empty">调试面板占位<br><span style="font-size:11px;color:var(--text-faint)">debug_api_pending</span></div>';
       sub = "未接入";

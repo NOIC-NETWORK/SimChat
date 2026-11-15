@@ -6,12 +6,13 @@
 
 ## 1. 目标
 
-把 binary MOD 的 Python 入口从宿主进程 `importlib.import_module` 放进**独立 Python 子进程**。Phase 1 只解决三件事：
+把 MOD 的 Python 入口从宿主进程 `importlib.import_module` 放进**独立 Python 子进程**。已交付：
 - **崩溃隔离**：子进程崩溃/超时不拖宿主（kill -9 友好）。
 - **进程树闸门**：MOD 声明 `capabilities.shell=true` 才能在子进程里创建新进程（monkey-patch subprocess.Popen）。
+- **fs / net 闸门**（P2）：`capabilities.fs` / `capabilities.net` 在子进程内实际执行，未声明的路径与主机访问抛 PermissionError。
 - **资源清理**：宿主 atexit/SIGTERM 时 kill 所有沙箱子进程。
 
-不做 Phase 1 的：文件/网络/seccomp 级系统调用隔离（P2.3 后续或 Phase 4）；非 binary 类型（agent-config/skill/automation）沙箱。
+不做：OS 级（seccomp / 容器 / AppContainer）隔离。fs/net 闸门是 Python 层权限边界，拦的是"未声明权限"的正常代码路径，不是对抗恶意进程的沙箱。
 
 ---
 
@@ -99,13 +100,29 @@
 
 ---
 
-## 5. capabilities.shell 闸门
+## 5. capabilities 闸门
+
+### 5.1 shell
 
 子进程启动时检查 manifest.capabilities.shell：
 - 缺省或 false → monkey-patch `subprocess.Popen`：如果不是内部 runner 自己的调用（可以通过一个 token 检测），就 raise PermissionError("MOD 未声明 shell capability，禁止创建子进程")。
 - true → 不 patch。
 
-Phase 1 只 patch subprocess.Popen；os.system / os.popen / multiprocessing 等其他进程创建入口暂不覆盖。
+os.system / os.popen / multiprocessing 等其他进程创建入口暂不覆盖。
+
+### 5.2 fs（P2）
+
+- 基础可访问（无需声明）：包目录（读）、`data_dir`（读写）、`.simchat/uploads`（读写）、解释器 / site-packages / SDK（只读）。
+- `capabilities.fs.read/write` 的 scope：`workspace`（用户工作目录）、`mod-data`、`package`、`uploads`、`temp`、绝对路径、相对子路径（相对 workspace）。临时目录不默认授予。
+- 覆盖 `builtins.open` / `io.open`、`os.open`（按 flags 判定读写）、`os.remove/unlink/rmdir/mkdir/makedirs`、`os.rename/replace`、`os.listdir/scandir`。
+- 越权抛 `PermissionError: MOD 未声明 capabilities.fs.read|write 覆盖该路径`。
+- 补丁函数用非描述符包装，避免 `pathlib._NormalAccessor.open = os.open` 这类类属性捕获把函数绑定成方法。
+
+### 5.3 net（P2）
+
+- 未声明 `capabilities.net` → 所有 `socket.getaddrinfo` 拒绝（`host=None` 的 bind 除外）。
+- 白名单：精确域名、`*.example.com` 前缀通配、`*` 全放行。
+- `socket.socket.connect` / `connect_ex` 只放行 getaddrinfo 解析过或白名单里的 IP。
 
 ---
 
@@ -126,10 +143,9 @@ def _invoke_entry(self, package_dir, manifest, mod_id):
 
 ---
 
-## 7. 不做（Phase 1 边界）
+## 7. 边界
 
-- **文件系统隔离**：不限制 os.open / os.remove / shutil。Phase 2+ 用 seccomp/AppContainer/WASM 补。
-- **网络隔离**：不限制 socket / urllib / requests。
+- **OS 级隔离**：仍不做 seccomp / 容器 / AppContainer；fs/net 闸门只覆盖 Python 层可拦路径（`_io.FileIO` 等 C 级调用不在覆盖范围）。
 - **sys.modules 黑名单**：不禁止 import os/subprocess/socket 等。
-- **非 binary 类型沙箱**：agent-config/skill/automation 继续在宿主跑。
-- **ModeSpec 完整序列化**：只提取上表列出的 8 个字段，其他 ModeSpec 扩展字段 Phase 1 忽略。
+- **类型覆盖**：所有带 entry 的类型（skill / automation / binary）都走沙箱；agent-config 是纯数据包，不执行代码。
+- **ModeSpec / ToolSpec 序列化**：按 SDK `to_dict()` 全量回传。

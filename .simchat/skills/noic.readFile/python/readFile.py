@@ -9,7 +9,7 @@ from simchat_mod import BaseSkill, ToolSpec, hook
 
 
 
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "uploads")
+UPLOAD_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "uploads"))
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 SUPPORTED_EXTENSIONS = {

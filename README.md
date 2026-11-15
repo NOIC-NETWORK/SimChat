@@ -51,7 +51,7 @@ python .simchat/scripts/entry.py web   # 打开浏览器，接入你的第一个
 ├── spec/                      # 平台契约（Phase 0 冻结）
 │   ├── mod-manifest.schema.json   # 四类 MOD 统一 schema（JSON Schema 2020-12）
 │   ├── capabilities.md            # 权限模型：谁能读什么、连什么、跑什么
-│   ├── hooks.md                   # 本体暴露的 10 个扩展点（ABI = lmbrew-mod/1）
+│   ├── hooks.md                   # 本体暴露的扩展点（实现 ABI = simchat-mod/2）
 │   ├── events.md                  # Agent SSE 事件契约（13 事件 + 挂起/终止语义）
 │   └── abi-changelog.md           # ABI 版本变更与兼容规则
 ├── loader/                    # 加载器安全底座（Phase 1-2）
@@ -74,8 +74,9 @@ python .simchat/scripts/entry.py web   # 打开浏览器，接入你的第一个
 │   ├── store.py                  # sessions 落盘 + 滑动窗口记忆（94 行）
 │   ├── comms.py                  # 通讯通道注册表（Fernet 加密敏感字段）
 │   ├── crypto.py                 # Fernet 加解密
-│   └── im_bots.py                # 群机器人运行时（OneBot v11 / QQ 官方 API）
-├── sdk/python/simchat_mod/    # MOD SDK（ABI：lmbrew-mod/1）
+│   ├── im_bots.py                # 群机器人运行时（OneBot v11 / QQ 官方 API）
+│   └── safety/                   # 运行时内置安全能力（realityCheck / areYouUnderTrouble）
+├── sdk/python/simchat_mod/    # MOD SDK（ABI：simchat-mod/2）
 │   ├── __init__.py               # ModApi + ModeSpec + ToolSpec + @hook + register_tool()（177 行）
 │   └── skill_base.py             # skill MOD 基类 BaseSkill（47 行）
 ├── fixtures/                  # Agent SSE 回归基线（Phase 0 冻结）
@@ -92,7 +93,8 @@ python .simchat/scripts/entry.py web   # 打开浏览器，接入你的第一个
 ├── harmony-webview/           # 鸿蒙 ArkUI WebView 壳
 ├── examples/                  # 示例 MOD（skill-hello / automation-daily-digest）
 ├── docs/                      # 设计文档
-└── mods/                      # 一等方 MOD（8 个，4 类全覆盖）
+├── mods/                      # 一等方 MOD（1 个）
+└── skills/                    # 原子能力（5 个）
 ```
 
 ## 架构
@@ -109,7 +111,7 @@ SimChat 把"平台"拆成三层，每一层只做一件事：
 │   lifecycle 调 entry(api) → register(modes, tools)      │
 │   后续 invoke_mode() / invoke_tool() → sandbox 子进程   │
 ├─────────────────────────────────────────────────────────┤
-│ MOD 包（mods/<owner>.<modid>/）                          │
+│ MOD / 技能包（mods|skills/<owner>.<id>/）                  │
 │   manifest.json + python/**/*.py + web/**/*.js          │
 │   只能 import simchat_mod.*，不得 import 宿主内部实现    │
 └─────────────────────────────────────────────────────────┘
@@ -117,20 +119,30 @@ SimChat 把"平台"拆成三层，每一层只做一件事：
 
 **安全边界**：Phase 2 剩余交付的 Loader 底座形成一条 fail-closed 流水线——manifest schema 先验 → resolver 查依赖 → verify 验签名（binary） → sandbox 子进程隔离（crash 不拖宿主）。任何一步失败 → MOD status=failed，宿主继续运行。
 
-## 当前 MOD
+## 当前 MOD 与技能
 
-`mods/` 下已落 8 个 MOD（4 类全覆盖）：
+### MOD（`mods/`，1 个）
 
 | MOD | 类型 | hooks | 交付 |
 |---|---|---|---|
-| `barry.galax` | binary | `chat.mode` | Phase 1 — Rigard 的证据加权检索管线抽成 MOD |
 | `agent-config-minimal` | agent-config | — | Phase 3 — 女仆人设 + 简约主题 CSS |
+
+### 原子能力 / 技能（`skills/`，5 个）
+
+| 技能 | 类型 | hooks | 交付 |
+|---|---|---|---|
+| `barry.galax` | binary | `chat.mode` | Phase 1 — Rigard 的证据加权检索管线 |
 | `automation.daily-digest` | automation | — | Phase 5 — 每日摘要 DAG 流示例 |
-| `noic.skill-readfile` | skill | `agent.tool` | Phase 2.4 — 原 Kirara/Rigard 硬编码 skill 迁出 |
-| `noic.skill-websearch` | skill | `agent.tool` | Phase 2.4 |
-| `noic.skill-screenshot-recognition` | skill | `agent.tool` | Phase 2.4 |
-| `noic.skill-areyoutrouble` | skill | `agent.tool` | Phase 2.4 |
-| `noic.skill-realitycheck` | skill | `agent.tool` | Phase 2.4 |
+| `noic.skill-readfile` | skill | `agent.block` | Phase 2.4 — 原 Kirara/Rigard 硬编码 skill 迁出 |
+| `noic.skill-websearch` | skill | `agent.block` | Phase 2.4 |
+| `noic.skill-screenshot-recognition` | skill | `agent.block` | Phase 2.4 |
+
+### 运行时内置安全（不在目录中）
+
+| 方块 | 说明 |
+|---|---|
+| `realityCheck` | 输出侧现实审视，检测偏见/仇恨/暴力/心理伤害 |
+| `areYouUnderTrouble` | 输入侧危机信号识别与应急建议 |
 
 ## 群机器人（IM 接入）
 
@@ -156,21 +168,44 @@ SimChat 把"平台"拆成三层，每一层只做一件事：
 from simchat_mod import ModApi, ModeSpec, ToolSpec, BaseSkill, hook
 ```
 
-`manifest.schema.json` 的值 `abi: "lmbrew-mod/1"` 是版本号——未来破坏性变更升级主版本，非破坏性升次版本。
+`manifest.json` 的 `abi: "simchat-mod/2"` 是当前实现版本——未来破坏性变更升级主版本，非破坏性升次版本；`spec/mod-manifest.schema.json` 已与该版本对齐（`lmbrew-mod/1` 仅作过渡期兼容）。
 
 ## 阶段进度
 
 | 阶段 | 状态 | Commit 范围 | 关键交付 |
 |---|---|---|---|
 | Phase 0 契约冻结 | ✅ | — | spec/ 5 份 + fixture 5 条 |
-| Phase 1 第一个 MOD（Galax） | ✅ | `c58ec00` | GalaxPipeline 抽成 `mods/barry.galax/` |
+| Phase 1 第一个 MOD（Galax） | ✅ | `c58ec00` | GalaxPipeline 抽成 `skills/barry.galax/` |
 | Phase 2 本体独立对话 + Loader 底座 | ✅ | `494c5e9`–`e03e310` | runtime/ 3 模块 + loader/ 9 模块 + P2.4 skill MOD 全链路 |
 | Phase 3 蓝图化 | ✅ | `7f29360`–`b4ec484` | lmbrew.py 降至 **303 行**，4 蓝图接管全部路由 |
 | Phase 4 CLI + 索引 | ✅ | — | `simchat mod init/pack/verify/publish/gen-key` + `registry/index.json` 静态索引 |
-| Phase 5 Automation DAG | ✅ | — | `automation/` DAG 引擎（scheduler/executor/approval/quota/audit）+ `mods/automation.daily-digest` |
+| Phase 5 Automation DAG | ✅ | — | `automation/` DAG 引擎（scheduler/executor/approval/quota/audit）+ `skills/automation.daily-digest` |
+| MOD 可用性修复 + 分层重构 | ✅ | — | 宿主接线、IPC 前缀、`skills/` 分层、安全能力内置、Galax 重签 |
+| P1 资产/服务语义 | ✅ | — | 包内 cwd、`scripts/` 入路径、`assets_dir`、全 layer `data_dir`、SDK ModApi + 宿主服务 RPC |
 | Phase 6 仓库/品牌/社区 | 规划中 | — | 官方仓库/商店前端/付费框架 |
 
-## 冒烟测试（P2.4 交付时）
+## 冒烟测试
+
+### 2026-11-15 复核
+
+```
+✓ 加载 6/6：mods/ 1 + skills/ 5
+✓ BLOCK_REGISTRY：13 个（10 内建 + 3 技能工具）
+✓ realityCheck / areYouUnderTrouble 为内建方块
+✓ /api/console/mods：1；/api/console/skills：5；automation：daily-digest
+✓ barry.galax：verify_package=True，status=loaded，modes=['galax']
+```
+
+### 2026-11-15 P1 复核
+
+```
+✓ 合成 MOD：cwd=包目录、相对资产可读、scripts/ 可导入、data_dir 存在（7/7 PASS）
+✓ 宿主服务 RPC：api.service("inference") / skill_manager 可用，未声明服务返回 None
+✓ barry.galax 实调用：ok=True，四阶段输出完整，召回使用 webSearch 实时结果
+✓ 全 layer data_dir：data/mods/<id>（mod）、data/blocks/<id>（block）
+```
+
+### P2.4 交付时（历史记录）
 
 P2.4 skill MOD 迁移的完整链路验证，11/11 PASS：
 
@@ -187,7 +222,7 @@ P2.4 skill MOD 迁移的完整链路验证，11/11 PASS：
 
 ## 本目录不包含（故意的）
 
-- 任何私有实现（JRVS / Hippo / 人设 / 音色；Galax 检索管线已开源为 `mods/barry.galax/`）
+- 任何私有实现（JRVS / Hippo / 人设 / 音色；Galax 检索管线已开源为 `skills/barry.galax/`）
 - 任何密钥、授权素材、用户数据
 - 商店前端（Phase 6 范围）
 - `__pycache__/`（已 gitignored）

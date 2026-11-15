@@ -1,4 +1,4 @@
-﻿{
+{
   "$schema": "../spec/registry.schema.json",
   "version": 1,
   "updated_at": "2026-10-27",
@@ -23,14 +23,17 @@
           "download": {
             "type": "git-path",
             "url": "https://github.com/NOIC-NETWORK/SimChat",
-            "path": "mods/barry.galax",
+            "path": "skills/barry.galax",
             "ref": "HEAD"
           },
           "manifest_hash": "sha256:ef0e863534056676eb1760c4d37c732763aa2cd7172ed17f07d83fc7624773fc",
           "signature": "ed25519:HkLthRxrfARqIDRaM2NN5bwl5qb9m50jxJ8zphTC-cCBLQ2YQUEn0FSNK4_yf6-dgkRncGjIoZNW-PlCkn16AQ",
           "capabilities": {
             "net": {
-              "domains": ["bing.com", "sogou.com"]
+              "domains": [
+                "bing.com",
+                "sogou.com"
+              ]
             }
           },
           "published_at": "2026-10-24",
@@ -85,12 +88,14 @@
           "download": {
             "type": "git-path",
             "url": "https://github.com/NOIC-NETWORK/SimChat",
-            "path": "mods/noic.readFile",
+            "path": "skills/noic.readFile",
             "ref": "HEAD"
           },
           "capabilities": {
             "fs": {
-              "read": ["workspace"]
+              "read": [
+                "workspace"
+              ]
             }
           },
           "published_at": "2026-10-27",
@@ -118,12 +123,14 @@
           "download": {
             "type": "git-path",
             "url": "https://github.com/NOIC-NETWORK/SimChat",
-            "path": "mods/noic.webSearch",
+            "path": "skills/noic.webSearch",
             "ref": "HEAD"
           },
           "capabilities": {
             "net": {
-              "domains": ["bing.com"]
+              "domains": [
+                "bing.com"
+              ]
             }
           },
           "published_at": "2026-10-27",
@@ -151,76 +158,19 @@
           "download": {
             "type": "git-path",
             "url": "https://github.com/NOIC-NETWORK/SimChat",
-            "path": "mods/noic.screenshotRecognition",
+            "path": "skills/noic.screenshotRecognition",
             "ref": "HEAD"
           },
           "capabilities": {
             "fs": {
-              "read": ["workspace"]
+              "read": [
+                "workspace"
+              ]
             },
             "net": {
-              "domains": ["api.ocr.example.com"]
-            }
-          },
-          "published_at": "2026-10-27",
-          "downloads": 0,
-          "deprecated": false
-        }
-      ]
-    },
-    {
-      "mod_id": "noic.skill-areyoutrouble",
-      "type": "skill",
-      "name": "AreYouUnderTrouble 异常检测技能",
-      "description": "监控 Agent 执行状态并返回异常摘要",
-      "license": "proprietary",
-      "publisher": "LMBrewer Official",
-      "homepage": "",
-      "versions": [
-        {
-          "version": "1.0.0",
-          "abi": "lmbrew-mod/1",
-          "requires": {
-            "lmbrew": ">=2.0,<3",
-            "python": ">=3.9"
-          },
-          "download": {
-            "type": "git-path",
-            "url": "https://github.com/NOIC-NETWORK/SimChat",
-            "path": "mods/noic.areYouUnderTrouble",
-            "ref": "HEAD"
-          },
-          "published_at": "2026-10-27",
-          "downloads": 0,
-          "deprecated": false
-        }
-      ]
-    },
-    {
-      "mod_id": "noic.skill-realitycheck",
-      "type": "skill",
-      "name": "RealityCheck 事实核查技能",
-      "description": "对 Agent 输出做事实交叉验证",
-      "license": "proprietary",
-      "publisher": "LMBrewer Official",
-      "homepage": "",
-      "versions": [
-        {
-          "version": "1.0.0",
-          "abi": "lmbrew-mod/1",
-          "requires": {
-            "lmbrew": ">=2.0,<3",
-            "python": ">=3.9"
-          },
-          "download": {
-            "type": "git-path",
-            "url": "https://github.com/NOIC-NETWORK/SimChat",
-            "path": "mods/noic.realityCheck",
-            "ref": "HEAD"
-          },
-          "capabilities": {
-            "net": {
-              "domains": ["bing.com"]
+              "domains": [
+                "api.ocr.example.com"
+              ]
             }
           },
           "published_at": "2026-10-27",

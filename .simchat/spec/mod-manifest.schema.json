@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://simchat.dev/spec/mod-manifest.schema.json",
   "title": "SimChat MOD Manifest",
-  "description": "LMBrewer MOD 的唯一权威描述文件。四类 MOD 共用一套字段，按 type 施加额外约束。加载器必须 fail-closed：任何不满足本 schema 或包含未知 hook / capability 的包一律拒绝加载。",
+  "description": "SimChat MOD 的唯一权威描述文件。四类 MOD 共用一套字段，按 type 施加额外约束。加载器必须 fail-closed：任何不满足本 schema 或包含未知 hook / capability 的包一律拒绝加载。实现门禁是 loader/manifest.py，本文件需与之保持一致。",
   "type": "object",
   "additionalProperties": false,
   "required": ["id", "type", "name", "version", "abi", "license"],
@@ -20,19 +20,26 @@
     },
     "name": { "type": "string", "minLength": 1, "maxLength": 80 },
     "description": { "type": "string", "maxLength": 2000 },
+    "layer": {
+      "type": "string",
+      "enum": ["block", "mod"],
+      "description": "所属层级：block=可插拔方块（原子能力），mod=完整应用/配置包。缺省时按 type 推断（skill/automation→block，agent-config/binary→mod）。"
+    },
     "version": {
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
     },
     "abi": {
       "type": "string",
-      "const": "lmbrew-mod/1",
-      "description": "MOD 编译/编写时面向的本体扩展接口版本。加载器按语义化版本做兼容判断。"
+      "enum": ["simchat-mod/2", "lmbrew-mod/1"],
+      "description": "MOD 编写时面向的本体扩展接口版本。当前为 simchat-mod/2；lmbrew-mod/1 仅过渡期兼容。"
     },
     "entry": {
-      "type": "string",
-      "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$",
-      "description": "代码入口 module:attr。agent-config 禁止出现该字段。"
+      "anyOf": [
+        { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$" },
+        { "type": "string", "pattern": "^[^\\\\/]+\\.json$" }
+      ],
+      "description": "代码入口 module:attr；automation 允许直接指向包内 flow.json。agent-config 禁止出现该字段。"
     },
     "hooks": {
       "type": "array",
@@ -40,15 +47,18 @@
         "type": "string",
         "enum": [
           "chat.mode",
+          "agent.block",
           "agent.tool",
           "agent.context",
           "agent.system_prompt",
           "agent.safety",
           "agent.memory",
           "agent.event",
+          "agent.completed",
           "ui.slot",
           "provider.model",
-          "automation.hook"
+          "automation.hook",
+          "web.blueprint"
         ]
       },
       "uniqueItems": true,
@@ -67,13 +77,13 @@
               "type": "array",
               "items": { "type": "string" },
               "uniqueItems": true,
-              "description": "read:<scope>，scope 仅允许 workspace / mod-data / 显式相对子路径。"
+              "description": "可读 scope：workspace / mod-data / package / uploads / temp / 显式绝对路径 / 相对子路径（相对 workspace）。缺省表示只能读包目录、mod-data、uploads 与解释器运行时。"
             },
             "write": {
               "type": "array",
               "items": { "type": "string" },
               "uniqueItems": true,
-              "description": "write:<scope>，语义同 read。写权限永远需要用户逐次审批。"
+              "description": "可写 scope，语义同 read。宿主始终授予 mod-data / uploads 可写，其余写入（含 temp、workspace）需显式声明。"
             }
           }
         },
@@ -115,7 +125,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "lmbrew": { "type": "string", "description": "本体版本范围，如 >=2.0,<3。" },
+        "simchat": { "type": "string", "description": "本体版本范围，如 >=2.0,<3。" },
+        "lmbrew": { "type": "string", "description": "旧名，等价 requires.simchat（过渡期兼容）。" },
         "python": { "type": "string", "description": "Python 版本范围。" },
         "packages": {
           "type": "array",
@@ -171,14 +182,15 @@
     "automation": {
       "type": "object",
       "additionalProperties": false,
-      "description": "仅 automation 使用：流程文件、触发器与执行策略。",
-      "required": ["flow", "trigger"],
+      "description": "仅 automation 使用：流程文件路径。触发器与执行策略写在 flow.json 内。",
+      "required": ["flow_file"],
       "properties": {
-        "flow": { "type": "string", "description": "相对包内的 flow.json（DAG）路径。" },
+        "flow_file": { "type": "string", "description": "相对包内的 flow.json（DAG）路径。" },
+        "flow": { "type": "string", "description": "旧字段，等价 flow_file（过渡期兼容）。" },
         "trigger": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type"],
+          "description": "旧字段，已迁入 flow.json（过渡期兼容）。",
           "properties": {
             "type": { "type": "string", "enum": ["cron", "event", "manual"] },
             "expr": { "type": "string", "description": "cron 表达式（5 段）。" },
@@ -192,6 +204,7 @@
         "policy": {
           "type": "object",
           "additionalProperties": false,
+          "description": "旧字段，已迁入 flow.json（过渡期兼容）。",
           "properties": {
             "max_runtime_s": { "type": "integer", "minimum": 1, "maximum": 3600 },
             "daily_quota": { "type": "integer", "minimum": 1, "maximum": 10000 },

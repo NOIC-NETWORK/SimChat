@@ -12,6 +12,7 @@ import threading
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_MODS_DIR = os.path.join(_PROJECT_ROOT, "mods")
+DEFAULT_SKILLS_DIR = os.path.join(_PROJECT_ROOT, "skills")
 DEFAULT_REGISTRY_PATH = os.path.join(_PROJECT_ROOT, "registry", "index.json")
 STATE_FILE = ".simchat_state.json"
 MANIFEST_NAME = "manifest.json"
@@ -109,6 +110,7 @@ def _scan_one(folder_name, package_dir, manifest_path, disabled):
         "version": "?",
         "type": "?",
         "type_label": "Unknown",
+        "layer": "block",
         "description": "",
         "hooks": [],
         "capabilities": {},
@@ -132,12 +134,14 @@ def _scan_one(folder_name, package_dir, manifest_path, disabled):
 
     errors, warnings = _manifest().validate_manifest(manifest)
     mod_id = manifest.get("id") or folder_name
+    default_layers = getattr(_manifest(), "DEFAULT_LAYER_BY_TYPE", {})
     base.update({
         "id": mod_id,
         "name": manifest.get("name") or folder_name,
         "version": manifest.get("version") or "?",
         "type": manifest.get("type") or "?",
         "type_label": type_label(manifest.get("type")),
+        "layer": manifest.get("layer") or default_layers.get(manifest.get("type"), "block"),
         "description": manifest.get("description") or "",
         "hooks": list(manifest.get("hooks") or []),
         "capabilities": manifest.get("capabilities") or {},
@@ -196,9 +200,9 @@ def _read_flow(package_dir, flow_file):
     }
 
 
-def set_enabled(mod_id, enabled, mods_dir=None):
+def set_enabled(mod_id, enabled, mods_dir=None, directory=None):
     """写入 disabled 列表（与 ModLoader 共用状态文件），重启后生效。"""
-    mods_dir = os.path.abspath(mods_dir or DEFAULT_MODS_DIR)
+    mods_dir = os.path.abspath(directory or mods_dir or DEFAULT_MODS_DIR)
     disabled = _read_disabled(mods_dir)
     if enabled:
         disabled.discard(mod_id)
@@ -258,4 +262,21 @@ def snapshot(mods_dir=None):
         "counts": counts,
         "local": local,
         "registry": list_registry(),
+    }
+
+
+def skills_snapshot(skills_dir=None):
+    """控制台用技能快照：只扫描 skills/，与 MOD 完全分开。"""
+    directory = os.path.abspath(skills_dir or DEFAULT_SKILLS_DIR)
+    items = scan(directory)
+    counts = {
+        "total": len(items),
+        "enabled": sum(1 for item in items if item["enabled"]),
+        "disabled": sum(1 for item in items if not item["enabled"]),
+        "error": sum(1 for item in items if item["status"] == "err"),
+    }
+    return {
+        "skills_dir": directory,
+        "counts": counts,
+        "items": items,
     }

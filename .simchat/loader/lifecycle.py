@@ -26,21 +26,37 @@ from .sandbox import run_isolated, register_handle, kill_all as _kill_all_sandbo
 from .verify import verify_package  # noqa: E402
 
 
-# binary MOD 独立数据根目录（每个 MOD 分配 data/mods/<mod_id>/）
+# 每个包独立的数据根目录：Mod 层 data/mods/<id>，方块层 data/blocks/<id>
 _MODS_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MOD_DATA_ROOT = os.path.join(_MODS_ROOT, "data", "mods")
+BLOCK_DATA_ROOT = os.path.join(_MODS_ROOT, "data", "blocks")
 
 
-def _ensure_mod_data_dir(mod_id):
-    """为 MOD 创建并返回独立 data 目录路径。"""
-    path = os.path.join(MOD_DATA_ROOT, mod_id)
+def _ensure_mod_data_dir(mod_id, layer="mod"):
+    """为包创建并返回独立 data 目录路径（所有 layer 都分配）。"""
+    root = MOD_DATA_ROOT if layer == "mod" else BLOCK_DATA_ROOT
+    path = os.path.join(root, mod_id)
     os.makedirs(path, exist_ok=True)
     return path
 
 
+def _workspace_root():
+    """读取用户在 data/config.json 里选择的工作目录（未配置/失效时返回 None）。"""
+    path = os.path.join(_MODS_ROOT, "data", "config.json")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        workspace = str((data.get("workspace") or {}).get("path") or "").strip()
+        if workspace and os.path.isdir(workspace):
+            return os.path.abspath(workspace)
+    except Exception:
+        pass
+    return None
+
+
 class ModLoader(object):
     def __init__(self, mods_dir, host_version="2.0.0", services=None,
-                 logger=None):
+                 logger=None, extra_dirs=None):
         self.mods_dir = os.path.abspath(mods_dir)
         self.host_version = host_version
         self.registry = ModeRegistry()
@@ -50,6 +66,9 @@ class ModLoader(object):
         self._tools = {}  # P2.4 新增：{tool_name: {"handle": ..., "mod_id": ..., "spec": {...}}}
         self._logger = logger or (lambda message: print("[SimChat] %s" % message))
         self._state_path = os.path.join(self.mods_dir, _STATE_FILE)
+        # 额外扫描根：skills/ 等原子能力目录，与 MOD 共用同一加载器
+        self._extra_dirs = [os.path.abspath(item) for item in (extra_dirs or [])]
+        self.scan_dirs = [self.mods_dir] + self._extra_dirs
         self._disabled = self._read_state()
 
     # ---------- 状态 ----------
@@ -57,9 +76,10 @@ class ModLoader(object):
     def _log(self, message):
         self._logger(message)
 
-    def _read_state(self):
+    def _read_state(self, directory=None):
+        path = os.path.join(directory or self.mods_dir, _STATE_FILE)
         try:
-            with open(self._state_path, "r", encoding="utf-8") as handle:
+            with open(path, "r", encoding="utf-8") as handle:
                 data = json.load(handle)
             return set(data.get("disabled") or [])
         except Exception:
@@ -79,19 +99,25 @@ class ModLoader(object):
         self.mods = {}
         self.registry = ModeRegistry()
         self._backends = {}
-        if not os.path.isdir(self.mods_dir):
-            self._log("MOD 目录不存在: %s" % self.mods_dir)
-            return self.list_mods()
-
-        for name in sorted(os.listdir(self.mods_dir)):
-            if name.startswith("."):
+        self._disabled = set()
+        found = set()
+        for directory in self.scan_dirs:
+            if not os.path.isdir(directory):
+                self._log("扫描目录不存在: %s" % directory)
                 continue
-            package_dir = os.path.join(self.mods_dir, name)
-            if not os.path.isdir(package_dir):
-                continue
-            if not os.path.isfile(os.path.join(package_dir, MANIFEST_NAME)):
-                continue
-            self._load_one(package_dir)
+            self._disabled |= self._read_state(directory)
+            for name in sorted(os.listdir(directory)):
+                if name.startswith("."):
+                    continue
+                package_dir = os.path.join(directory, name)
+                if not os.path.isdir(package_dir):
+                    continue
+                if not os.path.isfile(os.path.join(package_dir, MANIFEST_NAME)):
+                    continue
+                if package_dir in found:
+                    continue
+                found.add(package_dir)
+                self._load_one(package_dir)
 
         loaded = [item for item in self.mods.values() if item["status"] == "loaded"]
         self._log("扫描完成：%d 个 MOD，%d 个已加载" % (len(self.mods), len(loaded)))
@@ -155,19 +181,21 @@ class ModLoader(object):
         if manifest.get("type") == "agent-config":
             record["status"] = "loaded"
             record["layer"] = "mod"
+            record["data_dir"] = _ensure_mod_data_dir(mod_id, "mod")
             self.mods[mod_id] = record
             self._log("[%s] agent-config 已加载（数据）" % mod_id)
             return record
 
         try:
-            # Phase 3 — 提前算好 data_dir（layer=mod 预分配独立数据目录，子进程 entry(api) 需要）
-            layer = manifest.get("layer") or DEFAULT_LAYER_BY_TYPE.get(mod_type, "block")
+            # 所有 layer 都分配独立 data_dir（validate_manifest 已补全 layer）
+            layer = manifest.get("layer") or "block"
             record["layer"] = layer
-            data_dir = _ensure_mod_data_dir(mod_id) if layer == "mod" else None
+            data_dir = _ensure_mod_data_dir(mod_id, layer)
 
             # Phase 2 P2.3 — 把 entry(api) 放进独立子进程
             handle = run_isolated(package_dir, manifest["entry"], manifest,
-                                  data_dir=data_dir)
+                                  data_dir=data_dir, services=self._services,
+                                  workspace_dir=_workspace_root())
             if not handle.get("ok"):
                 return self._fail(record, handle.get("message") or "沙箱加载失败")
 
@@ -201,7 +229,7 @@ class ModLoader(object):
             return self._fail(record, "加载失败: %s" % error)
 
         # data_dir 在上面 try 块开始处已分配，此处直接记录到 record
-        if layer == "mod" and data_dir:
+        if data_dir:
             record["data_dir"] = data_dir
         # agent-config 也标记 layer（虽然不需要 sandbox，保持一致性）
         if manifest.get("type") == "agent-config":
@@ -268,6 +296,8 @@ class ModLoader(object):
                 "status": record["status"],
                 "error": record.get("error"),
                 "hooks": list(manifest.get("hooks") or []),
+                "layer": record.get("layer") or "block",
+                "data_dir": record.get("data_dir"),
                 "modes": [dict(mode) for mode in record.get("modes") or []],
                 "tools": [dict(tool) for tool in record.get("tools") or []],  # P2.4
                 "path": record["path"],
