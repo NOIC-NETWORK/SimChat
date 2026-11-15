@@ -30,6 +30,9 @@ venv/
 .DS_Store
 Thumbs.db
 
+# 启动器发布产物（源码与工程在 .simchatLc/，其 build/ 已被上面的 build/ 覆盖）
+/simchatLc.exe
+
 # 日志与缓存
 *.log
 .pytest_cache/

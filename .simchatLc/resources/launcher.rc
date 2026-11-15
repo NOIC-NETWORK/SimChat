@@ -1,0 +1,6 @@
+#include <windows.h>
+
+#define IDI_SIMCHAT 1
+
+IDI_SIMCHAT ICON "simchat.ico"
+1 RT_MANIFEST "app.manifest"
