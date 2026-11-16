@@ -21,7 +21,7 @@ import threading
 
 from .tools import (
     TOOL_REGISTRY, build_tool_protocol_section, truncate_output, ToolError,
-    resolve_workdir, DEFAULT_SHELL_TIMEOUT,
+    resolve_workdir, DEFAULT_SHELL_TIMEOUT, validate_tool_params,
 )
 
 TOOL_SPLIT_RE = re.compile(r'/\$\s*TOOL\s*:', re.IGNORECASE)
@@ -62,13 +62,17 @@ def _extract_json_object(text):
 
 
 def _parse_tool_line(stripped):
-    """解析一行内的若干 /$TOOL: 指令（JSON 失败时宽松兜底，再失败用空参数）。"""
+    """解析一行内的若干 /$TOOL: 指令（JSON 失败时宽松兜底，兜底仍失败则标记 parse_error）。
+
+    没写 PARAMS 视为"确实没带参数"，保持空参数正常执行；
+    写了 PARAMS 却解析不出 JSON 对象才算失败，由调用方回灌给模型重出。
+    """
     calls = []
     for part in TOOL_SPLIT_RE.split(stripped)[1:]:
         name_match = TOOL_NAME_RE.match(part)
         if not name_match:
             continue
-        name = name_match.group(1).lower()
+        name = name_match.group(1)
         rest = part[name_match.end():].strip()
         params = {}
         params_match = TOOL_PARAMS_RE.match(rest)
@@ -76,12 +80,12 @@ def _parse_tool_line(stripped):
         if raw:
             try:
                 loaded = json.loads(raw)
-                if isinstance(loaded, dict):
-                    params = loaded
             except Exception:
-                obj = _extract_json_object(raw)
-                if isinstance(obj, dict):
-                    params = obj
+                loaded = _extract_json_object(raw)
+            if not isinstance(loaded, dict):
+                calls.append({'tool': name, 'params': {}, 'parse_error': raw[:200]})
+                continue
+            params = loaded
         calls.append({'tool': name, 'params': params})
     return calls
 
@@ -520,11 +524,26 @@ class AgentLoop:
             idx = i + 1
             call_id = f't{turn}c{idx}'
             tool = TOOL_REGISTRY.get(call['tool'])
+            if tool is not None:
+                # 归一化为注册表里的 canonical 名：prompt / 错误回灌 / 前端展示用同一套写法
+                call['tool'] = tool.name
             risk = tool.risk if tool else 'unknown'
             emit({
                 'event': 'tool_call', 'turn': turn, 'call_id': call_id,
                 'tool': call['tool'], 'input': call['params'], 'risk': risk,
             })
+
+            # 参数 JSON 解析失败：回灌错误让模型重出，绝不用空参数执行
+            if call.get('parse_error'):
+                error_text = (
+                    '参数解析失败：PARAMS 不是合法 JSON 对象，本次调用未执行。'
+                    '请只输出一行 /$TOOL:工具名 PARAMS:{"参数名": "值"} 后重试。'
+                    f'原始片段: {call["parse_error"]}'
+                )
+                emit({'event': 'tool_result', 'turn': turn, 'call_id': call_id,
+                      'tool': call['tool'], 'ok': False, 'output': '', 'error': error_text})
+                transcript.append(f"- {call_id} {call['tool']} 参数解析失败: {call['parse_error']}\n  结果: 错误: {error_text}")
+                continue
 
             # 未知工具：回错并继续后续调用
             if tool is None:
@@ -551,6 +570,17 @@ class AgentLoop:
                 emit({'event': 'tool_result', 'turn': turn, 'call_id': call_id,
                       'tool': call['tool'], 'ok': False, 'output': '', 'error': error_text})
                 transcript.append(f"- {call_id} {call['tool']} 参数 {json.dumps(call['params'], ensure_ascii=False)}\n  结果: 错误: {error_text}")
+                continue
+
+            # 参数校验：必填缺失/类型明显不符 → 回灌错误，不执行（也不进审批）
+            param_error = validate_tool_params(tool, call['params'])
+            if param_error:
+                emit({'event': 'tool_result', 'turn': turn, 'call_id': call_id,
+                      'tool': call['tool'], 'ok': False, 'output': '', 'error': param_error})
+                transcript.append(
+                    f"- {call_id} {call['tool']} 参数 {json.dumps(call['params'], ensure_ascii=False)}\n"
+                    f"  结果: 错误: {param_error}"
+                )
                 continue
 
             # 写/危险级：挂起待审批（仅 Agent 模式可达此处）
@@ -593,6 +623,16 @@ class AgentLoop:
             # 允许用户在审批时微调参数（如改写 content）
             if isinstance(edits, dict) and edits:
                 params.update(edits)
+            # 审批时改过参数，执行前再校验一次（同样不执行 + 回灌原因）
+            param_error = validate_tool_params(tool, params)
+            if param_error:
+                emit({'event': 'tool_result', 'turn': turn, 'call_id': call_id,
+                      'tool': tool_name, 'ok': False, 'output': '', 'error': param_error})
+                transcript.append(
+                    f"- {call_id} {tool_name} 参数 {json.dumps(params, ensure_ascii=False)}（已批准）\n"
+                    f"  结果: 错误: {param_error}"
+                )
+                return
             ok, output_text, error_text = self._exec_tool(tool, tool_name, params, call_id, emit, turn)
             transcript.append(
                 f"- {call_id} {tool_name} 参数 {json.dumps(params, ensure_ascii=False)}（已批准）\n"

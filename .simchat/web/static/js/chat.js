@@ -4986,6 +4986,11 @@
     "🎭","👻","🧙","🗡️","🌱","🔥","❄️","⚡",
   ];
 
+  // 暂不可用的引擎预设：实现保留，仅入口置灰不可选（W-Synk 依赖尚未实现的独立神经网络）
+  const ENGINE_PRESET_UNAVAILABLE = {
+    wsynk: "暂不可用：依赖的独立神经网络尚未实现",
+  };
+
   const state2 = {
     agents: [],
     selectedAgentId: null,
@@ -5146,6 +5151,13 @@
     applyInteractionGate();
   }
 
+  // 供 header 快捷键复用：直接开关面板，不经过按钮自身的 click 监听，避免重复切换
+  window.SimChatPanels = {
+    open: openOverlay,
+    close: closeOverlay,
+    isOpen: (id) => Boolean(document.getElementById(id)?.classList.contains("is-open")),
+  };
+
   // 别名（保留老函数名兼容内部调用）
   const showAgentList = () => openOverlay("agent-list");
   const hideAgentList = () => closeOverlay("agent-list");
@@ -5229,14 +5241,18 @@
     }
     list.innerHTML = state2.enginePresets.map((preset) => {
       const active = preset.id === state2.enginePresetId;
+      const unavailable = ENGINE_PRESET_UNAVAILABLE[preset.id];
+      const desc = unavailable || preset.description;
       return `
-        <button type="button" class="agent-engine-option${active ? " is-active" : ""}"
-                data-engine-id="${preset.id}" role="radio" aria-checked="${active}">
-          <span class="agent-engine-name">${escapeHtml(preset.label)}</span>
-          <span class="agent-engine-desc">${escapeHtml(preset.description)}</span>
+        <button type="button" class="agent-engine-option${active ? " is-active" : ""}${unavailable ? " is-disabled" : ""}"
+                data-engine-id="${preset.id}" role="radio" aria-checked="${active}"
+                ${unavailable ? `disabled aria-disabled="true" title="${escapeHtml(desc)}"` : ""}>
+          <span class="agent-engine-name">${escapeHtml(preset.label)}${unavailable ? '<span class="agent-engine-badge">暂不可用</span>' : ""}</span>
+          <span class="agent-engine-desc">${escapeHtml(desc)}</span>
         </button>`;
     }).join("");
     list.querySelectorAll(".agent-engine-option").forEach((btn) => {
+      if (btn.disabled) return;
       btn.addEventListener("click", () => selectEnginePreset(btn.dataset.engineId));
     });
     syncEngineParamInputs();
@@ -5245,6 +5261,8 @@
   function selectEnginePreset(id) {
     const preset = state2.enginePresets.find((p) => p.id === id);
     if (!preset) return;
+    // 暂不可用的预设（如 W-Synk）任何来源都无法选中
+    if (ENGINE_PRESET_UNAVAILABLE[id]) return;
 
     // 切 preset 前保存当前状态：如果之前是 custom，记住用户最后调的值
     const prevIsCustom = state2.enginePresetId === "custom";

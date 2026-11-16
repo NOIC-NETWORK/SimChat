@@ -7,6 +7,7 @@
 <link rel="icon" type="image/png" href="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261109a">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261103a">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}?v=20261116a">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 </head>
@@ -50,29 +51,45 @@
 
       <!-- 中间：导航按钮组 -->
       <div class="nav-menu" role="group" aria-label="SimChat 导航">
-        <button class="nav-btn" id="mc-singleplayer" type="button" title="自定义 AI 实例列表">
+        <button class="nav-btn" id="mc-inventory" type="button" title="原子能力物品栏 (I)" aria-keyshortcuts="I">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+            <rect x="14" y="14" width="7" height="7" rx="1"/>
+          </svg>
+          <span>物品栏</span><span class="nav-btn-key">(I)</span>
+        </button>
+        <button class="nav-btn" id="mc-singleplayer" type="button" title="自定义 AI 实例列表 (E)" aria-keyshortcuts="E">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
             <circle cx="12" cy="7" r="4"/>
           </svg>
-          <span>AI 实例</span>
+          <span>AI 实例</span><span class="nav-btn-key">(E)</span>
         </button>
-        <button class="nav-btn" id="mc-multiplayer" type="button" title="连接到其他 SimChat 网关">
+        <button class="nav-btn" id="mc-multiplayer" type="button" title="连接到其他 SimChat 网关 (G)" aria-keyshortcuts="G">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/>
             <line x1="2" y1="12" x2="22" y2="12"/>
             <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
           </svg>
-          <span>网关连接</span>
+          <span>网关</span><span class="nav-btn-key">(G)</span>
         </button>
-        <button class="nav-btn" id="mc-mods" type="button" title="MOD 管理">
+        <button class="nav-btn" id="mc-mods" type="button" title="MOD 管理 (M)" aria-keyshortcuts="M">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="7" height="7"/>
             <rect x="14" y="3" width="7" height="7"/>
             <rect x="14" y="14" width="7" height="7"/>
             <rect x="3" y="14" width="7" height="7"/>
           </svg>
-          <span>MOD</span>
+          <span>MOD 菜单</span><span class="nav-btn-key">(M)</span>
+        </button>
+        <button class="nav-btn" id="nav-settings" type="button" title="设置 (C)" aria-keyshortcuts="C">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span>设置</span><span class="nav-btn-key">(C)</span>
         </button>
         <button class="nav-btn" id="mc-realms" type="button" title="论坛和分享中心（即将推出）" disabled>
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1302,6 +1319,65 @@
   </div>
 </div>
 
+<!-- ======= 原子能力物品栏（I 键开关） ======= -->
+<div class="inv-overlay" id="inv-panel" aria-hidden="true">
+  <div class="inv-frame" id="inv-frame" role="dialog" aria-modal="true" aria-labelledby="inv-title" tabindex="-1">
+    <header class="inv-head">
+      <div class="inv-head-title">
+        <span class="inv-head-icon">▦</span>
+        <h2 id="inv-title">原子能力</h2>
+        <span class="inv-head-sub" id="inv-head-sub">正在读取能力清单…</span>
+      </div>
+      <div class="inv-head-actions">
+        <span class="inv-key-hint"><kbd>I</kbd> 开关 · <kbd>Esc</kbd> 关闭</span>
+        <button type="button" class="inv-close" id="inv-close" aria-label="关闭物品栏">✕</button>
+      </div>
+    </header>
+
+    <div class="inv-tabs" id="inv-tabs" role="tablist" aria-label="物品栏视图">
+      <button type="button" class="inv-tab is-active" data-inv-tab="grid" role="tab" aria-selected="true">▦ 物品栏</button>
+      <button type="button" class="inv-tab" data-inv-tab="search" role="tab" aria-selected="false">🧭 搜索</button>
+      <button type="button" class="inv-tab" data-inv-tab="deploy" role="tab" aria-selected="false">📦 部署</button>
+    </div>
+
+    <div class="inv-body">
+      <nav class="inv-cats" id="inv-cats" role="tablist" aria-label="能力分类"></nav>
+
+      <section class="inv-main">
+        <div class="inv-pane" data-pane="grid">
+          <div class="inv-toolbar">
+            <span class="inv-toolbar-title" id="inv-toolbar-title">技能</span>
+            <span class="inv-toolbar-desc" id="inv-toolbar-desc"></span>
+            <button type="button" class="inv-refresh" id="inv-refresh">刷新</button>
+          </div>
+          <div class="inv-grid" id="inv-grid" role="list" aria-label="能力条目"></div>
+          <div class="inv-state hidden" id="inv-state"></div>
+        </div>
+
+        <div class="inv-pane hidden" data-pane="search">
+          <div class="inv-search-bar">
+            <input class="inv-search-input" id="inv-search" type="text"
+                   placeholder="搜索名称 / ID / 描述 / hook，跨分类查找"
+                   autocomplete="off" aria-label="搜索能力">
+          </div>
+          <div class="inv-results" id="inv-results"></div>
+        </div>
+
+        <div class="inv-pane hidden" data-pane="deploy">
+          <div class="inv-results" id="inv-deploy"></div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="inv-foot">
+      <span class="inv-foot-hint" id="inv-foot-hint">I 开关面板 · Esc 关闭 · Tab 在分类与条目间移动</span>
+      <span class="inv-foot-src">数据源：/api/console/skills · /api/console/automation</span>
+    </footer>
+  </div>
+</div>
+
 <script src="{{ url_for('static', filename='js/chat.js') }}?v=20261111a"></script>
+<script src="{{ url_for('static', filename='js/inventory.js') }}?v=20261116a"></script>
+<script src="{{ url_for('static', filename='js/nav-shortcuts.js') }}?v=20261116a"></script>
 </body>
 </html>

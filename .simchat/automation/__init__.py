@@ -52,6 +52,10 @@ class AutomationEngine(object):
         # 已注册的 flow：{mod_id: {"flow": dict, "trigger": Trigger}}
         self._flows = {}
 
+        # 最近运行记录（内存环形，供 automation 工具读取实时状态）
+        self._recent_runs = []
+        self._recent_runs_limit = 20
+
         # Phase 5.4 新增：三大运行时管理器
         from .quota import QuotaManager
         from .approval import ApprovalManager
@@ -201,7 +205,7 @@ class AutomationEngine(object):
 
         info = self._flows.get(mod_id)
         if info is None:
-            return
+            return {"ok": False, "error": "flow 未注册: %s" % mod_id}
         flow = info["flow"]
         flow_id = flow.get("id")
 
@@ -209,8 +213,13 @@ class AutomationEngine(object):
         if not self._quota.enter_global():
             self._logger.warning("[%s] flow %s 跳过：全局并发已达上限 (%d)",
                                  triggered_by, flow_id, 8)
-            return
+            return self._record_run({
+                "ok": False, "flow_id": flow_id, "mod_id": mod_id,
+                "triggered_by": triggered_by, "status": "global_busy",
+                "error": "全局并发已达上限",
+            })
 
+        started = _time.time()
         try:
             # Phase 5.4 — 每日配额硬闸
             if not self._quota.is_quota_ok(flow):
@@ -220,7 +229,11 @@ class AutomationEngine(object):
                 run_id = "run-%d-%s" % (int(_time.time() * 1000) % 100000, mod_id)
                 self._audit.start_run(flow, mod_id, run_id, triggered_by=triggered_by)
                 self._audit.finish_run(run_id, "quota_skipped")
-                return
+                return self._record_run({
+                    "ok": False, "run_id": run_id, "flow_id": flow_id, "mod_id": mod_id,
+                    "triggered_by": triggered_by, "status": "quota_skipped",
+                    "error": "当日配额已达上限",
+                })
             self._quota.increment_quota(flow)
 
             run_id = "run-%d-%s" % (int(_time.time() * 1000) % 100000, mod_id)
@@ -244,11 +257,34 @@ class AutomationEngine(object):
                         preview = " (%s...)" % text[:80] if len(text) > 80 else " (%s)" % text
                     self._logger.info("  step %s → %s%s", sid, r["status"], preview)
 
+                summary = {
+                    "ok": completed == total,
+                    "run_id": run_id, "flow_id": flow_id, "mod_id": mod_id,
+                    "triggered_by": triggered_by,
+                    "status": "completed" if completed == total else "partial",
+                    "steps": [{"id": sid, "status": r["status"]} for sid, r in results.items()],
+                }
+
             except Exception as e:
                 self._logger.error("[%s] flow %s 执行异常: %s", triggered_by, flow_id, e)
+                summary = {
+                    "ok": False, "run_id": run_id, "flow_id": flow_id, "mod_id": mod_id,
+                    "triggered_by": triggered_by, "status": "error", "error": str(e),
+                }
+
+            summary["duration_ms"] = int((_time.time() - started) * 1000)
+            return self._record_run(summary)
 
         finally:
             self._quota.exit_global()
+
+    def _record_run(self, summary):
+        """把一次运行摘要放进内存环形表，供 automation 工具查询实时状态。"""
+        self._recent_runs.append(summary)
+        overflow = len(self._recent_runs) - self._recent_runs_limit
+        if overflow > 0:
+            del self._recent_runs[:overflow]
+        return summary
 
     def _build_env(self):
         """构建注入 flow 的环境变量（Phase 5.3）。"""
@@ -280,6 +316,20 @@ class AutomationEngine(object):
         trigger.fire()
         self._run_flow(mod_id, triggered_by="manual")
         return {"ok": True, "run_id": "run-%d" % int(time.time())}
+
+    def trigger_flow(self, flow_id, triggered_by="tool"):
+        """按 flow id 触发一次执行（宿主工具调用；审批由调用方保证）。"""
+        for mod_id, info in self._flows.items():
+            if info["flow"].get("id") == flow_id:
+                return self._run_flow(mod_id, triggered_by=triggered_by)
+        available = [str(info["flow"].get("id")) for info in self._flows.values()]
+        return {"ok": False,
+                "error": "flow 不存在: %s（可用: %s）" % (flow_id, ", ".join(available) or "无")}
+
+    def list_runs(self, limit=10):
+        """最近的运行记录（新的在前），供 automation 工具读取实时状态。"""
+        limit = max(1, int(limit or 10))
+        return list(reversed(self._recent_runs[-limit:]))
 
     # ---------- Phase 5.4 — 审批 API（宿主侧调用） ----------
 

@@ -353,6 +353,16 @@ textarea {
   background: var(--active);
 }
 
+/* 快捷键提示：跟随导航按钮，不额外加边框避免抢视觉 */
+.nav-btn-key {
+  margin-left: -1px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  opacity: 0.75;
+  letter-spacing: 0.02em;
+}
+
 .nav-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -816,6 +826,29 @@ textarea {
 
 .agent-engine-option:hover {
   background: var(--hover);
+}
+
+/* 暂不可用的预设（W-Synk：依赖尚未实现的独立神经网络） */
+.agent-engine-option:disabled,
+.agent-engine-option.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.agent-engine-option:disabled:hover,
+.agent-engine-option.is-disabled:hover {
+  background: transparent;
+}
+
+.agent-engine-badge {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  vertical-align: 1px;
 }
 
 .agent-engine-option.is-active {

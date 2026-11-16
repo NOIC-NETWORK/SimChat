@@ -1,5 +1,23 @@
 # 最近更新
 
+**2026-11-16 下午** — 运行时可靠性：工具名归一、参数校验层、automation 全链接线、原子能力物品栏
+
+- **工具名大小写不敏感**：`BlockRegistry` 新增小写索引 `_ci`，`register()` 按小写去重并保护内建方块不被 MOD 覆盖，`get()/has()` 精确命中失败后回退小写匹配；`loop.py` 命中后把 `call['tool']` 回写成 canonical 名。修掉 `realityCheck` / `webSearch` 这类 camelCase 调用永远解析不到的问题，MOD 工具也一并受益。
+- **MOD 工具元数据完整透传**：`lifecycle.py` 新增 `_safe_tool_meta()`，只保留 `name/label/description/risk/usage/params_schema/backend/triggers/input_schema` 九个已知字段并做 JSON 往返清洗；`risk` 缺失保持 `read`，声明了非法值则保守降为 `write`，避免写操作静默绕过审批。此前只写 `{name,label}`，导致描述为空、写级被当成只读。
+- **失败包可见**：`discover()` 外层异常改为 `_record_crash()` 落一条 `failed` 记录（同构字段 + 按 `path` 去重、id 冲突退化键名），单个包崩溃既不中断扫描，也不会从 `list_mods()` 里凭空消失。
+- **解析失败回灌**：`loop.py` 的 `_parse_tool_line()` 在「写了 PARAMS 但解析不出对象」时产出 `parse_error`，`_process_turn_calls()` 直接回灌 `tool_result(ok=False)` 并跳过执行；没写 PARAMS 仍按空参处理，两种语义不再混淆。
+- **usage 示例合法化**：`file_read` 的 `offset`、`web_search` 的 `max_results`、`shell` 的 `timeout` 三处 `PARAMS` 示例改成合法 JSON，中文说明保留在 description 里，模型照抄不再产出坏 JSON。
+- **`skills` 接入 chat 模式**：原来 chat 清单里只有一条伪条目，现在 `SkillsTool` 无 `name` 时实时列 `loader.list_tools()` 清单，带 `name` 时直接调只读 skill；写级 skill 拒绝并指回「Agent 模式同名工具 + 审批」路径。清单动态取，不硬编码。
+- **automation 全链**：`create_app` 通过 `_ensure_automation_engine()` 幂等启动 `AutomationEngine`（`atexit` 关闭、失败只记日志不拖垮 Web），`_LazyCore` 代理让 `agent:run` 首次执行时才取 core；loader 新增 automation 分支，读 manifest 的 `automation.flow_file` 后 `engine.register_flow()` 并回查确认，异常沿用 `_fail`/crash 隔离；`chat` 的 automation 伪条目换成真工具——`automation`（read：`list`/`runs`）与 `automation_trigger`（write：走审批）拆成两个方块；引擎侧补 `trigger_flow()`、`list_runs()` 与最近 20 条内存运行记录，所有 `_run_flow` 出口都落一条摘要。
+- **MCP 文案如实化**：提示词里「可连接 MCP 服务器」改成明确「运行时未实现、不可调用」，agent/chat 两处口径一致，条目保留不删。
+- **`HOST_VERSION` 单一来源**：新增叶子模块 `loader/version.py`（`HOST_VERSION = "2.3.0"`），`ModLoader` 默认参数与 `web/__init__.py` 的 `_MODS_HOST_VERSION` 都引用它，修掉「Web 启动能装、脚本直接 `new ModLoader` 判失败」的错位；依赖方向保持单向（web → loader，无反向 import）。
+- **参数校验层**：13 个内建方块逐个声明 `params_schema`（必填/可选/类型，按实现里真正会报错的参数定），新增 `validate_tool_params()` 支持内建字段字典、MOD JSON Schema、简写类型三种形态；执行前校验，缺必填或类型明显不符则回灌「缺哪个字段、期望什么类型、重试格式」并且**不执行**；审批通过后、执行前再校验一次（允许审批时改参）；无名约束的 MOD 工具直接放行，`parse_error` 路径保持优先不被覆盖。
+- **`WebSearchTool` 路径修正**：skill 加载路径从 `mods/noic.webSearch/python` 改为 `skills/noic.webSearch/python`，并加目录/入口文件存在性判断——缺失时报「web_search 技能未安装：缺少 …」，与「已找到但加载失败」区分，不再把 `ImportError` 丢给模型去猜。实测合法参数可真实返回搜索结果。
+- **W-Synk 预设禁用（前端）**：`chat.js` 新增 `ENGINE_PRESET_UNAVAILABLE` 表与 `selectEnginePreset` 硬拦截，卡片灰显并挂「暂不可用」徽标；`chat.css` 补禁用态与 `.agent-engine-badge` 样式。实现保留，只是入口不可选。
+- **原子能力物品栏（前端）**：新增 `inventory.js` / `inventory.css`，`index.html` 引入并加面板结构；分类为技能 / 自动化 / MCP / CoT / Orbiter，技能与自动化走 `/api/console/skills`、`/api/console/automation` 实时数据，MCP、CoT、Orbiter 三类如实显示「运行时未接入」空态，另带搜索与部署两个选项卡。
+- **header 快捷键入口（前端）**：`index.html` 导航区新增「物品栏 (I)」「AI 实例 (E)」「网关 (G)」「MOD 菜单 (M)」「设置 (C)」入口与按键提示，新增 `nav-shortcuts.js`（E/G/M/C/I 开关、Esc 兜底、关闭后焦点还原、输入态不劫持），`chat.js` 暴露 `SimChatPanels` 供其复用面板开关，`chat.css` 加 `.nav-btn-key` 样式。
+- 文件：`.simchat/runtime/agent/tools.py`、`.simchat/runtime/agent/loop.py`、`.simchat/loader/lifecycle.py`、`.simchat/loader/version.py`（新增）、`.simchat/automation/__init__.py`、`.simchat/web/__init__.py`、`.simchat/web/templates/index.html`、`.simchat/web/static/js/chat.js`、`.simchat/web/static/js/inventory.js`（新增）、`.simchat/web/static/js/nav-shortcuts.js`（新增）、`.simchat/web/static/css/chat.css`、`.simchat/web/static/css/inventory.css`（新增）、`updates.md`
+
 **2026-11-16** — IDE 顶栏三分区重构 + 启动器崩溃报告落盘
 
 - **顶栏（menubar）重排**：原来「品牌 + 菜单 + 居中标题」的简单结构改成左 / 中 / 右三段——左侧品牌与 File·Edit·View·Run·Terminal·Help 菜单，中间是搜索框（点击或 Enter 唤起 Ctrl+K 命令面板）、撤销 / 重做按钮、以及侧栏 / 底部面板 / 右侧 AI 面板三个开关，右侧是 Agent 跳转按钮、设置入口与用户头像块。原先绝对居中的 `menubar-title` 被 `.mb-center` 取代，旧样式改为 `display:none` 保留兼容。

@@ -15,6 +15,9 @@ import threading
 import time
 from collections import deque
 
+# 版本号单一来源在 loader 侧（叶子模块 version.py，无反向依赖）
+from simchat.loader.version import HOST_VERSION
+
 from flask import (
     Flask,
     Response,
@@ -69,9 +72,13 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # MOD / 技能目录（进程级单例）
 _MODS_DIR = os.path.join(_PROJECT_ROOT, "mods")
 _SKILLS_DIR = os.path.join(_PROJECT_ROOT, "skills")
-_MODS_HOST_VERSION = "2.3.0"
+_MODS_HOST_VERSION = HOST_VERSION
 _mod_loader = None
 _mod_loader_lock = threading.Lock()
+
+# 自动化调度引擎（进程级单例，daemon 线程）
+_automation_engine = None
+_automation_lock = threading.Lock()
 
 
 def _shutdown_mod_loader():
@@ -82,6 +89,55 @@ def _shutdown_mod_loader():
             loader.cleanup()
         except Exception:
             pass
+
+
+def _shutdown_automation():
+    global _automation_engine
+    engine, _automation_engine = _automation_engine, None
+    if engine is not None:
+        try:
+            engine.stop()
+        except Exception:
+            pass
+
+
+class _LazyCore(object):
+    """自动化引擎的运行时代理：首次真正执行 agent:run 时才取 core。"""
+
+    def __init__(self, app):
+        self._app = app
+
+    def chat_stream(self, *args, **kwargs):
+        return _get_core(self._app).chat_stream(*args, **kwargs)
+
+
+def _ensure_automation_engine(app=None, loader=None):
+    """启动本体自动化调度引擎（幂等）；失败只记日志，不影响 Web 启动。"""
+    global _automation_engine
+    if _automation_engine is not None:
+        return _automation_engine
+    with _automation_lock:
+        if _automation_engine is not None:
+            return _automation_engine
+        try:
+            from simchat.automation import AutomationEngine, set_global_engine
+
+            data_dir = os.path.join(_PROJECT_ROOT, "data", "automation")
+            os.makedirs(data_dir, exist_ok=True)
+            engine = AutomationEngine(data_dir, host_version=_MODS_HOST_VERSION,
+                                      logger=_request_log)
+            if loader is not None:
+                engine.bind_loader(loader)
+            if app is not None:
+                engine.bind_runtime(_LazyCore(app))
+            engine.start()  # 内部有 _running 守卫，重复调用不会起第二个线程
+            set_global_engine(engine)
+            _automation_engine = engine
+            atexit.register(_shutdown_automation)
+            _request_log.info("自动化引擎已启动: %s", data_dir)
+        except Exception:
+            _request_log.exception("自动化引擎初始化失败，automation 能力不可用")
+    return _automation_engine
 
 
 class _InferenceService(object):
@@ -138,6 +194,8 @@ def _ensure_mod_loader(app=None):
             atexit.register(_shutdown_mod_loader)
         except Exception:
             _request_log.exception("MOD 加载器初始化失败，跳过 MOD 能力")
+        # 引擎独立于 loader 启动：loader 挂了 automation 仍可跑纯 flow 类任务
+        _ensure_automation_engine(app=app, loader=_mod_loader)
     return _mod_loader
 
 

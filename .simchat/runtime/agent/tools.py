@@ -175,12 +175,17 @@ def _decode_bytes(raw):
 
 
 class BaseTool:
-    """Agent 工具基类。usage 会原样拼进协议段，供模型照抄调用。"""
+    """Agent 工具基类。usage 会原样拼进协议段，供模型照抄调用。
+
+    params_schema 声明调用参数：{字段: {"type": 类型, "required": 是否必填}}。
+    执行前由 validate_tool_params() 做必填/类型校验；空 dict 表示无约束。
+    """
     name = 'base'
     label = '基础工具'
     description = ''
     risk = 'read'
     usage = ''
+    params_schema = {}
 
     def run(self, params, ctx):
         raise NotImplementedError
@@ -194,6 +199,129 @@ class BaseTool:
             'usage': self.usage,
             'enabled': True,
         }
+
+
+_PARAM_TYPE_LABELS = {
+    'string': '字符串', 'integer': '整数', 'number': '数字',
+    'boolean': '布尔值', 'object': '对象', 'array': '数组',
+}
+
+
+def _describe_value(value):
+    """把实际值压成中文类型名，用于类型错误回灌。"""
+    if value is None:
+        return '空值'
+    if isinstance(value, bool):
+        return '布尔值'
+    if isinstance(value, str):
+        return '字符串'
+    if isinstance(value, int):
+        return '整数'
+    if isinstance(value, float):
+        return '小数'
+    if isinstance(value, list):
+        return '数组'
+    if isinstance(value, dict):
+        return '对象'
+    return type(value).__name__
+
+
+def _normalize_param_schema(schema):
+    """把三种声明形态归一成 {字段: {"type": ..., "required": bool}}。
+
+    支持：内建 params_schema（字段字典）、MOD 的 JSON Schema
+    （{"type": "object", "properties": {...}, "required": [...]}）、
+    {字段: "类型名"} 的简写。无法识别/为空 → 空 dict（视为无约束）。
+    """
+    if not isinstance(schema, dict) or not schema:
+        return {}
+    if 'properties' in schema or schema.get('type') == 'object':
+        properties = schema.get('properties')
+        if not isinstance(properties, dict):
+            return {}
+        required = set(schema.get('required') or [])
+        fields = {}
+        for key, raw in properties.items():
+            spec = raw if isinstance(raw, dict) else {}
+            fields[key] = {'type': spec.get('type'), 'required': key in required}
+        return fields
+    fields = {}
+    for key, raw in schema.items():
+        if isinstance(raw, dict):
+            fields[key] = {'type': raw.get('type'), 'required': bool(raw.get('required'))}
+        elif isinstance(raw, str):
+            fields[key] = {'type': raw, 'required': False}
+    return fields
+
+
+def _check_param_type(value, expected):
+    """按 JSON 类型名判断；未知/未声明的类型不做限制。
+
+    integer/number 额外接受可解析的数字字符串——与各工具实现里的 int() 容错保持一致，
+    避免把本来能跑通的调用挡在门外。
+    """
+    if isinstance(expected, (list, tuple)):
+        return any(_check_param_type(value, item) for item in expected)
+    expected = (expected or '').strip().lower() if isinstance(expected, str) else ''
+    if not expected:
+        return True
+    if expected == 'string':
+        return isinstance(value, str)
+    if expected == 'boolean':
+        return isinstance(value, bool)
+    if expected == 'object':
+        return isinstance(value, dict)
+    if expected == 'array':
+        return isinstance(value, list)
+    if expected in ('integer', 'number'):
+        if isinstance(value, bool):
+            return False
+        if isinstance(value, int):
+            return True
+        if isinstance(value, float):
+            return expected == 'number' or value.is_integer()
+        if isinstance(value, str):
+            try:
+                float(value.strip())
+                return True
+            except ValueError:
+                return False
+        return False
+    return True
+
+
+def validate_tool_params(tool, params):
+    """执行前校验调用参数；返回错误文本，None 表示通过。
+
+    只校验「必填存在」与「类型明显不符」两项，不拒绝多余参数，
+    未声明 params_schema 的方块（含多数 MOD 工具）视为无约束。
+    """
+    if not isinstance(params, dict):
+        params = {}
+    schema = _normalize_param_schema(getattr(tool, 'params_schema', None))
+    if not schema:
+        return None
+    problems = []
+    for key, spec in schema.items():
+        expected = spec.get('type')
+        label = _PARAM_TYPE_LABELS.get(expected, '参数') if isinstance(expected, str) else '参数'
+        if key not in params or params[key] is None:
+            if spec.get('required'):
+                problems.append('缺少必填参数 %s（%s）' % (key, label))
+            continue
+        if isinstance(params[key], str) and not params[key].strip():
+            if spec.get('required'):
+                problems.append('必填参数 %s 为空（%s）' % (key, label))
+            continue
+        if not _check_param_type(params[key], expected):
+            problems.append('参数 %s 类型错误：期望%s，实际为%s'
+                            % (key, label, _describe_value(params[key])))
+    if not problems:
+        return None
+    name = getattr(tool, 'name', '') or '未知工具'
+    usage = getattr(tool, 'usage', '') or ('%s PARAMS:{...}' % name)
+    return ('参数校验失败（本次调用未执行）：%s。请修正后重试，格式参考：/$TOOL:%s'
+            % ('；'.join(problems), usage.lstrip('/')))
 
 
 def _glob_same_name(workdir, filename, limit=5):
@@ -225,8 +353,13 @@ def _glob_same_name(workdir, filename, limit=5):
 class FileReadTool(BaseTool):
     name = 'file_read'
     label = '读取文件'
-    description = '读取项目内文本文件的内容'
-    usage = 'file_read PARAMS:{"path": "相对路径", "offset": 起始行(可选,从1开始), "limit": 行数(可选)}'
+    description = '读取项目内文本文件的内容（offset=起始行，从1开始，可选；limit=读取行数，可选）'
+    usage = 'file_read PARAMS:{"path": "相对路径", "offset": 1, "limit": 200}'
+    params_schema = {
+        'path': {'type': 'string', 'required': True},
+        'offset': {'type': 'integer', 'required': False},
+        'limit': {'type': 'integer', 'required': False},
+    }
 
     def run(self, params, ctx):
         path = safe_resolve(ctx.get('workdir'), params.get('path'))
@@ -268,6 +401,9 @@ class ListDirTool(BaseTool):
     label = '列出目录'
     description = '列出项目内某个目录的内容'
     usage = 'list_dir PARAMS:{"path": "目录路径"}'
+    params_schema = {
+        'path': {'type': 'string', 'required': False},  # 缺省为项目根
+    }
 
     def run(self, params, ctx):
         rel = params.get('path') or '.'
@@ -297,6 +433,9 @@ class GlobTool(BaseTool):
     label = '通配符查找'
     description = '按通配符模式查找项目内文件'
     usage = 'glob PARAMS:{"pattern": "如 kirara/*.py 或 **/*.html"}'
+    params_schema = {
+        'pattern': {'type': 'string', 'required': True},
+    }
 
     def run(self, params, ctx):
         pattern = params.get('pattern')
@@ -332,6 +471,10 @@ class GrepTool(BaseTool):
     label = '内容搜索'
     description = '用正则在项目文件内容中搜索'
     usage = 'grep_text PARAMS:{"pattern": "正则表达式", "path": "限定目录或文件(可选)"}'
+    params_schema = {
+        'pattern': {'type': 'string', 'required': True},
+        'path': {'type': 'string', 'required': False},  # 缺省为项目根
+    }
 
     def run(self, params, ctx):
         pat = params.get('pattern')
@@ -387,8 +530,12 @@ class GrepTool(BaseTool):
 class WebSearchTool(BaseTool):
     name = 'web_search'
     label = '网络搜索'
-    description = '联网搜索关键词，返回标题/链接/摘要'
-    usage = 'web_search PARAMS:{"query": "关键词", "max_results": 条数(可选,默认5)}'
+    description = '联网搜索关键词，返回标题/链接/摘要（max_results 为返回条数，可选，默认 5）'
+    usage = 'web_search PARAMS:{"query": "关键词", "max_results": 5}'
+    params_schema = {
+        'query': {'type': 'string', 'required': True},
+        'max_results': {'type': 'integer', 'required': False},
+    }
 
     def run(self, params, ctx):
         query = params.get('query')
@@ -416,16 +563,25 @@ class WebSearchTool(BaseTool):
 
     @staticmethod
     def _get_websearch_skill():
-        """惰性加载 noic.webSearch skill MOD，避免导入期引入 requests/bs4 依赖。"""
-        mod_python = os.path.join(PROJECT_ROOT, 'mods', 'noic.webSearch', 'python')
+        """惰性加载 noic.webSearch skill，避免导入期引入 requests/bs4 依赖。
+
+        skill 装在 skills/ 下（与 MOD 目录分离）；目录或入口文件缺失时直接报“未安装”，
+        不把 ImportError 抛给模型去猜。
+        """
+        skill_python = os.path.join(PROJECT_ROOT, 'skills', 'noic.webSearch', 'python')
+        entry_file = os.path.join(skill_python, 'webSearch.py')
         sdk_python = os.path.join(PROJECT_ROOT, 'sdk', 'python')
-        for path in (mod_python, sdk_python):
+        if not os.path.isdir(skill_python) or not os.path.isfile(entry_file):
+            raise ToolError(
+                'web_search 技能未安装：缺少 %s。请在「技能」页安装 noic.webSearch 后重试；'
+                '临时替代方案是改用 skills 工具调用其它只读能力。' % entry_file)
+        for path in (skill_python, sdk_python):
             if path not in sys.path:
                 sys.path.insert(0, path)
         try:
             from webSearch import WebSearchSkill
         except Exception as e:
-            raise ToolError(f"web_search 技能不可用: {e}")
+            raise ToolError(f"web_search 技能加载失败（已找到 {entry_file}）: {e}")
         return WebSearchSkill()
 
 
@@ -457,6 +613,11 @@ class FileWriteTool(BaseTool):
     description = '向项目内文本文件写入内容（覆盖或新建，需审批）'
     risk = 'write'
     usage = 'file_write PARAMS:{"path": "相对路径", "content": "文件全文内容", "append": false(可选,默认覆盖)}'
+    params_schema = {
+        'path': {'type': 'string', 'required': True},
+        'content': {'type': 'string', 'required': True},
+        'append': {'type': 'boolean', 'required': False},
+    }
 
     def run(self, params, ctx):
         workdir = ctx.get('workdir')
@@ -494,6 +655,12 @@ class FileEditTool(BaseTool):
     description = '对项目内文本文件做精确字符串替换（需审批）'
     risk = 'write'
     usage = 'file_edit PARAMS:{"path": "相对路径", "old_string": "要替换的原文", "new_string": "新文本", "replace_all": false(可选)}'
+    params_schema = {
+        'path': {'type': 'string', 'required': True},
+        'old_string': {'type': 'string', 'required': True},
+        'new_string': {'type': 'string', 'required': True},
+        'replace_all': {'type': 'boolean', 'required': False},
+    }
 
     def run(self, params, ctx):
         workdir = ctx.get('workdir')
@@ -572,9 +739,13 @@ class ShellTool(BaseTool):
     """shell 命令执行（dangerous 级）：默认关闭、黑名单、超时杀进程树、cwd 限定、可被 abort 即时终止。"""
     name = 'shell'
     label = '执行命令'
-    description = '在项目根目录执行一条 shell 命令（Windows cmd，危险操作需审批）'
+    description = '在项目根目录执行一条 shell 命令（Windows cmd，危险操作需审批；timeout 为超时秒数，可选，默认 10，上限 30）'
     risk = 'dangerous'
-    usage = 'shell PARAMS:{"command": "命令行", "timeout": 超时秒数(可选)}'
+    usage = 'shell PARAMS:{"command": "命令行", "timeout": 10}'
+    params_schema = {
+        'command': {'type': 'string', 'required': True},
+        'timeout': {'type': 'integer', 'required': False},
+    }
 
     def meta(self):
         m = super().meta()
@@ -680,18 +851,23 @@ class BlockRegistry:
     def __init__(self):
         self._blocks = {}           # name -> BaseTool 实例
         self._builtin = frozenset()  # 内建方块名集合（不可移除）
+        self._ci = {}               # 小写名 -> canonical 名（大小写不敏感查找）
 
     def register(self, block, builtin=True):
         """注册一个方块。builtin=True 表示引擎内建，不可被 MOD 覆盖。"""
         name = getattr(block, 'name', None)
         if not name:
             raise ValueError("方块缺少 name 属性")
-        if builtin and name in self._blocks:
-            # 内建方块被重复注册（通常是模块重载），静默覆盖
-            pass
-        elif not builtin and name in self._builtin:
+        key = name.lower()
+        canonical = self._ci.get(key, name)
+        if not builtin and canonical in self._builtin:
             raise ValueError(f"skill MOD 不能覆盖引擎内建方块: {name}")
+        if canonical != name:
+            # 仅大小写不同的重名：以新注册为准，清掉旧条目，避免索引歧义
+            self._blocks.pop(canonical, None)
+            self._builtin = frozenset(set(self._builtin) - {canonical})
         self._blocks[name] = block
+        self._ci[key] = name
         if builtin:
             self._builtin = frozenset(set(self._builtin) | {name})
         return block
@@ -702,15 +878,24 @@ class BlockRegistry:
 
     def unregister(self, name):
         """移除一个可插拔方块；引擎内建方块拒绝移除。"""
-        if name in self._builtin:
+        canonical = self._ci.get(name.lower(), name)
+        if canonical in self._builtin:
             raise ValueError(f"引擎内建方块不可移除: {name}")
-        self._blocks.pop(name, None)
+        self._blocks.pop(canonical, None)
+        self._ci.pop(canonical.lower(), None)
 
     def get(self, name):
-        return self._blocks.get(name)
+        """按名取方块；大小写不敏感（模型可能照抄 prompt 里的大小写，也可能自己改写）。"""
+        if not isinstance(name, str):
+            return None
+        block = self._blocks.get(name)
+        if block is not None:
+            return block
+        canonical = self._ci.get(name.lower())
+        return self._blocks.get(canonical) if canonical else None
 
     def has(self, name):
-        return name in self._blocks
+        return self.get(name) is not None
 
     def list_all(self):
         """返回全部已注册方块（内建 + 可插拔），按内建优先、字母序。"""
@@ -722,7 +907,8 @@ class BlockRegistry:
         return [b for _, b in builtin + external]
 
     def is_builtin(self, name):
-        return name in self._builtin
+        canonical = self._ci.get(name.lower(), name) if isinstance(name, str) else name
+        return canonical in self._builtin
 
     def __contains__(self, name):
         return self.has(name)
@@ -743,6 +929,9 @@ class RealityCheckTool(BaseTool):
     description = '检测文本中的偏见/仇恨/暴力/心理伤害内容；命中时返回自省提示'
     risk = 'read'
     usage = 'realityCheck PARAMS:{"text": "<要检测的文本>"}'
+    params_schema = {
+        'text': {'type': 'string', 'required': True},
+    }
 
     def run(self, params, ctx):
         text = params.get('text')
@@ -760,6 +949,11 @@ class AreYouUnderTroubleTool(BaseTool):
     risk = 'read'
     usage = ('areYouUnderTrouble PARAMS:{"query": "<用户输入>", '
              '"user_location": "中国", "user_contact": ""}')
+    params_schema = {
+        'query': {'type': 'string', 'required': True},
+        'user_location': {'type': 'string', 'required': False},
+        'user_contact': {'type': 'string', 'required': False},
+    }
 
     def run(self, params, ctx):
         query = params.get('query')
@@ -770,6 +964,144 @@ class AreYouUnderTroubleTool(BaseTool):
             params.get('user_location') or '中国',
             params.get('user_contact') or '',
         )
+
+class SkillsTool(BaseTool):
+    """chat 模式 skills 能力标识的真实落点：动态列出并调用已加载的 skill。
+
+    只读级 skill 直通；写级/危险级一律拒绝，交由同名具体工具走审批，
+    避免借这条快捷路径绕开 risk 判定。
+    """
+
+    name = 'skills'
+    label = '技能调用'
+    description = '列出项目已安装的 skill（原子能力）及其风险级别，并可直接调用只读级 skill'
+    risk = 'read'
+    chat_only = True
+    usage = ('skills PARAMS:{"action": "list"} 或 '
+             'skills PARAMS:{"name": "readFile", "params": {"path": "a.py"}}')
+    params_schema = {
+        'action': {'type': 'string', 'required': False},   # 缺省 list
+        'name': {'type': 'string', 'required': False},     # 缺省即列清单
+        'params': {'type': 'object', 'required': False},   # 转交给 skill 的参数
+    }
+
+    def run(self, params, ctx):
+        from simchat.loader.lifecycle import get_loader
+
+        loader = get_loader()
+        if loader is None:
+            raise ToolError('ModLoader 未初始化，暂时无法访问 skill')
+        specs = loader.list_tools() or []
+        name = params.get('name')
+        if not name:
+            action = str(params.get('action') or 'list').strip().lower()
+            if action not in ('list', 'search'):
+                raise ToolError(f'未知 action: {action}（可用: list）')
+            return self._catalog(specs)
+        by_name = {str(s.get('name', '')).lower(): s for s in specs if s.get('name')}
+        spec = by_name.get(str(name).lower())
+        if spec is None:
+            available = ', '.join(sorted(str(s.get('name')) for s in specs)) or '无'
+            raise ToolError(f'没有名为 {name} 的 skill（可用: {available}）。'
+                            '先用 skills PARAMS:{"action": "list"} 查看清单')
+        risk = spec.get('risk') or 'read'
+        if risk != 'read':
+            raise ToolError(
+                f'skill {spec["name"]} 属于 {risk} 级，不能通过 skills 快捷调用。'
+                f'请直接调用同名工具 /$TOOL:{spec["name"]} PARAMS:{{...}}（Agent 模式下会先征求审批）')
+        resp = loader.call_tool(spec['name'], params.get('params') or {})
+        if resp.get('ok'):
+            output = resp.get('output')
+            return output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
+        raise ToolError(resp.get('error') or 'skill 执行失败')
+
+    def _catalog(self, specs):
+        if not specs:
+            return '当前没有已加载的 skill。'
+        lines = [f'已加载 skill（{len(specs)} 个）：']
+        for spec in sorted(specs, key=lambda s: str(s.get('name'))):
+            lines.append('- %s [%s] %s' % (
+                spec.get('name'), spec.get('risk') or 'read', spec.get('description') or ''))
+        lines.append('调用格式：/$TOOL:skills PARAMS:{"name": "<名称>", "params": {...}}')
+        lines.append('只读级可直接调用；写级/危险级请直接调用同名工具（Agent 模式走审批）。')
+        return '\n'.join(lines)
+
+
+class AutomationTool(BaseTool):
+    """查看本体自动化调度状态（只读）：flow 清单与最近运行记录。"""
+
+    name = 'automation'
+    label = '自动化调度'
+    description = '查看已注册的自动化 flow 与最近运行记录（触发请用 automation_trigger，写级需审批）'
+    risk = 'read'
+    usage = ('automation PARAMS:{"action": "list"} 或 '
+             'automation PARAMS:{"action": "runs", "limit": 5}')
+    params_schema = {
+        'action': {'type': 'string', 'required': False},  # 缺省/空串等同 list
+        'limit': {'type': 'integer', 'required': False},  # runs 时缺省 5
+    }
+
+    def run(self, params, ctx):
+        from simchat.automation import get_engine
+
+        engine = get_engine()
+        if engine is None:
+            raise ToolError('自动化引擎未启动，当前无法查询调度状态')
+        action = str(params.get('action') or 'list').strip().lower()
+        if action in ('list', 'flows'):
+            flows = engine.list_flows()
+            if not flows:
+                return '当前没有已注册的自动化 flow。'
+            lines = ['已注册 flow（%d 个）：' % len(flows)]
+            for item in flows:
+                lines.append('- %s | mod=%s | trigger=%s | next_run=%s' % (
+                    item.get('flow_id'), item.get('mod_id'), item.get('trigger_type'),
+                    item.get('next_run') or '-'))
+            lines.append('触发：/$TOOL:automation_trigger PARAMS:{"flow_id": "<id>"}（写级，需审批）')
+            return '\n'.join(lines)
+        if action == 'runs':
+            runs = engine.list_runs(int(params.get('limit') or 5))
+            if not runs:
+                return '还没有运行记录。'
+            lines = ['最近运行（%d 条）：' % len(runs)]
+            for run in runs:
+                lines.append('- %s | %s | %s | %s | %sms%s' % (
+                    run.get('run_id'), run.get('flow_id'), run.get('triggered_by'),
+                    run.get('status'), run.get('duration_ms', '-'),
+                    (' | ' + str(run['error'])) if run.get('error') else ''))
+            return '\n'.join(lines)
+        if action == 'trigger':
+            raise ToolError('trigger 属写级操作，请改用 /$TOOL:automation_trigger '
+                            'PARAMS:{"flow_id": "..."}（会走审批）')
+        raise ToolError('未知 action: %s（可用: list / runs）' % action)
+
+
+class AutomationTriggerTool(BaseTool):
+    """立即触发一个已注册的 flow（写级，走审批）。"""
+
+    name = 'automation_trigger'
+    label = '触发自动化'
+    description = '按 flow id 立即触发一次自动化执行（写级，需用户审批）'
+    risk = 'write'
+    usage = 'automation_trigger PARAMS:{"flow_id": "daily.workspace.digest"}'
+    params_schema = {
+        'flow_id': {'type': 'string', 'required': True},
+    }
+
+    def run(self, params, ctx):
+        from simchat.automation import get_engine
+
+        flow_id = str(params.get('flow_id') or '').strip()
+        if not flow_id:
+            raise ToolError('缺少 flow_id（先用 /$TOOL:automation PARAMS:{"action": "list"} 查看）')
+        engine = get_engine()
+        if engine is None:
+            raise ToolError('自动化引擎未启动，无法触发')
+        summary = engine.trigger_flow(flow_id, triggered_by='tool')
+        if not summary.get('ok'):
+            raise ToolError(summary.get('error') or ('flow 执行未成功: %s' % summary.get('status')))
+        return json.dumps(summary, ensure_ascii=False)
+
 
 # 向后兼容别名：旧代码用 TOOL_REGISTRY，新代码用 BLOCK_REGISTRY
 # 旧的 list_agent_tools() / build_tool_protocol_section() 保持不动，
@@ -792,6 +1124,10 @@ _register_builtin(ShellTool())
 # 安全能力硬编码进运行时，不依赖 MOD 加载
 _register_builtin(RealityCheckTool())
 _register_builtin(AreYouUnderTroubleTool())
+# chat 模式 skills 能力标识的落点：仅 chat 清单暴露，不进 Agent 模式工具集
+_register_builtin(SkillsTool())
+_register_builtin(AutomationTool())
+_register_builtin(AutomationTriggerTool())
 
 
 # 向后兼容：旧代码仍可 import TOOL_REGISTRY
@@ -840,6 +1176,9 @@ class ModToolBlock(BaseTool):
         self.description = spec.get('description') or ''
         self.risk = spec.get('risk') or 'read'
         self.usage = spec.get('usage') or ('%s PARAMS:{}' % self.name)
+        # 沿用 MOD 自己声明的参数约束：优先 params_schema，其次 input_schema；
+        # 两者都没有时为空 dict（无必填约束，不额外报错）
+        self.params_schema = spec.get('params_schema') or spec.get('input_schema') or {}
 
     def meta(self):
         data = super().meta()
@@ -888,12 +1227,10 @@ def list_agent_tools(mode="agent"):
         # 写操作和 shell 被完全隐藏（不是禁用，是根本不进工具清单）
         filtered = [t for t in all_tools if t.risk == 'read']
         return [t.meta() for t in filtered] + [
-            # 额外暴露 skill/automation/MCP 能力标识（不是具体工具，是能力声明）
-            {'name': 'skills', 'label': '技能调用', 'description': '可调用已安装的 MOD 技能', 'risk': 'read', 'usage': None, 'enabled': True, 'mode_hint': 'lazy'},
-            {'name': 'automation', 'label': '自动化调度', 'description': '可查询和触发自动化工作流', 'risk': 'read', 'usage': None, 'enabled': True, 'mode_hint': 'lazy'},
-            {'name': 'mcp', 'label': 'MCP 服务器', 'description': '可连接已注册的 MCP 服务器', 'risk': 'read', 'usage': None, 'enabled': True, 'mode_hint': 'lazy'},
+            # 额外暴露 MCP 能力标识（不是具体工具，是能力声明）
+            {'name': 'mcp', 'label': 'MCP 服务器', 'description': '当前运行时尚未接入 MCP，不可连接或调用任何 MCP 服务器', 'risk': 'read', 'usage': None, 'enabled': True, 'mode_hint': 'lazy'},
         ]
-    return [t.meta() for t in all_tools]
+    return [t.meta() for t in all_tools if not getattr(t, 'chat_only', False)]
 
 
 def build_tool_protocol_section(mode="agent"):
@@ -918,14 +1255,13 @@ def build_tool_protocol_section(mode="agent"):
         lines += [
             '',
             '【可用能力（懒调用标识，不需要显式 /$TOOL: 指令）】',
-            '- skills：项目已安装 MOD 技能，你可以直接用自然语言描述想做什么（如"用 webSearch 搜一下 XXX"）',
-            '- automation：项目已配置自动化工作流，你可以查询运行状态或描述想触发的流程',
-            '- mcp：项目可连接 MCP 服务器获取外部能力，你可以直接提出需要外部数据的请求',
+            '- automation：已接线本体调度引擎，用 /$TOOL:automation PARAMS:{"action": "list"} 查 flow、{"action": "runs"} 查最近运行；触发用 /$TOOL:automation_trigger（写级，本模式会拦截并提示审批）',
+            '- mcp：当前运行时尚未接入 MCP，没有可连接的服务器；用户问到外部工具/资源接入时请如实说明暂不支持，不要尝试调用，也不要承诺代为连接',
             '',
             '调用规则：',
             '1. 需要显式调用只读工具时，单独输出一行（一行可多条指令）：',
             '   /$TOOL:工具名 PARAMS:{"参数名": "值"}',
-            '2. 如果你认为 skill/automation/MCP 可以处理当前需求，直接用自然语言描述意图即可，不需要显式 /$TOOL: 指令。',
+            '2. skill 需显式调用：先 /$TOOL:skills PARAMS:{"action": "list"} 查清单，再 /$TOOL:skills PARAMS:{"name": "...", "params": {...}} 调用；本模式只允许只读级 skill，写级请提示用户切换到 Agent 模式。automation 用 /$TOOL:automation 查看 flow 与运行记录，触发用 /$TOOL:automation_trigger（写级需审批）。MCP 尚未接入，不要调用，也不要向用户承诺该能力存在。',
             '3. 本模式下**绝对禁止文件写入和 shell 命令**——请保持在只读范围内。',
             '4. 路径提示：所有路径均相对项目根。**用户没给精确路径时，先用 glob 或 list_dir 定位！不要猜路径！**',
             '5. 任务完成时，直接输出给用户的最终答复，不要再输出任何 /$TOOL: 指令。',
@@ -937,7 +1273,8 @@ def build_tool_protocol_section(mode="agent"):
         return '\n'.join(lines)
 
     # Agent 模式：完整协议段
-    enabled_tools = [t for t in all_tools if t.meta().get('enabled', True)]
+    enabled_tools = [t for t in all_tools
+                     if t.meta().get('enabled', True) and not getattr(t, 'chat_only', False)]
     read_tools = [t for t in enabled_tools if t.risk == 'read']
     write_tools = [t for t in enabled_tools if t.risk in ('write', 'dangerous')]
     lines = [

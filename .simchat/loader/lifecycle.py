@@ -24,6 +24,7 @@ from .registry import ModeRegistry  # noqa: E402
 from .resolver import resolve_dependencies  # noqa: E402  (Phase 2 P2.1)
 from .sandbox import run_isolated, register_handle, kill_all as _kill_all_sandboxes  # noqa: E402  (Phase 2 P2.3)
 from .verify import verify_package  # noqa: E402
+from .version import HOST_VERSION  # noqa: E402
 
 
 # 每个包独立的数据根目录：Mod 层 data/mods/<id>，方块层 data/blocks/<id>
@@ -38,6 +39,44 @@ def _ensure_mod_data_dir(mod_id, layer="mod"):
     path = os.path.join(root, mod_id)
     os.makedirs(path, exist_ok=True)
     return path
+
+
+_TOOL_META_KEYS = ("name", "label", "description", "risk", "usage",
+                   "params_schema", "backend", "triggers", "input_schema")
+_VALID_TOOL_RISKS = ("read", "write", "dangerous")
+
+
+def _json_safe(value):
+    """把任意值压成可 JSON 序列化的结构；无法序列化的部分退化为字符串。"""
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+    except Exception:
+        return str(value)
+
+
+def _safe_tool_meta(spec):
+    """把 MOD 上报的 ToolSpec 归一化成可安全存放的元数据；字段异常不拖垮加载。
+
+    risk 必须原样传递（写级操作靠它进审批流）：缺失时保持旧默认 read，
+    声明了但不在白名单内（含拼写错误）时保守降为 write，避免静默绕过审批。
+    """
+    if not isinstance(spec, dict):
+        return None
+    name = spec.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    meta = {"name": name.strip()}
+    for key in _TOOL_META_KEYS[1:]:
+        if key in spec:
+            meta[key] = _json_safe(spec[key])
+    label = meta.get("label")
+    meta["label"] = label if isinstance(label, str) and label else meta["name"]
+    risk = meta.get("risk")
+    if not risk:
+        meta["risk"] = "read"
+    elif risk not in _VALID_TOOL_RISKS:
+        meta["risk"] = "write"
+    return meta
 
 
 def _workspace_root():
@@ -55,7 +94,7 @@ def _workspace_root():
 
 
 class ModLoader(object):
-    def __init__(self, mods_dir, host_version="2.0.0", services=None,
+    def __init__(self, mods_dir, host_version=HOST_VERSION, services=None,
                  logger=None, extra_dirs=None):
         self.mods_dir = os.path.abspath(mods_dir)
         self.host_version = host_version
@@ -117,7 +156,11 @@ class ModLoader(object):
                 if package_dir in found:
                     continue
                 found.add(package_dir)
-                self._load_one(package_dir)
+                try:
+                    self._load_one(package_dir)
+                except Exception as error:  # 单个包异常不影响其余 MOD 的加载
+                    self._log("加载 %s 异常，已跳过: %s" % (name, error))
+                    self._record_crash(package_dir, error)
 
         loaded = [item for item in self.mods.values() if item["status"] == "loaded"]
         self._log("扫描完成：%d 个 MOD，%d 个已加载" % (len(self.mods), len(loaded)))
@@ -186,6 +229,37 @@ class ModLoader(object):
             self._log("[%s] agent-config 已加载（数据）" % mod_id)
             return record
 
+        # automation 是纯数据 MOD：flow 交给本体引擎调度，不执行 Python entry
+        # （engine 侧不 import lifecycle，这里用全局 getter 反向取实例）
+        automation = manifest.get("automation") or {}
+        flow_file = automation.get("flow_file")
+        if manifest.get("type") == "automation" and not flow_file:
+            return self._fail(record, "automation 类型缺少 automation.flow_file")
+        if flow_file:
+            flow_path = os.path.join(package_dir, str(flow_file))
+            try:
+                with open(flow_path, "r", encoding="utf-8-sig") as handle:
+                    flow = json.load(handle)
+            except Exception as error:
+                return self._fail(record, "flow 读取失败: %s" % error)
+
+            from simchat.automation import get_engine
+
+            engine = get_engine()
+            if engine is None:
+                return self._fail(record, "AutomationEngine 未启动，无法注册 flow: %s" % flow_file)
+            engine.register_flow(mod_id, flow)
+            if not any(item.get("mod_id") == mod_id for item in engine.list_flows()):
+                return self._fail(record, "flow 注册失败: %s（见引擎日志）" % flow_file)
+
+            record["status"] = "loaded"
+            record["layer"] = manifest.get("layer") or "mod"
+            record["data_dir"] = _ensure_mod_data_dir(mod_id, record["layer"])
+            record["flow"] = flow.get("id")
+            self.mods[mod_id] = record
+            self._log("[%s] flow 已注册: %s" % (mod_id, record["flow"]))
+            return record
+
         try:
             # 所有 layer 都分配独立 data_dir（validate_manifest 已补全 layer）
             layer = manifest.get("layer") or "block"
@@ -211,19 +285,21 @@ class ModLoader(object):
                 record["modes"].append(entry)
 
             # P2.4 — 注册 tool 元数据到 _tools（skill MOD 走 sandbox，backend 在子进程）
-            for spec in handle.get("tools", []):
-                name = spec.get("name")
-                if not name:
+            for spec in handle.get("tools", []) or []:
+                meta = _safe_tool_meta(spec)
+                if meta is None:
+                    self._log("[%s] 跳过非法 tool 声明: %r" % (mod_id, spec))
                     continue
+                name = meta["name"]
                 if name in self._tools:
                     self._log("[%s] tool %s 与已加载 MOD 冲突，跳过" % (mod_id, name))
                     continue
                 self._tools[name] = {
                     "handle": handle,
                     "mod_id": mod_id,
-                    "spec": dict(spec),
+                    "spec": dict(meta),
                 }
-                record["tools"].append({"name": name, "label": spec.get("label") or name})
+                record["tools"].append(dict(meta))
 
         except Exception as error:
             return self._fail(record, "加载失败: %s" % error)
@@ -281,6 +357,27 @@ class ModLoader(object):
         self.mods[record["id"]] = record
         self._log("[%s] %s" % (record["id"], message))
         return record
+
+    def _record_crash(self, package_dir, error):
+        """异常逃逸出 _load_one 时补一条 failed 记录，保持 list_mods 可见性。
+
+        已由 _fail 登记过的同一路径包直接返回，避免同 id 出现两条记录。
+        """
+        if any(item.get("path") == package_dir for item in self.mods.values()):
+            return
+        record_id = os.path.basename(package_dir)
+        # 同 id 已被其它路径占用时用序号区分，避免覆盖已登记的包
+        key = record_id if record_id not in self.mods else "%s#%d" % (record_id, len(self.mods))
+        self.mods[key] = {
+            "id": key,
+            "path": package_dir,
+            "manifest": None,
+            "status": "failed",
+            "error": "加载异常: %s: %s" % (type(error).__name__, error),
+            "modes": [],
+            "tools": [],
+            "api": None,
+        }
 
     # ---------- 查询 ----------
 
