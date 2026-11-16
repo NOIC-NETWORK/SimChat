@@ -274,6 +274,51 @@ void fail_now(const std::wstring& message) {
   sc::post_phase(sc::Phase::Failed, message);
 }
 
+void write_crash_report(const std::wstring& root, unsigned exit_code, const std::wstring& reason) {
+#if defined(SC_WINDOWS)
+  std::wstring directory = join_path(join_path(root, L".simchat"), L"crash_reports");
+  CreateDirectoryW(directory.c_str(), nullptr);
+
+  SYSTEMTIME now = {};
+  GetLocalTime(&now);
+  const std::wstring date_str =
+      std::to_wstring(now.wYear) + L"-" +
+      (now.wMonth < 10 ? L"0" + std::to_wstring(now.wMonth) : std::to_wstring(now.wMonth)) + L"-" +
+      (now.wDay < 10 ? L"0" + std::to_wstring(now.wDay) : std::to_wstring(now.wDay)) + L"_" +
+      (now.wHour < 10 ? L"0" + std::to_wstring(now.wHour) : std::to_wstring(now.wHour)) +
+      (now.wMinute < 10 ? L"0" + std::to_wstring(now.wMinute) : std::to_wstring(now.wMinute)) +
+      (now.wSecond < 10 ? L"0" + std::to_wstring(now.wSecond) : std::to_wstring(now.wSecond));
+
+  std::wstring filename = L"exit_" + std::to_wstring(exit_code) + L"_" + date_str + L".txt";
+  std::wstring filepath = join_path(directory, filename);
+
+  const std::wstring content =
+      L"SimChat Launcher 崩溃报告\n"
+      L"========================\n\n"
+      L"退出码: " + std::to_wstring(exit_code) + L"\n"
+      L"退出时间: " + date_str + L"\n"
+      L"根目录: " + root + L"\n\n"
+      L"原因:\n" + reason + L"\n";
+
+  HANDLE file = CreateFileW(filepath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                            nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) {
+    launcher_log(L"无法写入崩溃报告：" + filepath);
+    return;
+  }
+
+  const std::string utf8 = sc::narrow(content);
+  DWORD written = 0;
+  WriteFile(file, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
+  CloseHandle(file);
+  launcher_log(L"崩溃报告已写入：" + filepath);
+#else
+  SC_UNUSED(root);
+  SC_UNUSED(exit_code);
+  SC_UNUSED(reason);
+#endif
+}
+
 std::vector<std::wstring> build_entry_arguments(const sc::PythonInfo& python,
                                                 const std::wstring& root,
                                                 const std::vector<std::wstring>& tail) {
@@ -376,6 +421,7 @@ void start_server() {
         g_state.exit_code = code;
         sc::post_exit_code(code);
         launcher_log(L"子进程退出，退出码 " + std::to_wstring(code));
+        write_crash_report(root, code, L"服务进程在启动阶段退出，退出码 " + std::to_wstring(code));
         fail_now(L"服务进程已退出（退出码 " + std::to_wstring(code) + L"），详情见上方日志");
         return;
       }
@@ -497,6 +543,9 @@ int run_console() {
   }
   const unsigned exit_code = child.wait();
   launcher_log(L"控制台子进程退出，退出码 " + std::to_wstring(exit_code));
+  if (exit_code != 0) {
+    write_crash_report(root, exit_code, L"控制台模式子进程异常退出，退出码 " + std::to_wstring(exit_code));
+  }
   return static_cast<int>(exit_code);
 }
 

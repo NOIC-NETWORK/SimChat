@@ -896,19 +896,30 @@
   function closePalette() { $("#pal-backdrop").classList.remove("open"); }
 
   /* ==================== 抽屉控制 ==================== */
+  function updateHeaderToggleState() {
+    const sb = $("#mb-toggle-sidebar");
+    const inp = $("#mb-toggle-inspector");
+    const pn = $("#mb-toggle-panel");
+    if (sb) sb.dataset.active = document.body.dataset.sidebar === "expanded" ? "true" : "false";
+    if (inp) inp.dataset.active = document.body.dataset.inspector === "expanded" ? "true" : "false";
+    if (pn) pn.dataset.active = document.body.dataset.panel === "expanded" ? "true" : "false";
+  }
   function toggleSidebar(force) {
     const next = typeof force === "boolean" ? force : document.body.dataset.sidebar !== "expanded";
     document.body.dataset.sidebar = next ? "expanded" : "collapsed";
     $("#drawer-backdrop").classList.toggle("open", next && window.innerWidth <= 1023);
+    updateHeaderToggleState();
   }
   function toggleInspector(force) {
     const next = typeof force === "boolean" ? force : document.body.dataset.inspector !== "expanded";
     document.body.dataset.inspector = next ? "expanded" : "collapsed";
+    updateHeaderToggleState();
   }
   function togglePanel(force) {
     const next = typeof force === "boolean" ? force : document.body.dataset.panel !== "expanded";
     document.body.dataset.panel = next ? "expanded" : "collapsed";
     if (next) renderPanel();
+    updateHeaderToggleState();
   }
   function closeDrawers() {
     if (window.innerWidth <= 1023) document.body.dataset.sidebar = "collapsed";
@@ -1286,6 +1297,20 @@
     $("#act-exit").addEventListener("click", () => { location.href = "/"; });
     $("#drawer-backdrop").addEventListener("click", closeDrawers);
 
+    // Header 栏新按钮
+    $("#mb-toggle-sidebar").addEventListener("click", () => toggleSidebar());
+    $("#mb-toggle-panel").addEventListener("click", () => togglePanel());
+    $("#mb-toggle-inspector").addEventListener("click", () => toggleInspector());
+    $("#mb-agent").addEventListener("click", () => { location.href = "/"; });
+    $("#mb-settings").addEventListener("click", () => { state.settingsSection = "provider"; setActivity("settings"); });
+    $("#mb-user").addEventListener("click", () => { state.settingsSection = "profile"; setActivity("settings"); });
+    $("#mb-search-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); openPalette(); }
+    });
+    $("#mb-search-input").addEventListener("focus", () => openPalette());
+    $("#mb-undo").addEventListener("click", () => document.execCommand("undo"));
+    $("#mb-redo").addEventListener("click", () => document.execCommand("redo"));
+
     // Panel Tab 切换
     $$(".panel-tab").forEach((b) => b.addEventListener("click", () => { state.panelTab = b.dataset.panelTab; renderPanel(); }));
     $("#panel-clear").addEventListener("click", () => {
@@ -1374,6 +1399,9 @@
     renderPanelMessages();
     updateStatusbar();
     syncComposer();
+
+    // Header toggle 按钮初始状态
+    updateHeaderToggleState();
 
     // 绑定事件
     bindAll();

@@ -1,5 +1,13 @@
 # 最近更新
 
+**2026-11-16** — IDE 顶栏三分区重构 + 启动器崩溃报告落盘
+
+- **顶栏（menubar）重排**：原来「品牌 + 菜单 + 居中标题」的简单结构改成左 / 中 / 右三段——左侧品牌与 File·Edit·View·Run·Terminal·Help 菜单，中间是搜索框（点击或 Enter 唤起 Ctrl+K 命令面板）、撤销 / 重做按钮、以及侧栏 / 底部面板 / 右侧 AI 面板三个开关，右侧是 Agent 跳转按钮、设置入口与用户头像块。原先绝对居中的 `menubar-title` 被 `.mb-center` 取代，旧样式改为 `display:none` 保留兼容。
+- **开关按钮有状态**：新增 `updateHeaderToggleState()`，把 `body[data-sidebar|data-inspector|data-panel]` 的展开状态同步成按钮 `data-active`，`toggleSidebar / toggleInspector / togglePanel` 每次切换后刷新，初始化时也跑一次，避免按钮高亮与实际面板状态脱节。
+- **响应式补丁**：1280px 以下搜索框收窄、隐藏用户名；960px 以下再隐藏分隔线、撤销重做组与 `Ctrl+P` 提示，保证顶栏在窄屏不换行、不溢出。
+- **启动器崩溃报告**：`.simchatLc/launcher.cpp` 新增 `write_crash_report()`，在服务进程启动阶段退出（`start_server` 子进程非预期结束时）和控制台模式退出码非 0 时，把退出码、退出时间、根目录与原因追加写入 `.simchat/crash_reports/exit_<code>_<时间戳>.txt`，非 Windows 平台留空实现。此前这类退出只打一行日志，关掉窗口就查不到了。
+- 文件：`.simchat/web/templates/ide.html`、`.simchat/web/static/css/ide.css`、`.simchat/web/static/js/ide.js`、`.simchatLc/launcher.cpp`、`updates.md`
+
 **2026-11-15** — MOD 体系可用性修复：宿主接线、`skills/` 分层、安全能力内建、P2 隔离闸门
 
 - **MOD 终于真的被加载**：`create_app()` 启动进程级 `ModLoader`（`discover()` + `set_global_loader()`，`atexit` 统一清理），已加载包的工具经 `ModToolBlock` / `sync_loader_blocks()` 同步进 `BLOCK_REGISTRY`；`/mods/<id>/<path>` 路由改为包内导入 `get_loader`，越界校验换成 `realpath + commonpath`。此前 6 个包在磁盘上但从未进入运行时，Agent 无法调用。
