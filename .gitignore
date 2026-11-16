@@ -10,9 +10,14 @@ data/
 secrets*
 dev-keys/
 
-# MOD 运行时上传目录与启停状态（本体在 .simchat/ 内，用通配匹配任意层级）
-**/mods/uploads/
-**/mods/.simchat_state.json
+# 技能 / MOD 的启停状态（skills/ 与 mods/ 各落一份，按文件名统一忽略）
+**/.simchat_state.json
+
+# 运行时上传目录（skills 与沙箱 uploads scope 共用）
+**/uploads/
+
+# 启动器崩溃报告（.simchatLc 退出时写入，含退出码与根目录）
+.simchat/crash_reports/
 
 # Python
 __pycache__/
