@@ -82,7 +82,7 @@ Web 端**没有登录、没有密码、没有鉴权中间件**——它是一个
 
 `runner` 在加载你的代码之前就替换了 `subprocess.Popen`、`open` / `os.*`、`getaddrinfo` / `connect`，所以：
 
-- MOD 声明 `shell=false` 时创建不了子进程（目前只覆盖 `Popen`，`os.system` / `os.popen` 尚未拦截——这是已知缺口）；
+- MOD 声明 `shell=false` 时创建不了子进程（覆盖 `subprocess.Popen`、`os.system`、`os.popen`；`os.spawn*` / `os.exec*` 与 `multiprocessing` 仍未覆盖）；
 - 文件访问被收敛到声明的 scope（`workspace`、`mod-data`、`package`、`uploads`、`temp`）；
 - 网络只能连声明过的域名（支持 `*.example.com`）。
 

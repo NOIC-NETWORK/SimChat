@@ -11,7 +11,7 @@
 
 能力：
   ✓ 崩溃隔离（进程死宿主活）
-  ✓ 进程树闸门（capabilities.shell=false → monkey-patch subprocess.Popen）
+  ✓ 进程树闸门（capabilities.shell=false → monkey-patch subprocess.Popen / os.system / os.popen）
   ✓ 文件系统闸门（capabilities.fs.read/write → open / os.* 路径白名单）
   ✓ 网络闸门（capabilities.net.domains → getaddrinfo / connect 域名白名单）
   ✓ 模式/工具注册元数据回传
@@ -61,8 +61,9 @@ def _ipc(payload):
 def _patch_subprocess(manifest):
     """capabilities.shell=false 时禁止 MOD 代码创建子进程。
 
-    Phase 1 只 patch subprocess.Popen；os.system / os.popen / multiprocessing
-    暂不覆盖（留后续补丁）。一个标记 token 让 runner 自身的内部调用能绕过。
+    覆盖 subprocess.Popen、os.system、os.popen；os.spawn* / os.exec* /
+    multiprocessing 仍不覆盖（不是完整进程沙箱）。
+    一个标记 token 让 runner 自身的内部调用能绕过。
     """
     caps = (manifest.get("capabilities") or {})
     shell_allowed = bool(caps.get("shell", False))
@@ -82,6 +83,21 @@ def _patch_subprocess(manifest):
         )
 
     subprocess.Popen = _GuardedPopen
+
+    def _GuardedSystem(command):
+        raise PermissionError(
+            "MOD 未声明 capabilities.shell=true，禁止创建子进程 "
+            "(os.system, command=%r)" % (command,)
+        )
+
+    def _GuardedPopen(command, mode="r", buffering=-1):
+        raise PermissionError(
+            "MOD 未声明 capabilities.shell=true，禁止创建子进程 "
+            "(os.popen, command=%r)" % (command,)
+        )
+
+    os.system = _GuardedSystem
+    os.popen = _GuardedPopen
 
 
 # ============================================================================

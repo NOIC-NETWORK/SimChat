@@ -47,8 +47,11 @@ def package_digest(package_dir):
     return "sha256:" + hasher.hexdigest()
 
 
-def verify_package(package_dir, manifest):
+def verify_package(package_dir, manifest, extra_public_keys=None):
     """binary MOD 两阶段校验；其他类型跳过。返回 (ok, message)。
+
+    extra_public_keys：额外参与验签的公钥（发布期 --pub-key 用），
+    与 public_keys/ 目录里的公钥合并后一起尝试。
 
     两阶段任一失败都会以明确错误信息 fail-closed：
     - integrity 不匹配 → 'integrity 不匹配'
@@ -82,6 +85,7 @@ def verify_package(package_dir, manifest):
 
     payload = build_signing_payload(manifest, actual)
     public_keys = load_public_keys()
+    public_keys.extend(extra_public_keys or [])
     if not public_keys:
         return False, "系统未配置任何 MOD 签名公钥，无法验签"
 

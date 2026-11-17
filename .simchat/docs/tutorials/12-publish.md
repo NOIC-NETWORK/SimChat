@@ -148,27 +148,16 @@ binary 包：
 
 开发期可用环境变量 `SIMCHAT_SKIP_VERIFY=1` 跳过 binary 的完整性与签名校验；它不会让非法 manifest 变合法，也不是修复手段。
 
-### 4.4 当前实现的一处不一致：`extra_public_keys`
+### 4.4 `--pub-key` 与额外公钥
 
-`cli/main.py` 在 `pack`（最后校验）、`verify`、`publish` 三处都这样调用：
+`verify_package(package_dir, manifest, extra_public_keys=None)` 会把 `loader/public_keys/` 下的公钥与调用方传入的额外公钥合并后一起尝试验签。CLI 的 `pack` / `verify` / `publish` 都通过 `--pub-key <pem>` 传入额外公钥（可重复），用于开发期：用本地 `gen-key` 生成的私钥签名、再用对应公钥验证，而不必把公钥先放进 `loader/public_keys/`。
 
-```python
-verify_package(package_dir, manifest, extra_public_keys=extra_pub)
+```bash
+python .simchat/scripts/entry.py cli verify path/to/binary-mod \
+  --pub-key ~/.simchat/public_key.pub
 ```
 
-但 `loader/verify.py` 里的函数签名只有两个参数：
-
-```python
-def verify_package(package_dir, manifest):
-```
-
-按当前代码（提交 `ec2d332`），这三个子命令走到校验阶段会抛 `TypeError: verify_package() got an unexpected keyword argument 'extra_public_keys'`。因此：
-
-- `verify` 无法完成；
-- `pack` 能完成「算 integrity / 签名 / 写回 manifest」，但最后一步校验会中断；
-- `publish` 无法完成。
-
-`--pub-key` 参数同理，目前传不到加载器。本章按 CLI 的设计意图描述流程；这一处代码问题已在文档中标注，本轮不改代码。
+不传 `--pub-key` 时只用系统公钥目录；两边都没有可用公钥，binary 包会以「系统未配置任何 MOD 签名公钥，无法验签」失败。
 
 ### 4.5 发布线现状
 
@@ -194,7 +183,7 @@ def verify_package(package_dir, manifest):
 ## 6. 验收清单
 
 - [ ] 能用 `gen-key` 生成一对密钥，并说清哪个能给别人
-- [ ] 能跑通 `verify`（或能指出它当前会因 4.4 中断）
+- [ ] 能跑通 `verify`，并会用 `--pub-key` 验本地签名的包
 - [ ] 能解释 integrity 为什么排除 `manifest.json`
 - [ ] 能给 binary 包签名，并知道签名负载由哪三部分组成
 - [ ] 能生成一条 registry 条目，并替换掉占位的 `repo-url`

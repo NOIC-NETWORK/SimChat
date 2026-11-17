@@ -119,7 +119,7 @@ discover()            扫 mods/ 与 skills/，跳过 . 开头与 disabled
 
 `capabilities` 不是装饰：沙箱子进程启动时会按 manifest 打三组护栏——
 
-- `shell=false`：替换 `subprocess.Popen`，MOD 代码不能创建子进程（目前只覆盖 `Popen`，`os.system` / `os.popen` 尚未拦截）；
+- `shell=false`：替换 `subprocess.Popen` / `os.system` / `os.popen`，MOD 代码不能创建子进程（`os.spawn*` / `os.exec*` 与 `multiprocessing` 仍未覆盖）；
 - `fs.read` / `fs.write`：把 `open` 与 `os.*` 的路径收敛到白名单根——包目录、`mods/<id>/data`、`uploads` 默认只读/可写，其余靠 manifest 的 `workspace` / `mod-data` / `package` / `uploads` / `temp` 等 scope 显式声明；
 - `net.domains`：替换 `getaddrinfo` / `connect`，只放行声明的域名（支持 `*.example.com`）。
 
