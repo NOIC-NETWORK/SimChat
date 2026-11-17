@@ -24,7 +24,7 @@
 
 ### 02 接入第一个模型
 - **目标**：模型下拉里出现可用模型，并成功回一句话。
-- **要点**：Ollama 本地接入（安装、拉模型、默认地址）；OpenAI 兼容服务商（Base URL / Key / 模型名）；「预检」在验什么、为什么会误判；多 provider 聚合与模型下拉分组；Key 的加密存储位置。
+- **要点**：Ollama 本地接入（安装、拉模型、默认地址）；OpenAI 兼容服务商（Base URL / Key / 模型名）；「预检」在验什么、为什么会误判；多 provider 聚合与模型下拉分组；Key 的存储位置（明文写入 `data/config.json`）。
 - **验收**：发一条消息收到流式回复；刷新页面后模型仍在（本地缓存）。
 
 ### 03 配置工作目录与第一次对话
@@ -135,15 +135,17 @@
 
 | 章节 | 计划文件 | 状态 |
 |---|---|---|
-| 01 安装与首次启动 | `01-install.md` | 待写 |
-| 02 接入第一个模型 | `02-first-model.md` | 待写 |
-| 03 工作目录与对话 | `03-workspace-and-chat.md` | 待写 |
-| 04 Agent 模式入门 | `04-agent-mode.md` | 待写 |
-| 05 IDE 界面速览 | `05-ide-tour.md` | 待写 |
-| 06 概念地图 | `06-mods-blocks-skills.md` | 待写 |
-| 07 技能安装与启停 | `07-manage-skills.md` | 待写 |
-| 08 第一个 Skill MOD | `08-first-skill.md` | 待写 |
-| 09 权限与安全 | `09-capabilities.md` | 待写 |
-| 10 自动化 DAG | `10-automation.md` | 待写 |
-| 11 调试与排错 | `11-debugging.md` | 待写 |
-| 12 打包与发布 | `12-publish.md` | 待写 |
+| 01 安装与首次启动 | [01-install.md](01-install.md) | 已完成 |
+| 02 接入第一个模型 | [02-first-model.md](02-first-model.md) | 已完成 |
+| 03 工作目录与对话 | [03-workspace-and-chat.md](03-workspace-and-chat.md) | 已完成 |
+| 04 Agent 模式入门 | [04-agent-mode.md](04-agent-mode.md) | 已完成 |
+| 05 IDE 界面速览 | [05-ide-tour.md](05-ide-tour.md) | 已完成 |
+| 06 概念地图 | [06-mods-blocks-skills.md](06-mods-blocks-skills.md) | 已完成 |
+| 07 技能安装与启停 | [07-manage-skills.md](07-manage-skills.md) | 已完成 |
+| 08 第一个 Skill MOD | [08-first-skill.md](08-first-skill.md) | 已完成 |
+| 09 权限与安全 | [09-capabilities.md](09-capabilities.md) | 已完成 |
+| 10 自动化 DAG | [10-automation.md](10-automation.md) | 已完成 |
+| 11 调试与排错 | [11-debugging.md](11-debugging.md) | 已完成 |
+| 12 打包与发布 | [12-publish.md](12-publish.md) | 已完成 |
+
+12 章正文已全部完成。各章只在对应实现变更时更新；文中标注的「当前实现不一致」项需先在代码侧确认，再改文档。
