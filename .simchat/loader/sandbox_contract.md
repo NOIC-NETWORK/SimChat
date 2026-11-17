@@ -108,7 +108,13 @@
 - 缺省或 false → monkey-patch `subprocess.Popen`、`os.system`、`os.popen`、`os.spawn*`、`os.exec*`，并把 `multiprocessing.process.BaseProcess.start` 换成拒绝函数（`Process` / `Pool` / `ProcessPoolExecutor` 的 worker 最终都走它）。除非是内部 runner 自己的调用（可以通过一个 token 检测），一律 raise PermissionError("MOD 未声明 shell capability，禁止创建子进程")。
 - true → 不 patch。
 
-未覆盖的同类入口：`pty.spawn`（Unix）、`asyncio.create_subprocess_*`（Windows 下走 `windows_utils.Popen`，绕开模块属性替换）、`os.posix_spawn*` 与 `os.fork*`（Unix）、直接调用 `ctypes` / `_winapi.CreateProcess` 等。这是 Python 层护栏，不是 OS 级隔离。
+未覆盖的同类入口：`pty.spawn`（Unix）、`asyncio.create_subprocess_*`（Windows 下走 `windows_utils.Popen`，绕开模块属性替换）、`os.posix_spawn*` 与 `os.fork*`（Unix）、直接调用 `ctypes` / `_winapi.CreateProcess` 等。
+
+**定位：提高逃逸门槛，不是隔离边界。**
+
+- 能保护：MOD 的常规代码路径。未声明 `shell` 却调用 `Popen` / `os.system` / `os.spawn*` / `multiprocessing.Pool` 这类「无意识越权」会在调用点被拒；fs / net 的误用同理。
+- 不能保护：有意为之的敌对代码。上面列出的入口都能绕过 Python 层替换；MOD 虽在独立子进程运行，但仍与宿主同一用户、同一 OS 权限。
+- 判断依据：MOD 来源可信、只需防写错 → 这道闸门够用；要运行来路不明的代码 → 必须上 OS 级隔离（独立低权限用户、容器、虚拟机、seccomp / Windows Job Object 等）。
 
 ### 5.2 fs（P2）
 

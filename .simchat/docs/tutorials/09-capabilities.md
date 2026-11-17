@@ -86,7 +86,11 @@ Web 端**没有登录、没有密码、没有鉴权中间件**——它是一个
 - 文件访问被收敛到声明的 scope（`workspace`、`mod-data`、`package`、`uploads`、`temp`）；
 - 网络只能连声明过的域名（支持 `*.example.com`）。
 
-但这是**进程内护栏**，不是 OS 级沙箱：`ctypes` 之类的反射手段可以绕过。它的目标是「拦住未声明权限的正常代码路径」，不是对抗恶意代码。安装第三方 MOD 前请先读代码。
+定位要写明白：**这道闸门是提高逃逸门槛，不是隔离边界。**
+
+- 它能保护什么：MOD 里的常规代码路径。忘了声明 `shell` 却顺手 `Popen("git …")`、`os.system(...)`、`os.spawnv(...)` 或 `multiprocessing.Pool()`，会在调用点直接抛 `PermissionError`；fs / net 的误用同理。这覆盖了绝大多数正常 MOD 的写错与偷懒，也挡住了「无意识越权」。
+- 它不能保护什么：有意为之的敌对代码。`_winapi.CreateProcess`、`ctypes` 调 libc、`asyncio` 子进程、Unix 的 `posix_spawn` / `fork` / `pty` 都能绕过进程内的属性替换。MOD 虽然跑在独立子进程里，但仍与宿主同一用户、同一 OS 权限，能碰到的文件与网络最终由 OS 决定。
+- 什么时候必须上进程级隔离：把 MOD 当「自己或信任的人写的、可能写错」的代码时，这道闸门够用；要运行「来路不明、可能带恶意」的代码时，必须使用 OS 级手段（独立低权限用户、容器、虚拟机、seccomp / Windows Job Object 等），不要依赖这里的 monkey-patch 作为安全边界。
 
 ### 4.4 留下了什么痕迹
 
