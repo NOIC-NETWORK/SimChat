@@ -10,15 +10,15 @@
     "$schema": { "type": "string" },
     "id": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{2,63}$",
-      "description": "全局唯一标识；建议使用作者域前缀（如 barry.galax）。一旦发布不可复用。"
+      "pattern": "^[a-z0-9][a-z0-9_]{2,63}$",
+      "description": "全局唯一标识，只允许小写字母、数字与下划线（如 barry_galax）；显示名称放在 name，可含任意符号。一旦发布不可复用。"
     },
     "type": {
       "type": "string",
       "enum": ["agent-config", "skill", "automation", "binary"],
       "description": "agent-config=纯数据；skill=可执行工具；automation=定时/事件流程；binary=一等方或授权方加密模块。"
     },
-    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80, "description": "显示名称，可含任意符号（如「Kirara行为包」）。" },
     "description": { "type": "string", "maxLength": 2000 },
     "layer": {
       "type": "string",

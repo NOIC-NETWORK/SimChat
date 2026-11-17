@@ -9,7 +9,7 @@ CLI publish 命令生成的条目 JSON 就是要合并进 index.json 的 entries
     from simchat.loader.index import Registry
 
     reg = Registry.load("path/to/simchat/registry/index.json")
-    entry = reg.find("barry.galax")
+    entry = reg.find("barry_galax")
     print(entry["versions"][0]["download"]["url"])
     print(entry["versions"][0]["signature"])  # binary 的签名，可喂给 loader.verify
 

@@ -1,5 +1,5 @@
 {
-  "id": "noic.skill-websearch",
+  "id": "noic_skill_websearch",
   "type": "skill",
   "layer": "block",
   "name": "WebSearch 网络搜索技能",

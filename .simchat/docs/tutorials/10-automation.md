@@ -9,7 +9,7 @@
 ```text
 > 列出自动化流程
 已注册 flow（1 个）：
-- daily.my-digest | mod=com.example.mydigest | trigger=cron | next_run=2026-11-18 09:00
+- daily.my-digest | mod=com_example_mydigest | trigger=cron | next_run=2026-11-18 09:00
 
 > 触发 daily.my-digest
 ⚠ automation_trigger 需要审批 → 批准
@@ -27,7 +27,7 @@
 ### 3.1 生成骨架
 
 ```bash
-python .simchat/scripts/entry.py cli init --type automation --name com.example.mydigest --target .simchat/skills/com.example.mydigest
+python .simchat/scripts/entry.py cli init --type automation --id com_example_mydigest --name "My Digest" --target .simchat/skills/com_example_mydigest
 ```
 
 生成 `manifest.json` 与 `flow.json`。manifest 的关键字段：

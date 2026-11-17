@@ -1,6 +1,6 @@
 {
-  "$schema": "../../simchat/spec/mod-manifest.schema.json",
-  "id": "simchat.skill-hello",
+  "$schema": "../../spec/mod-manifest.schema.json",
+  "id": "simchat_skill_hello",
   "type": "skill",
   "layer": "block",
   "name": "Hello Skill（示例）",

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -838,7 +838,7 @@ body[data-panel="expanded"] .panel { display: flex; }
             <div class="dag-row">
               <div class="mod-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.2 2"/></svg></div>
               <div class="grow">
-                <div class="dag-name">automation.daily-digest</div>
+                <div class="dag-name">automation_daily_digest</div>
                 <div class="dag-cron">每日工作区摘要 · 0 9 * * *</div>
               </div>
               <span class="chip">未调度</span>
@@ -1272,7 +1272,7 @@ body[data-panel="expanded"] .panel { display: flex; }
     { name: "list_dir", desc: "列出目录条目（不读内容）", risk: "read", source: "内置", enabled: true },
     { name: "glob", desc: "按通配符匹配文件", risk: "read", source: "内置", enabled: true },
     { name: "grep_text", desc: "在工作区文本中检索", risk: "read", source: "内置", enabled: true },
-    { name: "web_search", desc: "网络检索（只读）", risk: "read", source: "noic.webSearch", enabled: true },
+    { name: "web_search", desc: "网络检索（只读）", risk: "read", source: "noic_skill_websearch", enabled: true },
     { name: "file_write", desc: "创建或覆盖文件", risk: "write", source: "内置", enabled: true },
     { name: "file_edit", desc: "局部编辑文件", risk: "write", source: "内置", enabled: true },
     { name: "shell", desc: "执行 shell 命令", risk: "dangerous", source: "内置", enabled: false }
@@ -1280,13 +1280,13 @@ body[data-panel="expanded"] .panel { display: flex; }
   const RISK_LABEL = { read: "只读", write: "写入", dangerous: "高风险" };
 
   const MODS = [
-    { id: "agent-config-minimal", name: "Kirara Agent Config Minimal", ver: "0.1.0", desc: "最小 Agent 配置与人设挂点，提供默认系统指令。", enabled: true },
-    { id: "automation.daily-digest", name: "每日工作区摘要", ver: "0.1.2", desc: "汇总工作区变更并生成摘要（自动化 API 未接入，暂不调度）。", enabled: true },
-    { id: "barry.galax", name: "Galax 联合推理检索", ver: "0.3.1", desc: "多路检索与联合推理，向 Agent 暴露只读检索工具。", enabled: true },
-    { id: "noic.readFile", name: "ReadFile 文件读取技能", ver: "0.1.0", desc: "受工作目录约束的只读文件读取。", enabled: true },
-    { id: "noic.webSearch", name: "WebSearch 网络搜索技能", ver: "0.1.0", desc: "只读网络检索，结果需标注来源。", enabled: true },
+    { id: "kirara_agent_config", name: "Kirara行为包", ver: "0.1.0", desc: "最小 Agent 配置与人设挂点，提供默认系统指令。", enabled: true },
+    { id: "automation_daily_digest", name: "每日工作区摘要", ver: "0.1.2", desc: "汇总工作区变更并生成摘要（自动化 API 未接入，暂不调度）。", enabled: true },
+    { id: "barry_galax", name: "Galax 联合推理检索", ver: "0.3.1", desc: "多路检索与联合推理，向 Agent 暴露只读检索工具。", enabled: true },
+    { id: "noic_skill_readfile", name: "ReadFile 文件读取技能", ver: "0.1.0", desc: "受工作目录约束的只读文件读取。", enabled: true },
+    { id: "noic_skill_websearch", name: "WebSearch 网络搜索技能", ver: "0.1.0", desc: "只读网络检索，结果需标注来源。", enabled: true },
     { id: "noic.realityCheck", name: "RealityCheck 现实审视技能", ver: "0.2.0", desc: "对结论做二次事实核查，输出风险提示。", enabled: true },
-    { id: "noic.screenshotRecognition", name: "ScreenshotRecognition 截图识别", ver: "0.1.3", desc: "识别截图内容，写入结果需人工确认。", enabled: false },
+    { id: "noic_skill_screenshotrecognition", name: "ScreenshotRecognition 截图识别", ver: "0.1.3", desc: "识别截图内容，写入结果需人工确认。", enabled: false },
     { id: "noic.areYouUnderTrouble", name: "AreYouUnderTrouble 危险信号检测", ver: "0.2.1", desc: "在工具调用前检测危险信号并请求审批。", enabled: true }
   ];
 
@@ -1300,11 +1300,11 @@ body[data-panel="expanded"] .panel { display: flex; }
         runtime: dir({ "workspace.py": file(), "settings.py": file(), agent: dir({ "tools.py": file(), "loop.py": file() }) }),
         web: dir({ templates: dir({ "index.html": file() }), static: dir({ css: dir({ "chat.css": file() }), js: dir({ "chat.js": file() }) }) }),
         mods: dir({
-          "agent-config-minimal": dir({ "manifest.json": file() }),
-          "automation.daily-digest": dir({ "manifest.json": file() }),
-          "barry.galax": dir({ "manifest.json": file() }),
-          "noic.readFile": dir({ "manifest.json": file() }),
-          "noic.webSearch": dir({ "manifest.json": file() })
+          "kirara_agent_config": dir({ "manifest.json": file() }),
+          "automation_daily_digest": dir({ "manifest.json": file() }),
+          "barry_galax": dir({ "manifest.json": file() }),
+          "noic_skill_readfile": dir({ "manifest.json": file() }),
+          "noic_skill_websearch": dir({ "manifest.json": file() })
         }),
         automation: dir(), loader: dir(), scripts: dir(), spec: dir({ "events.md": file() }),
         examples: dir({ "requirements.txt": file() }), data: dir({ "config.json": file() }),

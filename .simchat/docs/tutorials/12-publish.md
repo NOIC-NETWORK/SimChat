@@ -1,4 +1,4 @@
-# 12 打包、发布与继续深入
+﻿# 12 打包、发布与继续深入
 
 > 本章是「开发者」路径（C）的最后一站，前置：[08 写第一个 Skill MOD](08-first-skill.md)、[09 权限与安全](09-capabilities.md)。
 
@@ -9,7 +9,7 @@
 ```text
 [SimChat] integrity  = sha256:9f2c...
 [SimChat] ✓ manifest.json 已更新（integrity + signature 字段）
-[SimChat] ✓ 已打包 zip → .simchat/skills/dist/com.example.helloskill-0.1.0.zip
+[SimChat] ✓ 已打包 zip → .simchat/skills/dist/com_example_helloskill-0.1.0.zip
 [SimChat] ✓ registry 条目（贴进 simchat/registry/index.json 的 entries[] 数组）：
 ```
 
@@ -42,7 +42,7 @@ python .simchat/scripts/entry.py cli gen-key
 ### 3.2 先做一次只读校验
 
 ```bash
-python .simchat/scripts/entry.py cli verify .simchat/skills/com.example.helloskill
+python .simchat/scripts/entry.py cli verify .simchat/skills/com_example_helloskill
 ```
 
 非 binary 包的预期输出是「✓ manifest 结构校验通过（非 binary 类型跳过签名）」，并打印当前 `integrity`。这一步只读，不改文件。
@@ -50,7 +50,7 @@ python .simchat/scripts/entry.py cli verify .simchat/skills/com.example.helloski
 ### 3.3 打包
 
 ```bash
-python .simchat/scripts/entry.py cli pack .simchat/skills/com.example.helloskill
+python .simchat/scripts/entry.py cli pack .simchat/skills/com_example_helloskill
 ```
 
 它按顺序做四件事：
@@ -63,7 +63,7 @@ python .simchat/scripts/entry.py cli pack .simchat/skills/com.example.helloskill
 要 zip 就加参数：
 
 ```bash
-python .simchat/scripts/entry.py cli pack .simchat/skills/com.example.helloskill --zip
+python .simchat/scripts/entry.py cli pack .simchat/skills/com_example_helloskill --zip
 ```
 
 默认输出到包目录同级的 `dist/`，文件名为 `<id>-<version>.zip`；`--dist <dir>` 可改输出目录。zip 里会跳过 `__pycache__`、`.pyc`、`.pyo`。
@@ -81,7 +81,7 @@ python .simchat/scripts/entry.py cli pack path/to/binary-mod --key D:\keys\my_pr
 ### 3.5 生成发布条目
 
 ```bash
-python .simchat/scripts/entry.py cli publish .simchat/skills/com.example.helloskill \
+python .simchat/scripts/entry.py cli publish .simchat/skills/com_example_helloskill \
   --publisher "你的名字" \
   --repo-url "https://github.com/you/your-simchat-mods" \
   --output .simchat/skills/dist/registry-entry.json
@@ -95,7 +95,7 @@ python .simchat/scripts/entry.py cli publish .simchat/skills/com.example.hellosk
 "download": {
   "type": "git-path",
   "url": "https://github.com/your-username/your-simchat-mods",
-  "path": "mods/com.example.helloskill",
+  "path": "mods/com_example_helloskill",
   "ref": "HEAD"
 }
 ```

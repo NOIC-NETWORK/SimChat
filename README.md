@@ -127,19 +127,21 @@ SimChat 把"平台"拆成三层，每一层只做一件事：
 
 ### MOD（`mods/`，1 个）
 
-| MOD | 类型 | hooks | 交付 |
-|---|---|---|---|
-| `agent-config-minimal` | agent-config | — | Phase 3 — 女仆人设 + 简约主题 CSS |
+| MOD | ID / 名称 | 类型 | hooks | 交付 |
+|---|---|---|---|---|
+| `mods/kirara/` | `kirara_agent_config` · Kirara行为包 | agent-config | — | 女仆人设 + 简约主题 CSS（原 `agent-config-minimal` 并入） |
+
+> ID 只允许小写字母、数字与下划线；显示名称写在 `name`，可含任意符号。
 
 ### 原子能力 / 技能（`skills/`，5 个）
 
 | 技能 | 类型 | hooks | 交付 |
 |---|---|---|---|
-| `barry.galax` | binary | `chat.mode` | Phase 1 — Rigard 的证据加权检索管线 |
-| `automation.daily-digest` | automation | — | Phase 5 — 每日摘要 DAG 流示例 |
-| `noic.skill-readfile` | skill | `agent.block` | Phase 2.4 — 原 Kirara/Rigard 硬编码 skill 迁出 |
-| `noic.skill-websearch` | skill | `agent.block` | Phase 2.4 |
-| `noic.skill-screenshot-recognition` | skill | `agent.block` | Phase 2.4 |
+| `barry_galax` | binary | `chat.mode` | Phase 1 — Rigard 的证据加权检索管线 |
+| `automation_daily_digest` | automation | — | Phase 5 — 每日摘要 DAG 流示例 |
+| `noic_skill_readfile` | skill | `agent.block` | Phase 2.4 — 原 Kirara/Rigard 硬编码 skill 迁出 |
+| `noic_skill_websearch` | skill | `agent.block` | Phase 2.4 |
+| `noic_skill_screenshotrecognition` | skill | `agent.block` | Phase 2.4 |
 
 ### 运行时内置安全（不在目录中）
 
@@ -183,7 +185,7 @@ from simchat_mod import ModApi, ModeSpec, ToolSpec, BaseSkill, hook
 | Phase 2 本体独立对话 + Loader 底座 | ✅ | `494c5e9`–`e03e310` | runtime/ 3 模块 + loader/ 9 模块 + P2.4 skill MOD 全链路 |
 | Phase 3 蓝图化 | ✅ | `7f29360`–`b4ec484` | lmbrew.py 降至 **303 行**，4 蓝图接管全部路由 |
 | Phase 4 CLI + 索引 | ✅ | — | `simchat mod init/pack/verify/publish/gen-key` + `registry/index.json` 静态索引 |
-| Phase 5 Automation DAG | ✅ | — | `automation/` DAG 引擎（scheduler/executor/approval/quota/audit）+ `skills/automation.daily-digest` |
+| Phase 5 Automation DAG | ✅ | — | `automation/` DAG 引擎（scheduler/executor/approval/quota/audit）+ `skills/automation_daily_digest` |
 | MOD 可用性修复 + 分层重构 | ✅ | — | 宿主接线、IPC 前缀、`skills/` 分层、安全能力内置、Galax 重签 |
 | P1 资产/服务语义 | ✅ | — | 包内 cwd、`scripts/` 入路径、`assets_dir`、全 layer `data_dir`、SDK ModApi + 宿主服务 RPC |
 | Phase 6 仓库/品牌/社区 | 规划中 | — | 官方仓库/商店前端/付费框架 |
@@ -197,7 +199,7 @@ from simchat_mod import ModApi, ModeSpec, ToolSpec, BaseSkill, hook
 ✓ BLOCK_REGISTRY：13 个（10 内建 + 3 技能工具）
 ✓ realityCheck / areYouUnderTrouble 为内建方块
 ✓ /api/console/mods：1；/api/console/skills：5；automation：daily-digest
-✓ barry.galax：verify_package=True，status=loaded，modes=['galax']
+✓ barry_galax：verify_package=True，status=loaded，modes=['galax']
 ```
 
 ### 2026-11-15 P1 复核
@@ -205,7 +207,7 @@ from simchat_mod import ModApi, ModeSpec, ToolSpec, BaseSkill, hook
 ```
 ✓ 合成 MOD：cwd=包目录、相对资产可读、scripts/ 可导入、data_dir 存在（7/7 PASS）
 ✓ 宿主服务 RPC：api.service("inference") / skill_manager 可用，未声明服务返回 None
-✓ barry.galax 实调用：ok=True，四阶段输出完整，召回使用 webSearch 实时结果
+✓ barry_galax 实调用：ok=True，四阶段输出完整，召回使用 webSearch 实时结果
 ✓ 全 layer data_dir：data/mods/<id>（mod）、data/blocks/<id>（block）
 ```
 

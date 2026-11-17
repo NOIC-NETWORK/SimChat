@@ -33,7 +33,7 @@ from simchat.loader.keys import (  # noqa: E402
     load_public_keys,
     sign_payload,
 )
-from simchat.loader.manifest import MANIFEST_NAME, validate_manifest  # noqa: E402
+from simchat.loader.manifest import ID_RE, MANIFEST_NAME, validate_manifest  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -41,8 +41,8 @@ from simchat.loader.manifest import MANIFEST_NAME, validate_manifest  # noqa: E4
 # ---------------------------------------------------------------------------
 
 AGENT_CONFIG_TEMPLATE = {
-    "$schema": "../../simchat/spec/mod-manifest.schema.json",
-    "id": "com.example.mypersona",
+    "$schema": "../../spec/mod-manifest.schema.json",
+    "id": "example_agent_config",
     "type": "agent-config",
     "layer": "mod",
     "name": "My Persona",
@@ -62,8 +62,8 @@ AGENT_CONFIG_TEMPLATE = {
 
 
 SKILL_TEMPLATE_MANIFEST = {
-    "$schema": "../../simchat/spec/mod-manifest.schema.json",
-    "id": "com.example.helloskill",
+    "$schema": "../../spec/mod-manifest.schema.json",
+    "id": "example_hello_skill",
     "type": "skill",
     "layer": "block",
     "name": "Hello Skill",
@@ -115,7 +115,7 @@ def register(api):
 
 AUTOMATION_TEMPLATE_MANIFEST = {
     "$schema": "../../simchat/spec/mod-manifest.schema.json",
-    "id": "com.example.daily-digest",
+    "id": "example_daily_digest",
     "type": "automation",
     "layer": "block",
     "name": "Daily Digest Automation",
@@ -167,7 +167,7 @@ AUTOMATION_TEMPLATE_FLOW = '''{
 
 BINARY_TEMPLATE_MANIFEST = {
     "$schema": "../../simchat/spec/mod-manifest.schema.json",
-    "id": "com.example.mybinary",
+    "id": "example_my_binary",
     "type": "binary",
     "layer": "mod",
     "name": "My Binary MOD",
@@ -218,49 +218,49 @@ def _write_text(path, text):
         f.write(text)
 
 
-def _init_agent_config(target, mod_id):
+def _init_agent_config(target, mod_id, display_name):
     os.makedirs(os.path.join(target, "prompts"), exist_ok=True)
     os.makedirs(os.path.join(target, "assets"), exist_ok=True)
 
     manifest = dict(AGENT_CONFIG_TEMPLATE)
     manifest["id"] = mod_id
-    manifest["name"] = mod_id.split(".")[-1].title()
+    manifest["name"] = display_name
     _write_json(os.path.join(target, "manifest.json"), manifest)
 
     _write_text(os.path.join(target, "prompts", "persona.txt"),
-                "你是一个 %s 的自定义人设。\n" % mod_id)
+                "你是 %s 的自定义人设。\n" % display_name)
     _write_text(os.path.join(target, "theme.css"),
                 "/* %s theme */\nbody { --simchat-accent: #6366f1; }\n" % mod_id)
 
 
-def _init_skill(target, mod_id):
+def _init_skill(target, mod_id, display_name):
     os.makedirs(os.path.join(target, "python"), exist_ok=True)
 
     manifest = dict(SKILL_TEMPLATE_MANIFEST)
     manifest["id"] = mod_id
     manifest["entry"] = "hello_skill:register"
-    manifest["name"] = mod_id.split(".")[-1].title()
+    manifest["name"] = display_name
     _write_json(os.path.join(target, "manifest.json"), manifest)
     _write_text(os.path.join(target, "python", "hello_skill.py"), SKILL_TEMPLATE_PY)
     _write_text(os.path.join(target, "python", "__init__.py"), "")
 
 
-def _init_automation(target, mod_id):
+def _init_automation(target, mod_id, display_name):
     manifest = dict(AUTOMATION_TEMPLATE_MANIFEST)
     manifest["id"] = mod_id
-    manifest["name"] = mod_id.split(".")[-1].title()
+    manifest["name"] = display_name
     _write_json(os.path.join(target, "manifest.json"), manifest)
     _write_text(os.path.join(target, "flow.json"), AUTOMATION_TEMPLATE_FLOW)
 
 
-def _init_binary(target, mod_id):
+def _init_binary(target, mod_id, display_name):
     os.makedirs(os.path.join(target, "python"), exist_ok=True)
     os.makedirs(os.path.join(target, "web"), exist_ok=True)
 
     manifest = dict(BINARY_TEMPLATE_MANIFEST)
     manifest["id"] = mod_id
     manifest["entry"] = "mybinary.pipeline:register"
-    manifest["name"] = mod_id.split(".")[-1].title()
+    manifest["name"] = display_name
     _write_json(os.path.join(target, "manifest.json"), manifest)
     _write_text(os.path.join(target, "python", "mybinary.py"), BINARY_TEMPLATE_PY)
     _write_text(os.path.join(target, "python", "__init__.py"), "")
@@ -282,15 +282,21 @@ def cmd_init(args):
         print("[SimChat] 未知 MOD 类型: %s" % args.type)
         return 2
 
-    target = args.target or os.path.join(os.getcwd(), args.name)
+    mod_id = args.id
+    if not ID_RE.match(mod_id):
+        print("[SimChat] ✗ MOD id 不合法: %s（只允许小写字母、数字、下划线）" % mod_id)
+        return 2
+    display_name = (args.name or mod_id).strip()
+
+    target = args.target or os.path.join(os.getcwd(), mod_id)
     if os.path.exists(target) and not args.force:
         print("[SimChat] 目录已存在: %s （加 --force 覆盖）" % target)
         return 2
     os.makedirs(target, exist_ok=True)
 
-    handler(target, args.name)
+    handler(target, mod_id, display_name)
     print("[SimChat] ✓ 已生成 %s 模板 → %s" % (args.type, target))
-    print("  → 编辑 manifest.json 填写真实 id / version / description")
+    print("  → 编辑 manifest.json 填写真实 version / description（id=%s，name=%s）" % (mod_id, display_name))
     print("  → 编写你的 MOD 代码")
     print("  → 打包: python .simchat/scripts/entry.py cli pack %s" % target)
     return 0
@@ -824,8 +830,10 @@ def build_parser():
     p_init = sub.add_parser("init", help="生成 MOD 模板骨架")
     p_init.add_argument("--type", required=True, choices=list(INIT_HANDLERS.keys()),
                         help="MOD 类型")
-    p_init.add_argument("--name", required=True, help="MOD id，形如 com.example.mymod")
-    p_init.add_argument("--target", help="输出目录（默认 ./<name>）")
+    p_init.add_argument("--id", required=True,
+                        help="MOD id，只允许小写字母、数字、下划线（如 kirara_agent_config）")
+    p_init.add_argument("--name", help="显示名称，可含任意符号（默认用 id）")
+    p_init.add_argument("--target", help="输出目录（默认 ./<id>）")
     p_init.add_argument("--force", action="store_true", help="目标目录已存在时覆盖")
     p_init.set_defaults(func=cmd_init)
 

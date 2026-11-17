@@ -1,6 +1,6 @@
 {
-  "$schema": "../../simchat/spec/mod-manifest.schema.json",
-  "id": "barry.galax",
+  "$schema": "../../spec/mod-manifest.schema.json",
+  "id": "barry_galax",
   "type": "binary",
   "layer": "mod",
   "name": "Galax 联合推理检索",

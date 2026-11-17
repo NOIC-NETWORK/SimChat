@@ -53,12 +53,12 @@
 
 ### 07 安装、启用与排查技能
 - **目标**：掌握技能的日常运维。
-- **要点**：内置 5 个技能（`readFile` / `webSearch` / `screenshotRecognition` / `barry.galax` / `automation.daily-digest`）各自能力与限制；`/api/console/skills` 与 `POST /api/console/skills/<id>/toggle`；为什么启停要重启生效；`skills/.simchat_state.json` 的位置与手工恢复；加载失败时先看哪里。
+- **要点**：内置 5 个技能（`readFile` / `webSearch` / `screenshotRecognition` / `barry_galax` / `automation_daily_digest`）各自能力与限制；`/api/console/skills` 与 `POST /api/console/skills/<id>/toggle`；为什么启停要重启生效；`skills/.simchat_state.json` 的位置与手工恢复；加载失败时先看哪里。
 - **验收**：停用 `webSearch` 后重启，Agent 工具列表里消失；恢复后重新出现。
 
 ### 08 写第一个 Skill MOD
 - **目标**：从模板到一个能被 Agent 调用的工具。
-- **要点**：`python .simchat/scripts/entry.py cli init --type skill --name <id> --target <dir>` 生成骨架；目录约定（`manifest.json` / `python/` / `assets/` / `flow.json`）；SDK 用法（`ModApi`、`register_tool`、`ToolSpec`、`hook`、`api.data_dir`、`api.assets_dir`、`api.service`、`has_capability`）；entry 阶段只注册、不做重活；`print` 与 IPC 协议的关系（为什么要写 stderr / 日志）。
+- **要点**：`python .simchat/scripts/entry.py cli init --type skill --id <id> --name <显示名> --target <dir>` 生成骨架（`id` 只允许小写字母/数字/下划线）；目录约定（`manifest.json` / `python/` / `assets/` / `flow.json`）；SDK 用法（`ModApi`、`register_tool`、`ToolSpec`、`hook`、`api.data_dir`、`api.assets_dir`、`api.service`、`has_capability`）；entry 阶段只注册、不做重活；`print` 与 IPC 协议的关系（为什么要写 stderr / 日志）。
 - **验收**：工具出现在 `/api/agent/tools`，能被 Agent 调用并返回结构化结果；重启后仍可用。
 
 ### 09 权限与安全：capabilities 到底管什么
@@ -68,7 +68,7 @@
 
 ### 10 自动化：用 DAG 做定时任务
 - **目标**：跑通一条定时流程。
-- **要点**：`automation.daily-digest` 的 `flow.json` 结构；触发器（cron / event / manual）与 `policy`（超时、日配额、失败策略）；执行器、审批、审计与配额的关系；如何看运行记录与失败重试。
+- **要点**：`automation_daily_digest` 的 `flow.json` 结构；触发器（cron / event / manual）与 `policy`（超时、日配额、失败策略）；执行器、审批、审计与配额的关系；如何看运行记录与失败重试。
 - **验收**：手动触发一次 digest，看到节点逐个执行；能改 cron 并解释生效时间。
 
 ### 11 调试与常见故障
@@ -93,7 +93,7 @@
 6. **验收清单**（3–5 个可勾选项）
 7. **延伸阅读**（本仓库内相对路径）
 
-约定：命令统一用 `python .simchat/scripts/entry.py ...`；路径以仓库根为基准；示例 MOD id 用 `noic.skill-hello` 一类可读名；截图放 `docs/tutorials/images/<章节>/`。
+约定：命令统一用 `python .simchat/scripts/entry.py ...`；路径以仓库根为基准；示例 MOD id 用 `noic_skill_hello` 一类只含小写字母/数字/下划线的可读名，显示名称另放 `name`；截图放 `docs/tutorials/images/<章节>/`。
 
 ## 4. 维护约定
 

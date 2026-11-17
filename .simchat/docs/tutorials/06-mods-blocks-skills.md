@@ -34,7 +34,7 @@ MOD 层  应用包（type=binary）：可注册聊天模式、带前端资源
 
 1. 打开 `.simchat/skills/noic.readFile/manifest.json`。看 `type` 与 `layer`：`"type": "skill"`、`"layer": "block"`——它是方块层。
 2. 打开 `.simchat/skills/barry.galax/manifest.json`。`"type": "binary"`、`"layer": "mod"`，还多了 `signature` / `integrity`——它是 MOD 层，必须验签。
-3. 打开 `.simchat/skills/automation.daily-digest/manifest.json` 与同目录 `flow.json`。`"type": "automation"`、`capabilities.schedule=true`、`automation.flow_file=flow.json`——它是工作流包，由调度器消费，不是工具。
+3. 打开 `.simchat/skills/automation_daily_digest/manifest.json` 与同目录 `flow.json`。`"type": "automation"`、`capabilities.schedule=true`、`automation.flow_file=flow.json`——它是工作流包，由调度器消费，不是工具。
 
 同一个目录下三种包并排放，这就是「`skills/` 只是扫描根，不决定层级」的意思。
 
@@ -135,8 +135,8 @@ discover()            扫 mods/ 与 skills/，跳过 . 开头与 disabled
 
 ### 4.6 已声明但还没接线的部分
 
-- `barry.galax` 在加载器层注册了 `galax` 模式（`loader.list_modes()` 能看到），但 Web 前端目前**没有模式按钮、也没有调用入口**——`chat.mode` 的 UI 接线未完成。技能页里看到它「已加载」是准确的，只是它暂时不会出现在输入框。
-- `automation.daily-digest` 的 `hooks` 写了 `agent.completed`，但运行时目前**没有派发这个事件**。它的实际触发来自 flow 自己的 cron（`0 9 * * 1-5`，工作日 09:00），以及 `automation_trigger` 手动触发。
+- `barry_galax` 在加载器层注册了 `galax` 模式（`loader.list_modes()` 能看到），但 Web 前端目前**没有模式按钮、也没有调用入口**——`chat.mode` 的 UI 接线未完成。技能页里看到它「已加载」是准确的，只是它暂时不会出现在输入框。
+- `automation_daily_digest` 的 `hooks` 写了 `agent.completed`，但运行时目前**没有派发这个事件**。它的实际触发来自 flow 自己的 cron（`0 9 * * 1-5`，工作日 09:00），以及 `automation_trigger` 手动触发。
 - 审批策略（Manual/Auto/Off）仍是前端本地状态，第 04 章已说明。
 
 ## 5. 常见坑

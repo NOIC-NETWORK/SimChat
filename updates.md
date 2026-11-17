@@ -1,5 +1,15 @@
 # 最近更新
 
+**2026-11-17** — MOD ID 与显示名称分离：ID 收紧为字母/数字/下划线，Kirara 行为包并入 kirara
+
+- **ID 规则收紧**：manifest `id` 从 `^[a-z0-9][a-z0-9._-]{2,63}$` 改为 `^[a-z0-9][a-z0-9_]{2,63}$`，只允许小写字母、数字与下划线；显示名称继续放 `name`，可含任意符号（如「Kirara行为包」）。schema 与 `loader/manifest.py` 同步，报错文案补上规则说明；registry schema 的 `mod_id` 一并收紧。
+- **全局 ID 迁移**：`barry.galax → barry_galax`、`noic.skill-readfile → noic_skill_readfile`、`noic.skill-websearch → noic_skill_websearch`、`noic.skill-screenshotrecognition → noic_skill_screenshotrecognition`、`noic.skill-netrunner → noic_skill_netrunner`、`automation.daily-digest → automation_daily_digest`；manifest、registry 的 `mod_id`、`data/` 目录与文档示例全部同步。目录名不强制等于 id（运行中进程占用的 `skills/noic.*` 目录保持原名），启动接口一律以 manifest `id` 为准。
+- **agent-config-minimal 并入 kirara**：删除独立样例，`mods/kirara/manifest.json` 以 `id=kirara_agent_config`、`name=Kirara行为包` 加载；女仆人设 `prompts/maid.txt`、主题 `css/theme.css` 随包分发，主题选择器改为 `kirara_agent_config-theme`，与前端按 id 注入的 body class 对齐；registry 条目同步替换为 `mods/kirara`。
+- **CLI init 分离 ID 与名称**：`cli init` 原来把 `--name` 当 id，现拆成必填 `--id` 与可选 `--name`（显示名）；id 不合法直接拒绝，默认输出目录改为 `./<id>`；模板占位 id 改为下划线形式，`$schema` 相对路径修正为 `../../spec/mod-manifest.schema.json`。
+- **示例与文档**：`examples/skill-hello`、`examples/automation-daily-digest` 的 id 改为下划线；README 与 tutorials 08/10/11/12 的 init 命令、示例路径、registry 片段同步更新，并修掉 README 阶段进度表里丢失的换行。
+- **验证**：全部 manifest（含 examples）通过 Draft 2020-12 校验，registry 通过 registry schema；loader 实测 6/7 loaded（`automation_daily_digest` 在未启动 AutomationEngine 的独立扫描中按预期失败，Web 启动链路正常）。
+- 文件：`.simchat/loader/manifest.py`、`.simchat/loader/index.py`、`.simchat/spec/mod-manifest.schema.json`、`.simchat/spec/registry.schema.json`、`.simchat/cli/main.py`、`.simchat/registry/index.json`、`.simchat/mods/kirara/`（新增 manifest / prompts / css/theme.css）、`.simchat/mods/agent-config-minimal/`（删除）、`.simchat/skills/`（id 迁移 + automation 目录改名）、`.simchat/examples/`、`.simchat/ide-demo.html`、`.simchat/docs/tutorials/`、`README.md`、`updates.md`
+
 **2026-11-16 下午** — 运行时可靠性：工具名归一、参数校验层、automation 全链接线、原子能力物品栏
 
 - **工具名大小写不敏感**：`BlockRegistry` 新增小写索引 `_ci`，`register()` 按小写去重并保护内建方块不被 MOD 覆盖，`get()/has()` 精确命中失败后回退小写匹配；`loop.py` 命中后把 `call['tool']` 回写成 canonical 名。修掉 `realityCheck` / `webSearch` 这类 camelCase 调用永远解析不到的问题，MOD 工具也一并受益。

@@ -1,5 +1,5 @@
 {
-  "id": "noic.skill-readfile",
+  "id": "noic_skill_readfile",
   "type": "skill",
   "layer": "block",
   "name": "ReadFile 文件读取技能",

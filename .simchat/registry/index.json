@@ -1,11 +1,11 @@
 {
   "$schema": "../spec/registry.schema.json",
   "version": 1,
-  "updated_at": "2026-10-27",
+  "updated_at": "2026-11-17",
   "abi": "lmbrew-mod/1",
   "entries": [
     {
-      "mod_id": "barry.galax",
+      "mod_id": "barry_galax",
       "type": "binary",
       "name": "Galax 联合推理检索",
       "description": "四阶段证据加权检索-推理管线：召回 → 假设 → 证据 → 结论。以 ⚡ 模式接入聊天输入框。",
@@ -43,10 +43,10 @@
       ]
     },
     {
-      "mod_id": "agent-config-minimal",
+      "mod_id": "kirara_agent_config",
       "type": "agent-config",
-      "name": "Kirara Agent Config (Minimal)",
-      "description": "P3 收尾样例 MOD：提供 1 个女仆人设 + 1 套简约主题 CSS。",
+      "name": "Kirara行为包",
+      "description": "Kirara 的行为包：女仆人设 + 简约主题 CSS，随 kirara MOD 一起分发。",
       "license": "MIT",
       "publisher": "LMBrewer Official",
       "homepage": "",
@@ -60,7 +60,7 @@
           "download": {
             "type": "git-path",
             "url": "https://github.com/NOIC-NETWORK/SimChat",
-            "path": "mods/agent-config-minimal",
+            "path": "mods/kirara",
             "ref": "HEAD"
           },
           "published_at": "2026-10-26",
@@ -70,7 +70,7 @@
       ]
     },
     {
-      "mod_id": "noic.skill-readfile",
+      "mod_id": "noic_skill_readfile",
       "type": "skill",
       "name": "ReadFile 文件读取技能",
       "description": "读取用户上传的文件内容，支持文本/PDF/Word/Excel/图片元数据等多种格式",
@@ -105,7 +105,7 @@
       ]
     },
     {
-      "mod_id": "noic.skill-websearch",
+      "mod_id": "noic_skill_websearch",
       "type": "skill",
       "name": "WebSearch 网络搜索技能",
       "description": "调用 Bing 搜索接口返回结构化摘要",
@@ -140,7 +140,7 @@
       ]
     },
     {
-      "mod_id": "noic.skill-screenshot-recognition",
+      "mod_id": "noic_skill_screenshotrecognition",
       "type": "skill",
       "name": "ScreenshotRecognition 截图识别技能",
       "description": "调用 OCR/视觉模型识别截图文字与 UI 元素",

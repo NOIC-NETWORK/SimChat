@@ -1,5 +1,5 @@
 {
-  "id": "noic.skill-screenshotrecognition",
+  "id": "noic_skill_screenshotrecognition",
   "type": "skill",
   "layer": "block",
   "name": "ScreenshotRecognition 截图识别技能",

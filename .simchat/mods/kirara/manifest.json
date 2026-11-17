@@ -1,0 +1,19 @@
+{
+  "$schema": "../../spec/mod-manifest.schema.json",
+  "id": "kirara_agent_config",
+  "type": "agent-config",
+  "layer": "mod",
+  "name": "Kirara行为包",
+  "description": "Kirara 行为包：提供女仆人设与简约主题 CSS，随 kirara MOD 一起分发。",
+  "version": "0.2.0",
+  "abi": "simchat-mod/2",
+  "license": "MIT",
+  "config": {
+    "persona": "maid",
+    "system_prompt_file": "prompts/maid.txt",
+    "theme": "css/theme.css",
+    "params": {
+      "think_mode": "medium"
+    }
+  }
+}

@@ -51,7 +51,7 @@ CAPABILITY_KEYS = frozenset([
     "fs", "net", "shell", "process", "credentials", "schedule",
 ])
 
-ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,63}$")
+ID_RE = re.compile(r"^[a-z0-9][a-z0-9_]{2,63}$")
 VERSION_RE = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
     r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
@@ -87,7 +87,7 @@ def validate_manifest(data):
 
     mod_id = data.get("id")
     if _is_str(mod_id) and not ID_RE.match(mod_id):
-        errors.append("id 不符合规范: %s" % mod_id)
+        errors.append("id 不符合规范（只允许小写字母、数字、下划线）: %s" % mod_id)
 
     mod_type = data.get("type")
     if _is_str(mod_type) and mod_type not in KNOWN_TYPES:

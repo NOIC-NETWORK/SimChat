@@ -156,7 +156,7 @@ python -c "import sys; sys.path.insert(0, 'python'); import your_module"
 怀疑是宿主问题时，用模板造一个只做一件事的包：
 
 ```bash
-python .simchat/scripts/entry.py cli init --type skill --name com.example.probe --target .simchat/skills/com.example.probe
+python .simchat/scripts/entry.py cli init --type skill --id com_example_probe --name "Probe" --target .simchat/skills/com_example_probe
 ```
 
 只留一个无参数工具，返回固定字符串，重启后看它是否出现在 `/api/agent/tools`。如果 probe 能加载、你的包不能，问题在包；如果 probe 也不能，问题在宿主或启动参数。

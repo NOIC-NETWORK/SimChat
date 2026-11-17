@@ -1,10 +1,10 @@
-# 08 写第一个 Skill MOD
+﻿# 08 写第一个 Skill MOD
 
 > 本章属于「装配型」路径（B），前置：[07 技能安装与启停](07-manage-skills.md)。本章只讲「自己写一个可插拔方块」，不讲从 registry 安装（那条线还没定）。
 
 ## 1. 你会得到什么
 
-`.simchat/skills/com.example.helloskill/` 下有一个能加载的技能包；重启服务后，控制台技能页多出「Hello Skill」，Agent 工具清单里多出 `say_hello`，并且能被模型真正调用。
+`.simchat/skills/com_example_helloskill/` 下有一个能加载的技能包；重启服务后，控制台技能页多出「Hello Skill」，Agent 工具清单里多出 `say_hello`，并且能被模型真正调用。
 
 ```text
 > 用 say_hello 工具向张三问一句好
@@ -23,13 +23,13 @@
 ### 3.1 生成骨架
 
 ```bash
-python .simchat/scripts/entry.py cli init --type skill --name com.example.helloskill --target .simchat/skills/com.example.helloskill
+python .simchat/scripts/entry.py cli init --type skill --id com_example_helloskill --name "Hello Skill" --target .simchat/skills/com_example_helloskill
 ```
 
-预期输出 `[SimChat] ✓ 已生成 skill 模板 → .simchat/skills/com.example.helloskill`，目录里有：
+预期输出 `[SimChat] ✓ 已生成 skill 模板 → .simchat/skills/com_example_helloskill`，目录里有：
 
 ```text
-com.example.helloskill/
+com_example_helloskill/
   manifest.json
   python/
     hello_skill.py
@@ -42,7 +42,7 @@ com.example.helloskill/
 
 ```json
 {
-  "id": "com.example.helloskill",
+  "id": "com_example_helloskill",
   "type": "skill",
   "layer": "block",
   "name": "Hello Skill",
@@ -59,7 +59,7 @@ com.example.helloskill/
 
 几个关键点：
 
-- `id` 是唯一标识，也是启停接口用的键；**不要求等于目录名**，但建议一致。
+- `id` 是唯一标识，只能用小写字母、数字与下划线，也是启停接口用的键；显示名称放 `name`（可含任意符号）。**不要求等于目录名**，但建议一致。
 - `type=skill` + `layer=block` 表示「可插拔方块」；`entry` 形如 `模块:函数`，模块名相对包内 `python/` 解析。
 - `hooks` 至少一个，`agent.block` 表示参与 Agent 工具集。
 - `capabilities` 是运行时护栏的依据：示例只声明了读工作区。用不到文件就别声明，声明了才有权限。
