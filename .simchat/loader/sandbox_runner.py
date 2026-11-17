@@ -11,7 +11,7 @@
 
 能力：
   ✓ 崩溃隔离（进程死宿主活）
-  ✓ 进程树闸门（capabilities.shell=false → monkey-patch subprocess.Popen / os.system / os.popen）
+  ✓ 进程树闸门（capabilities.shell=false → monkey-patch subprocess.Popen / os.system / os.popen / os.spawn* / os.exec* / multiprocessing）
   ✓ 文件系统闸门（capabilities.fs.read/write → open / os.* 路径白名单）
   ✓ 网络闸门（capabilities.net.domains → getaddrinfo / connect 域名白名单）
   ✓ 模式/工具注册元数据回传
@@ -61,8 +61,9 @@ def _ipc(payload):
 def _patch_subprocess(manifest):
     """capabilities.shell=false 时禁止 MOD 代码创建子进程。
 
-    覆盖 subprocess.Popen、os.system、os.popen；os.spawn* / os.exec* /
-    multiprocessing 仍不覆盖（不是完整进程沙箱）。
+    覆盖 subprocess.Popen、os.system、os.popen、os.spawn*、os.exec*，
+    以及 multiprocessing 的 BaseProcess.start（Process / Pool /
+    ProcessPoolExecutor 最终都走这里）。仍不是完整进程沙箱。
     一个标记 token 让 runner 自身的内部调用能绕过。
     """
     caps = (manifest.get("capabilities") or {})
@@ -84,20 +85,47 @@ def _patch_subprocess(manifest):
 
     subprocess.Popen = _GuardedPopen
 
-    def _GuardedSystem(command):
+    def _deny(kind, detail=""):
         raise PermissionError(
             "MOD 未声明 capabilities.shell=true，禁止创建子进程 "
-            "(os.system, command=%r)" % (command,)
+            "(%s%s)" % (kind, detail)
         )
 
+    def _GuardedSystem(command):
+        _deny("os.system", ", command=%r" % (command,))
+
     def _GuardedPopen(command, mode="r", buffering=-1):
-        raise PermissionError(
-            "MOD 未声明 capabilities.shell=true，禁止创建子进程 "
-            "(os.popen, command=%r)" % (command,)
-        )
+        _deny("os.popen", ", command=%r" % (command,))
 
     os.system = _GuardedSystem
     os.popen = _GuardedPopen
+
+    # os.spawn* / os.exec*：不同平台可用的函数名不同，存在才 patch
+    def _guard_os_call(name):
+        def _Guarded(*args, **kwargs):
+            detail = ", args=%r" % (args[:2],) if args else ""
+            _deny("os." + name, detail)
+        return _Guarded
+
+    for _name in ("spawnl", "spawnle", "spawnlp", "spawnlpe",
+                  "spawnv", "spawnve", "spawnvp", "spawnvpe",
+                  "execl", "execle", "execlp", "execlpe",
+                  "execv", "execve", "execvp", "execvpe"):
+        if hasattr(os, _name):
+            setattr(os, _name, _guard_os_call(_name))
+
+    # multiprocessing：所有 start 方式（fork / spawn / forkserver）都汇到
+    # BaseProcess.start，Pool 与 ProcessPoolExecutor 的 worker 也走它
+    try:
+        from multiprocessing.process import BaseProcess
+
+        def _GuardedStart(self):
+            _deny("multiprocessing.Process.start",
+                  ", name=%r" % (getattr(self, "name", None),))
+
+        BaseProcess.start = _GuardedStart
+    except Exception:
+        pass
 
 
 # ============================================================================

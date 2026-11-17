@@ -63,7 +63,7 @@ from loader.lifecycle import get_global_loader
 | `manifest.assets` 的 `root/icon/cover` | 完全不可用 | 加载器、索引、UI、静态路由均无消费者 |
 | `frontend_entry` | 不可用 | SDK 有字段，Web 端从未读取 |
 | `ui.slot` / `web.blueprint` hook | 静默空转 | hook 白名单接受，但无消费方 |
-| `capabilities.fs` / `net` | 只声明不执行 | 仅 `shell` 被 patch 了 `subprocess.Popen`；`os.system`/`os.popen`/`multiprocessing` 未覆盖 |
+| `capabilities` | 部分生效 | `shell=false` 已覆盖 `Popen` / `os.system` / `os.popen` / `os.spawn*` / `os.exec*` / `multiprocessing` 启动；`pty`、`asyncio` 子进程、`ctypes` 等仍可绕过；fs/net 为进程内闸门 |
 | MOD 在 entry 阶段 `print()` | 加载失败 | 协议走 stdout，print 会顶掉 register 首行，宿主报"沙箱输出格式非法" |
 | 并发 `invoke_tool` | 有串包风险 | 所有调用共用响应队列，无锁、无 per-request future |
 

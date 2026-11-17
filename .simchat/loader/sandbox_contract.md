@@ -105,10 +105,10 @@
 ### 5.1 shell
 
 子进程启动时检查 manifest.capabilities.shell：
-- 缺省或 false → monkey-patch `subprocess.Popen`：如果不是内部 runner 自己的调用（可以通过一个 token 检测），就 raise PermissionError("MOD 未声明 shell capability，禁止创建子进程")。
+- 缺省或 false → monkey-patch `subprocess.Popen`、`os.system`、`os.popen`、`os.spawn*`、`os.exec*`，并把 `multiprocessing.process.BaseProcess.start` 换成拒绝函数（`Process` / `Pool` / `ProcessPoolExecutor` 的 worker 最终都走它）。除非是内部 runner 自己的调用（可以通过一个 token 检测），一律 raise PermissionError("MOD 未声明 shell capability，禁止创建子进程")。
 - true → 不 patch。
 
-os.system / os.popen / multiprocessing 等其他进程创建入口暂不覆盖。
+未覆盖的同类入口：`pty.spawn`（Unix）、`asyncio.create_subprocess_*`（Windows 下走 `windows_utils.Popen`，绕开模块属性替换）、`os.posix_spawn*` 与 `os.fork*`（Unix）、直接调用 `ctypes` / `_winapi.CreateProcess` 等。这是 Python 层护栏，不是 OS 级隔离。
 
 ### 5.2 fs（P2）
 
