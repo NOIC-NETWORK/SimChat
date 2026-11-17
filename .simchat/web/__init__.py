@@ -1379,6 +1379,11 @@ def create_app(core=None):
             return "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
 
         def generate():
+            # 与 /api/agent/abort 共用同一套取消信号：前端拿 chat_started 里的
+            # run_id 调 abort，就能让本轮生成在分块 / 轮次之间停下
+            from simchat.runtime.agent.runs import agent_runs
+            run_id = agent_runs.create()
+            abort_event = (agent_runs.get(run_id) or {}).get("abort")
             kwargs = {}
             if engine_params:
                 kwargs = {
@@ -1421,7 +1426,8 @@ def create_app(core=None):
                         sess = core.store.create(mode="agent")
                     sid = sess["id"]
                     yield _stream_out({"event": "chat_started", "schema": 1,
-                                        "session_id": sid, "agent_mode": True})
+                                        "session_id": sid, "agent_mode": True,
+                                        "run_id": run_id})
 
                     history = [{"role": m["role"], "content": m["content"]}
                                for m in sess.get("messages", [])]
@@ -1432,6 +1438,7 @@ def create_app(core=None):
                         max_turns=10,
                         mode="agent",
                         shell_enabled=False,
+                        abort_event=abort_event,
                     )
                     agent_events = []
                     loop.run(
@@ -1456,13 +1463,21 @@ def create_app(core=None):
                     model=data.get("model"),
                     system=system,
                     regenerate=bool(data.get("regenerate")),
+                    abort_event=abort_event,
                     **kwargs,
                 ):
+                    if event.get("event") == "chat_started":
+                        event["run_id"] = run_id
                     yield _stream_out(event)
+            except GeneratorExit:
+                # 客户端断开：让服务端的生成循环尽快停下
+                agent_runs.abort(run_id)
+                raise
             except Exception as error:
                 _record_event("chat.error", {"error": str(error)[:200]})
                 raise
             finally:
+                agent_runs.remove(run_id)
                 _record_event("chat.end", {"session_id": data.get("session_id") or ""})
 
         resp = Response(stream_with_context(generate()), mimetype="text/event-stream")

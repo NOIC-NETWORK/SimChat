@@ -28,6 +28,10 @@ TOOL_SPLIT_RE = re.compile(r'/\$\s*TOOL\s*:', re.IGNORECASE)
 TOOL_NAME_RE = re.compile(r'\s*([A-Za-z_]\w*)')
 TOOL_PARAMS_RE = re.compile(r'PARAMS\s*:\s*(.+)$', re.IGNORECASE | re.DOTALL)
 
+# 无进展兜底：同一组工具调用（工具名 + 参数 + 解析失败片段）连续重复到该次数即终止。
+# 用于兜住"模型每轮都输出同一段坏 JSON → 参数解析失败 → 再试"这类确定性循环。
+REPEAT_LIMIT = 3
+
 
 def _extract_json_object(text):
     """从文本中扫描出第一个括号平衡的 JSON 对象；失败返回 None（宽松兜底）。"""
@@ -231,9 +235,45 @@ class AgentLoop:
         self._plan_done = 0
         # 计划步骤列表（turn-0 生成后存起来，挂起时写入 pending_state，恢复时重建）
         self._plan_steps = None
+        # 无进展检测：上一轮调用的签名与连续重复次数
+        self._last_call_sig = None
+        self._repeat_turns = 0
 
     def abort(self):
         self.abort_event.set()
+
+    @staticmethod
+    def _call_signature(call):
+        """单个调用的无进展签名：工具名 + 规范化的参数/解析失败片段。"""
+        if call.get('parse_error'):
+            return (call.get('tool'), '', str(call['parse_error']))
+        params = call.get('params') or {}
+        try:
+            normalized = json.dumps(params, sort_keys=True, ensure_ascii=False)
+        except Exception:
+            normalized = str(params)
+        return (call.get('tool'), normalized, '')
+
+    def _is_no_progress(self, calls):
+        """判断这一轮是否在原地打转；返回 (是否终止, 工具名)。
+
+        两类命中：
+        - 单轮内同一调用连续出现 REPEAT_LIMIT 次（模型一次吐了多份相同指令）；
+        - 连续 REPEAT_LIMIT 轮，整轮调用签名完全相同（含参数解析失败片段）。
+        只看"是否与上一轮完全相同"，任务推进后参数自然会变。
+        """
+        sigs = [self._call_signature(call) for call in calls]
+        if not sigs:
+            return False, ''
+        if len(sigs) >= REPEAT_LIMIT and all(sig == sigs[0] for sig in sigs):
+            return True, calls[0].get('tool', '')
+        current = tuple(sigs)
+        if current == self._last_call_sig:
+            self._repeat_turns += 1
+        else:
+            self._last_call_sig = current
+            self._repeat_turns = 1
+        return self._repeat_turns >= REPEAT_LIMIT, calls[0].get('tool', '')
 
     def _check_safety(self, message):
         """本体没有安全分类器时返回 None（跳过）；有则复用宿主同源检查。"""
@@ -507,6 +547,19 @@ class AgentLoop:
                 self._save_memory(message, final_text)
                 return None
 
+            repeated, repeated_tool = self._is_no_progress(calls)
+            if repeated:
+                notice = (
+                    f'已自动停止：连续 {REPEAT_LIMIT} 轮出现完全相同的工具调用'
+                    f'（{repeated_tool}），且没有产生新的结果。'
+                    '常见原因是模型把多行内容直接塞进单行 JSON；参数里的换行必须写成 \\n。'
+                    '请调整指令或把任务拆小后重试。'
+                )
+                print(f'[Agent] 检测到无进展的重复调用（{repeated_tool}），已提前终止')
+                emit({'event': 'final', 'content': notice, 'session_id': sid,
+                      'stopped_by': 'repeat_guard'})
+                return None
+
             suspended = self._process_turn_calls(calls, turn, transcript, emit)
             if suspended is not None:
                 return suspended
@@ -537,7 +590,8 @@ class AgentLoop:
             if call.get('parse_error'):
                 error_text = (
                     '参数解析失败：PARAMS 不是合法 JSON 对象，本次调用未执行。'
-                    '请只输出一行 /$TOOL:工具名 PARAMS:{"参数名": "值"} 后重试。'
+                    '请只输出一行 /$TOOL:工具名 PARAMS:{"参数名": "值"} 后重试；'
+                    '参数值里的换行必须转义为 \\n，不能写成真实换行。'
                     f'原始片段: {call["parse_error"]}'
                 )
                 emit({'event': 'tool_result', 'turn': turn, 'call_id': call_id,

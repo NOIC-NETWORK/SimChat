@@ -7,6 +7,7 @@
 
 import json
 import os
+import threading
 
 from . import (
     provider_config,
@@ -261,8 +262,14 @@ class SimChatCore:
 
     def chat_stream(self, message, session_id=None, provider=None, model=None,
                     system=None, temperature=0.7, max_tokens=1024,
-                    regenerate=False, top_p=None, repetition_penalty=None):
-        """生成 SSE 事件 dict：chat_started → token* → final | error。"""
+                    regenerate=False, top_p=None, repetition_penalty=None,
+                    abort_event=None):
+        """生成 SSE 事件 dict：chat_started → token* → final | error | aborted。
+
+        abort_event：外部取消信号。每个分块前检查一次，命中后停止上游流、
+        保存已经生成的部分并返回 aborted。
+        """
+        abort_event = abort_event or threading.Event()
         self.config = self._load_config()  # 热加载，改配置免重启
 
         # 后端 quota 硬闸（从 settings.json 读 limit；0 = 不限额）
@@ -293,6 +300,10 @@ class SimChatCore:
             self.store.trim_last_assistant(sid)
         yield {"event": "chat_started", "schema": 1, "session_id": sid}
 
+        if abort_event.is_set():
+            yield {"event": "aborted", "session_id": sid, "content": ""}
+            return
+
         history = [{"role": m["role"], "content": m["content"]}
                    for m in sess.get("messages", [])]
         messages = []
@@ -305,16 +316,35 @@ class SimChatCore:
         prov = self._provider(chosen)
         pieces = []
         try:
-            for piece in prov.stream_chat(messages, model=model,
-                                          temperature=temperature, max_tokens=max_tokens,
-                                          top_p=top_p, repetition_penalty=repetition_penalty):
-                pieces.append(piece)
-                yield {"event": "token", "content": piece}
+            upstream = prov.stream_chat(messages, model=model,
+                                        temperature=temperature, max_tokens=max_tokens,
+                                        top_p=top_p, repetition_penalty=repetition_penalty)
+            try:
+                for piece in upstream:
+                    if abort_event.is_set():
+                        break
+                    pieces.append(piece)
+                    yield {"event": "token", "content": piece}
+            finally:
+                close = getattr(upstream, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception:
+                        pass
         except ProviderError as e:
             yield {"event": "error", "message": str(e)}
             return
         except Exception as e:
             yield {"event": "error", "message": f"本体对话异常: {e}"}
+            return
+
+        if abort_event.is_set():
+            partial = "".join(pieces).strip()
+            if partial:
+                self.store.append(sid, "user", message)
+                self.store.append(sid, "assistant", partial)
+            yield {"event": "aborted", "content": partial, "session_id": sid}
             return
 
         full = "".join(pieces).strip()

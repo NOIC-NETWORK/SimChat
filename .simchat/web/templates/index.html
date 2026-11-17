@@ -7,7 +7,7 @@
 <link rel="icon" type="image/png" href="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261109a">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261103a">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}?v=20261116a">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}?v=20261117c">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 </head>
@@ -328,6 +328,11 @@
               <path d="M12 19V5M5 12l7-7 7 7"/>
             </svg>
           </button>
+          <button class="send-button stop-button hidden" id="stop" type="button" aria-label="停止生成" title="停止生成">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="2"/>
+            </svg>
+          </button>
         </div>
       </form>
       <div class="token-bar hidden" id="token-bar" title="按字符估算：中文约 1 字 ≈ 1 token，英文约 4 字符 ≈ 1 token">
@@ -450,7 +455,7 @@
         <option value="automation">Automation</option>
       </select>
       <button class="ghost-button" id="mod-refresh" type="button">重新扫描</button>
-      <span class="console-toolbar-hint">只读扫描 manifest.json，不执行 MOD 代码</span>
+      <span class="console-toolbar-hint">安装模组意味着信任TeleVideo以外的开发者，产生的问题由用户自行承担。</span>
     </div>
     <div class="mod-layout">
       <div class="mod-list" id="mod-list"></div>
@@ -1370,14 +1375,15 @@
     </div>
 
     <footer class="inv-foot">
-      <span class="inv-foot-hint" id="inv-foot-hint">I 开关面板 · Esc 关闭 · Tab 在分类与条目间移动</span>
+      <span class="inv-foot-hint" id="inv-foot-hint">悬停查看详情 · I 开关面板 · Esc 关闭 · Tab 在分类与条目间移动</span>
       <span class="inv-foot-src">数据源：/api/console/skills · /api/console/automation</span>
     </footer>
   </div>
 </div>
+<div class="inv-tooltip" id="inv-tooltip" role="tooltip" hidden></div>
 
 <script src="{{ url_for('static', filename='js/chat.js') }}?v=20261111a"></script>
-<script src="{{ url_for('static', filename='js/inventory.js') }}?v=20261116a"></script>
+<script src="{{ url_for('static', filename='js/inventory.js') }}?v=20261117c"></script>
 <script src="{{ url_for('static', filename='js/nav-shortcuts.js') }}?v=20261116a"></script>
 </body>
 </html>

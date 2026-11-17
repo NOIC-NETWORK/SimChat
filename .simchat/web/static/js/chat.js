@@ -45,6 +45,7 @@
     workspaceConfirm: document.getElementById("workspace-confirm"),
     input: document.getElementById("input"),
     send: document.getElementById("send"),
+    stop: document.getElementById("stop"),
     attachBtn: document.getElementById("attach-btn"),
     attachInput: document.getElementById("attach-input"),
     attachChips: document.getElementById("attach-chips"),
@@ -208,6 +209,8 @@
     // Agent 运行态
     agentRunId: null,       // 当前运行的 run_id
     agentPendingRunId: null, // 待审批的 run_id
+    chatRunId: null,        // 当前 /api/chat 流对应的 run_id（用于停止）
+    streamAbort: null,      // 当前流式请求的 AbortController（chat / agent 共用）
     activeAgentId: localStorage.getItem("simchat.active_agent_id") || null, // 当前激活的 AI 实例
 
     // 自动模型发现
@@ -1915,6 +1918,8 @@
     state.streaming = streaming;
     el.statusDot.classList.toggle("streaming", streaming && !interactionBlocked());
     el.statusDot.title = connectionLabel();
+    if (el.send) el.send.classList.toggle("hidden", streaming);
+    if (el.stop) el.stop.classList.toggle("hidden", !streaming);
     updateSendState();
   }
 
@@ -2192,12 +2197,15 @@
     }
 
     try {
+      const controller = new AbortController();
+      state.streamAbort = controller;
       const resp = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(options.resumeRunId
           ? { run_id: options.resumeRunId, decision: options.decision, edits: options.edits || {}, mode: mode }
           : payload),
+        signal: controller.signal,
       });
 
       if (!resp.ok || !resp.body) {
@@ -2270,6 +2278,7 @@
           // 中止流：这里需要中断当前 SSE 等待
           if (reader) { try { await reader.cancel(); } catch (_) {} }
           reader = null;
+          state.streamAbort = null;
           scrollToBottom();
           // 提前 return，等用户审批后 handleApproval 会重新调用 runAgent(resume)
           return;
@@ -2333,11 +2342,16 @@
         }
       }
     } catch (err) {
-      errorMessage = err.message || String(err);
-      cardsContainer.appendChild(createErrorCard(errorMessage));
+      if (err.name === "AbortError") {
+        // 用户点了停止：不追加错误卡，已生成的卡片保留
+      } else {
+        errorMessage = err.message || String(err);
+        cardsContainer.appendChild(createErrorCard(errorMessage));
+      }
       if (reader) { try { await reader.cancel(); } catch (_) {} }
     }
 
+    state.streamAbort = null;
     // 收尾
     contentEl.classList.remove("streaming");
     state.agentRunId = null;
@@ -2384,21 +2398,27 @@
     }, mode, row);
   }
 
-  async function abortAgent() {
-    if (!state.agentRunId && !state.agentPendingRunId) return;
-    const runId = state.agentRunId || state.agentPendingRunId;
-    try {
-      await fetch("/api/agent/abort", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ run_id: runId }),
-      });
-    } catch (err) {
-      console.warn("[Agent] abort 请求失败:", err);
+  async function stopGeneration() {
+    const runId = state.chatRunId || state.agentRunId || state.agentPendingRunId;
+    // 先通知服务端取消（loop 轮次之间 / 流式分块之间会检查），再断本地连接
+    if (runId) {
+      try {
+        await fetch("/api/agent/abort", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ run_id: runId }),
+        });
+      } catch (err) {
+        console.warn("[Agent] abort 请求失败:", err);
+      }
     }
+    if (state.streamAbort) {
+      try { state.streamAbort.abort(); } catch (err) { /* 已结束 */ }
+    }
+    state.chatRunId = null;
     state.agentRunId = null;
     state.agentPendingRunId = null;
-    setStreaming(false);
+    if (state.streaming) setStreaming(false);
   }
 
   // ---------------- 流式对话（Chat 模式） ----------------
@@ -2429,10 +2449,13 @@
     };
 
     try {
+      const controller = new AbortController();
+      state.streamAbort = controller;
       const resp = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
       if (!resp.ok || !resp.body) {
@@ -2464,6 +2487,7 @@
         if (event.event === "chat_started") {
           // 后端创建/返回了 session_id，存下来
           if (event.session_id) setSessionId(event.session_id);
+          if (event.run_id) state.chatRunId = event.run_id;
         } else if (event.event === "token") {
           accumulated += event.content || "";
           raw.text = accumulated;
@@ -2474,19 +2498,34 @@
           raw.text = finalText;
           contentEl.innerHTML = renderMarkdown(finalText);
           if (event.session_id) setSessionId(event.session_id);
+        } else if (event.event === "aborted") {
+          // 服务端确认已停止：保留已经生成的部分，不再追加错误卡
+          if (event.session_id) setSessionId(event.session_id);
+          if (!accumulated && event.content) {
+            accumulated = event.content;
+            raw.text = accumulated;
+            contentEl.innerHTML = renderMarkdown(accumulated);
+          }
         } else if (event.event === "error") {
           errorMessage = event.message || "未知错误";
           // 把错误也显示在气泡里（红色）
-          contentEl.innerHTML = '<p class="error-text">' + escapeHtml(errorMessage) + '</p>';
+          contentEl.innerHTML = '<p class="error-text">' + escapeHtml(errorMessage) + "</p>";
           break;
         }
       }
     } catch (err) {
-      if (!errorMessage) errorMessage = err.message || String(err);
-      if (!accumulated) {
-        contentEl.innerHTML = '<p class="error-text">' + escapeHtml(errorMessage) + '</p>';
+      if (err.name === "AbortError") {
+        // 用户点了停止：保留已生成内容，不显示错误
+      } else if (!errorMessage) {
+        errorMessage = err.message || String(err);
+        if (!accumulated) {
+          contentEl.innerHTML = '<p class="error-text">' + escapeHtml(errorMessage) + "</p>";
+        }
       }
     }
+
+    state.streamAbort = null;
+    state.chatRunId = null;
 
     // 收尾
     row._body.classList.remove("streaming");
@@ -4658,6 +4697,8 @@
     updateSendState();
     sendMessage(text);
   });
+
+  el.stop?.addEventListener("click", stopGeneration);
 
   el.input.addEventListener("input", () => {
     autoResize();
