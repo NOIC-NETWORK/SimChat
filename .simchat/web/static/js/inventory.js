@@ -22,40 +22,27 @@
     },
     {
       id: "automation",
-      label: "自动化",
+      label: "自动化流程",
       icon: "⏱",
       desc: "automation 引擎的 flow 清单，按触发器运行。",
       endpoint: "/api/console/automation",
-    },
-    {
-      id: "mcp",
-      label: "MCP",
-      icon: "🔌",
-      desc: "Model Context Protocol 服务",
-      unavailable:
-        "运行时尚未接入 MCP 客户端：没有服务清单、没有连接管理，也没有可调用的 MCP 工具。",
-    },
-    {
-      id: "cot",
-      label: "CoT",
-      icon: "🧠",
-      desc: "显式思维链策略",
-      unavailable:
-        "运行时尚未实现 CoT 策略层：无法配置、无法选择，对话里也不会出现思维链开关。",
-    },
-    {
-      id: "orbiter",
-      label: "Orbiter",
-      icon: "🛰",
-      desc: "调用其它 AI 的中继",
-      unavailable:
-        "运行时尚未实现 Orbiter 中继：输入框里的 Orbiter 开关只是预留 UI，不会发起任何跨 AI 调用。",
     },
   ];
 
   // 自有能力的分类展示顺序；MOD 声明的分类排在其后（按名称排序）
   const BUILTIN_CATEGORY_ORDER = ["CoT", "办公", "代码", "通讯", "创意", "检索", "自动化", "实验性", "其他"];
   const MOD_DEFAULT_CATEGORY = "其他";
+  const BLOCK_CATEGORY_ICONS = {
+    CoT: "🧠",
+    办公: "📄",
+    代码: "💻",
+    通讯: "💬",
+    创意: "🎨",
+    检索: "🔍",
+    自动化: "⏱",
+    实验性: "🧪",
+    其他: "▫",
+  };
 
   // 方块 logo：web/static/sprites/bricks 下的白色单色图，用 CSS mask 着色。
   const BRICK_BASE = "/static/sprites/bricks/";
@@ -70,7 +57,7 @@
   const state = {
     open: false,
     tab: "grid",
-    cat: "blocks",
+    cat: "",
     query: "",
     selected: null,
     loading: false,
@@ -113,7 +100,17 @@
   }
 
   function catById(id) {
-    return CATEGORIES.find((c) => c.id === id) || CATEGORIES[0];
+    return CATEGORIES.find((c) => c.id === id) || null;
+  }
+
+  function blockItems(source) {
+    return catItems("blocks").filter((item) =>
+      source === "mod" ? item.source === "mod" : item.source !== "mod"
+    );
+  }
+
+  function blockCategoryOf(item) {
+    return item.category || MOD_DEFAULT_CATEGORY;
   }
 
   function brickFor(item) {
@@ -235,6 +232,7 @@
       state.loading = false;
       state.loadPromise = null;
       state.loadedAt = Date.now();
+      ensureCat();
       renderAll();
     });
     return state.loadPromise;
@@ -248,45 +246,123 @@
     renderFooter();
   }
 
+  /* 左侧分类栏：自有能力（内建方块的功能分类）与 MOD 能力（MOD 声明的分类 + 技能 + 自动化流程） */
+  function railSections() {
+    const builtin = groupByCategory(blockItems("builtin")).map((group) => ({
+      key: "builtin:" + group.label,
+      label: group.label,
+      icon: BLOCK_CATEGORY_ICONS[group.label] || "🧱",
+      desc: "自有能力 · " + group.label + " 类内建方块；装备决定模型能否调用。",
+      catId: "blocks",
+      count: group.items.length,
+      filter: (item) => item.source !== "mod" && blockCategoryOf(item) === group.label,
+    }));
+
+    const mod = groupByCategory(blockItems("mod")).map((group) => ({
+      key: "mod:" + group.label,
+      label: group.label,
+      icon: "🧩",
+      desc: "MOD 声明的「" + group.label + "」分类；随 MOD 加载进运行时。",
+      catId: "blocks",
+      count: group.items.length,
+      filter: (item) => item.source === "mod" && blockCategoryOf(item) === group.label,
+    }));
+
+    const skills = catItems("skills");
+    if (skills.length) {
+      mod.push({
+        key: "skills",
+        label: "技能",
+        icon: "✦",
+        desc: "loader 扫描到的 skill 包，经 skills 元工具调用。",
+        catId: "skills",
+        count: skills.length,
+        filter: null,
+      });
+    }
+
+    const flows = catItems("automation");
+    if (flows.length) {
+      mod.push({
+        key: "automation",
+        label: "自动化流程",
+        icon: "⏱",
+        desc: "automation 引擎的 flow 清单，按触发器运行。",
+        catId: "automation",
+        count: flows.length,
+        filter: null,
+      });
+    }
+
+    return [
+      { id: "builtin", title: "自有能力", entries: builtin },
+      { id: "mod", title: "MOD 能力", entries: mod },
+    ].filter((section) => section.entries.length);
+  }
+
+  function allRailEntries() {
+    return railSections().reduce((list, section) => list.concat(section.entries), []);
+  }
+
+  function railEntry(key) {
+    return allRailEntries().find((entry) => entry.key === key) || null;
+  }
+
+  function ensureCat() {
+    if (railEntry(state.cat)) return;
+    const first = allRailEntries()[0];
+    state.cat = first ? first.key : "";
+  }
+
   function renderRail() {
     if (!refs.cats) return;
-    refs.cats.innerHTML = CATEGORIES.map((cat) => {
-      const active = cat.id === state.cat;
-      const off = Boolean(cat.unavailable);
-      let countHtml = "";
-      if (off) {
-        countHtml = '<span class="inv-cat-off">未接入</span>';
-      } else if (state.loading && !state.data[cat.id]) {
-        countHtml = '<span class="inv-cat-count">…</span>';
-      } else {
-        const total = catItems(cat.id).length;
-        countHtml = '<span class="inv-cat-count">' + total + "</span>";
-      }
-      return (
-        '<button type="button" class="inv-cat' +
-        (active ? " is-active" : "") +
-        (off ? " is-off" : "") +
-        '" data-inv-cat="' + cat.id + '" role="tab" aria-selected="' + (active ? "true" : "false") +
-        '" aria-label="' + escapeHtml(cat.label) + (off ? "（未接入）" : "") + '">' +
-        '<span class="inv-cat-icon">' + cat.icon + "</span>" +
-        '<span class="inv-cat-label">' + escapeHtml(cat.label) + "</span>" +
-        countHtml +
-        "</button>"
-      );
+    if (!state.data.blocks) {
+      refs.cats.innerHTML =
+        '<div class="inv-rail-loading">' + (state.loading ? "正在读取分类…" : "暂无分类数据") + "</div>";
+      return;
+    }
+    const sections = railSections();
+    if (!sections.length) {
+      refs.cats.innerHTML = '<div class="inv-rail-loading">暂无能力分类</div>';
+      return;
+    }
+    refs.cats.innerHTML = sections.map((section, index) => {
+      const divider = index > 0 ? '<div class="inv-rail-divider" role="separator"></div>' : "";
+      const title =
+        '<div class="inv-rail-title">' + escapeHtml(section.title) +
+        '<span class="inv-rail-title-count">' + section.entries.length + "</span></div>";
+      return divider + title + section.entries.map(railButtonHtml).join("");
     }).join("");
+  }
+
+  function railButtonHtml(entry) {
+    const active = entry.key === state.cat;
+    return (
+      '<button type="button" class="inv-cat' + (active ? " is-active" : "") +
+      '" data-inv-cat="' + escapeHtml(entry.key) + '" role="tab" aria-selected="' +
+      (active ? "true" : "false") + '" aria-label="' + escapeHtml(entry.label) +
+      "（" + entry.count + ' 项）">' +
+      '<span class="inv-cat-icon">' + entry.icon + "</span>" +
+      '<span class="inv-cat-label">' + escapeHtml(entry.label) + "</span>" +
+      '<span class="inv-cat-count">' + entry.count + "</span>" +
+      "</button>"
+    );
   }
 
   function renderHeaderSummary() {
     if (!refs.headSub) return;
+    if (!state.data.blocks) {
+      refs.headSub.textContent = state.loading ? "正在读取能力清单…" : "暂无能力数据";
+      return;
+    }
     const parts = [];
-    CATEGORIES.forEach((cat) => {
-      if (cat.unavailable) return;
-      if (state.data[cat.id]) parts.push(cat.label + " " + catItems(cat.id).length);
-    });
-    const offCount = CATEGORIES.filter((c) => c.unavailable).length;
-    let text = state.loading && !parts.length ? "正在读取能力清单…" : parts.join(" · ");
-    if (offCount) text += (text ? " · " : "") + offCount + " 类未接入";
-    refs.headSub.textContent = text || "暂无能力数据";
+    const builtin = blockItems("builtin").length;
+    const mod = blockItems("mod").length;
+    if (builtin) parts.push("自有方块 " + builtin);
+    if (mod) parts.push("MOD 方块 " + mod);
+    if (catItems("skills").length) parts.push("技能 " + catItems("skills").length);
+    if (catItems("automation").length) parts.push("自动化流程 " + catItems("automation").length);
+    refs.headSub.textContent = parts.length ? parts.join(" · ") : "暂无能力数据";
   }
 
   function renderFooter() {
@@ -486,73 +562,47 @@
       .map(([label, list]) => ({ label, items: list }));
   }
 
-  function subsectionHtml(label, items) {
-    return (
-      '<div class="inv-subsection">' +
-      '<div class="inv-subsection-head"><span>' + escapeHtml(label) + "</span>" +
-      '<span class="inv-subsection-count">' + items.length + "</span></div>" +
-      '<div class="inv-subgrid">' + items.map(slotHtml).join("") + "</div>" +
-      "</div>"
-    );
-  }
-
-  function blockSectionHtml(title, items) {
-    if (!items.length) return "";
-    return (
-      '<div class="inv-block-section">' +
-      '<div class="inv-block-section-head">' +
-      '<span class="inv-block-section-title">' + escapeHtml(title) + "</span>" +
-      '<span class="inv-block-section-count">' + items.length + "</span>" +
-      '<span class="inv-group-line"></span></div>' +
-      groupByCategory(items).map((g) => subsectionHtml(g.label, g.items)).join("") +
-      "</div>"
-    );
-  }
-
-  /* 原子能力两级结构：自有能力（按功能分类） + MOD 能力（按 MOD 声明的分类） */
-  function blockSectionsHtml(items) {
-    const owned = items.filter((item) => item.source !== "mod");
-    const modded = items.filter((item) => item.source === "mod");
-    return blockSectionHtml("自有能力", owned) + blockSectionHtml("MOD 能力", modded);
-  }
-
   function renderGrid() {
     hideTooltip();
-    const cat = catById(state.cat);
-    if (refs.toolbarTitle) refs.toolbarTitle.textContent = cat.label;
-    if (refs.toolbarDesc) refs.toolbarDesc.textContent = cat.desc;
-
-    if (cat.unavailable) {
-      showState("🚧", cat.label + " 尚未接入",
-        cat.unavailable,
-        '<span class="inv-state-tag">未接入 · 不提供占位开关</span>');
+    const entry = railEntry(state.cat);
+    if (!entry) {
+      if (refs.toolbarTitle) refs.toolbarTitle.textContent = "物品栏";
+      if (refs.toolbarDesc) refs.toolbarDesc.textContent = "";
+      if (state.loading || !state.data.blocks) {
+        showState("⏳", "正在读取能力…",
+          state.loading ? "正在从运行时读取方块、技能与自动化清单" : "");
+      } else {
+        showState("🗃", "暂无可展示的能力",
+          "运行时没有发现内建方块、MOD 方块、技能或自动化流程。");
+      }
       return;
     }
 
-    const bucket = state.data[cat.id];
+    const cat = catById(entry.catId);
+    const endpoint = cat ? cat.endpoint : "";
+    if (refs.toolbarTitle) refs.toolbarTitle.textContent = entry.label;
+    if (refs.toolbarDesc) refs.toolbarDesc.textContent = entry.desc;
+
+    const bucket = state.data[entry.catId];
     if (!bucket) {
-      showState("⏳", "正在读取…", state.loading ? "从 " + cat.endpoint + " 获取清单" : "");
+      showState("⏳", "正在读取…", state.loading ? "从 " + endpoint + " 获取清单" : "");
       return;
     }
     if (bucket.error) {
-      showState("⚠️", cat.label + " 加载失败", bucket.error,
+      showState("⚠️", entry.label + " 加载失败", bucket.error,
         '<button type="button" class="inv-state-retry" data-inv-retry="1">重试</button>');
       return;
     }
-    if (!bucket.items.length) {
+
+    const items = entry.filter ? bucket.items.filter(entry.filter) : bucket.items;
+    if (!items.length) {
       showState("🗃", "这一类暂时是空的",
-        "接口 " + cat.endpoint + " 正常工作，只是本次扫描没有发现条目。");
+        "接口 " + endpoint + " 正常工作，只是本次扫描没有发现条目。");
       return;
     }
 
     hideState();
-    if (cat.id === "blocks") {
-      refs.grid.classList.add("is-grouped");
-      refs.grid.innerHTML = blockSectionsHtml(bucket.items);
-    } else {
-      refs.grid.classList.remove("is-grouped");
-      refs.grid.innerHTML = bucket.items.map(slotHtml).join("");
-    }
+    refs.grid.innerHTML = items.map(slotHtml).join("");
   }
 
   /* ---------------- 渲染：搜索 ---------------- */
@@ -569,33 +619,30 @@
     if (!refs.searchInput) return;
     if (refs.searchInput.value !== state.query) refs.searchInput.value = state.query;
     const keyword = state.query.trim().toLowerCase();
-    const available = CATEGORIES.filter((cat) => !cat.unavailable);
 
     if (!keyword) {
       refs.results.innerHTML =
         '<div class="inv-state">' +
         '<div class="inv-state-icon">🧭</div>' +
         '<div class="inv-state-title">跨分类搜索</div>' +
-        '<div class="inv-state-desc">输入名称、ID、描述或 hook 关键词，会在原子能力、技能与自动化里一起查找。' +
-        "MCP / CoT / Orbiter 尚未接入，不参与搜索。</div>" +
+        '<div class="inv-state-desc">输入名称、ID、描述或 hook 关键词，会在自有能力、MOD 能力、技能与自动化流程里一起查找。</div>' +
         "</div>";
       return;
     }
 
     let total = 0;
-    const groups = available.map((cat) => {
-      if (!state.data[cat.id]) return "";
-      const hits = catItems(cat.id).filter((item) => searchableText(item).includes(keyword));
+    const groups = allRailEntries().map((entry) => {
+      const bucket = state.data[entry.catId];
+      if (!bucket) return "";
+      const items = entry.filter ? bucket.items.filter(entry.filter) : bucket.items;
+      const hits = items.filter((item) => searchableText(item).includes(keyword));
       if (!hits.length) return "";
       total += hits.length;
-      const body = cat.id === "blocks"
-        ? blockSectionsHtml(hits)
-        : '<div class="inv-grid">' + hits.map(slotHtml).join("") + "</div>";
       return (
         '<div class="inv-group">' +
-        '<div class="inv-group-head"><span>' + cat.icon + " " + escapeHtml(cat.label) +
+        '<div class="inv-group-head"><span>' + entry.icon + " " + escapeHtml(entry.label) +
         " · " + hits.length + '</span><span class="inv-group-line"></span></div>' +
-        body +
+        '<div class="inv-grid">' + hits.map(slotHtml).join("") + "</div>" +
         "</div>"
       );
     }).filter(Boolean).join("");
@@ -614,17 +661,17 @@
       '<div class="inv-group-head" style="margin-bottom:8px"><span>共 ' + total +
       ' 项匹配</span><span class="inv-group-line"></span></div>' +
       groups +
-      '<div class="inv-search-note">搜索范围：原子能力 ' + catItems("blocks").length +
+      '<div class="inv-search-note">搜索范围：自有方块 ' + blockItems("builtin").length +
+      " 项 · MOD 方块 " + blockItems("mod").length +
       " 项 · 技能 " + catItems("skills").length +
-      " 项 · 自动化 " + catItems("automation").length +
-      " 项。MCP / CoT / Orbiter 未接入，未参与搜索。</div>";
+      " 项 · 自动化流程 " + catItems("automation").length + " 项。</div>";
   }
 
   /* ---------------- 渲染：部署（启用入口） ---------------- */
 
   function deployRow(item, busy) {
     const typeLabel =
-      item.cat === "automation" ? "自动化"
+      item.cat === "automation" ? "自动化流程"
         : item.cat === "blocks"
           ? "原子能力 · " + (item.category || MOD_DEFAULT_CATEGORY)
           : item.type === "binary" ? "Binary" : "Skill";
@@ -653,7 +700,7 @@
 
   function renderDeploy() {
     if (!refs.deploy) return;
-    const available = CATEGORIES.filter((cat) => !cat.unavailable);
+    const available = CATEGORIES;
     if (state.loading && !state.data.blocks && !state.data.skills && !state.data.automation) {
       refs.deploy.innerHTML =
         '<div class="inv-state"><div class="inv-state-icon">⏳</div>' +
@@ -854,18 +901,12 @@
     }
   }
 
-  function switchCat(catId) {
-    const cat = catById(catId);
-    state.cat = cat.id;
+  function switchCat(key) {
+    if (!railEntry(key)) return;
+    state.cat = key;
     state.selected = null;
     renderRail();
     renderFooter();
-    if (cat.unavailable) {
-      if (refs.toolbarTitle) refs.toolbarTitle.textContent = cat.label;
-      if (refs.toolbarDesc) refs.toolbarDesc.textContent = cat.desc;
-      renderGrid();
-      return;
-    }
     renderGrid();
   }
 

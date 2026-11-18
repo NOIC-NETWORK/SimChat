@@ -176,6 +176,40 @@
   overflow-y: auto;
 }
 
+.inv-rail-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.inv-rail-title-count {
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 14px;
+}
+
+.inv-rail-divider {
+  height: 1px;
+  margin: 8px 6px 4px;
+  background: var(--border);
+}
+
+.inv-rail-loading {
+  padding: 10px 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .inv-cat {
   display: flex;
   align-items: center;
@@ -232,16 +266,6 @@
 
 .inv-cat.is-active .inv-cat-count {
   background: var(--main-bg);
-}
-
-.inv-cat-off {
-  flex: 0 0 auto;
-  font-size: 9.5px;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0 5px;
-  line-height: 15px;
 }
 
 .inv-main {
@@ -652,66 +676,7 @@
   flex: none;
 }
 
-/* ---------------- 原子能力两级分组 ---------------- */
-.inv-grid.is-grouped {
-  display: block;
-}
-
-.inv-grid.is-grouped[hidden] {
-  display: none;
-}
-
-.inv-block-section + .inv-block-section {
-  margin-top: 18px;
-}
-
-.inv-block-section-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.inv-block-section-title {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-.inv-block-section-count,
-.inv-subsection-count {
-  font-size: 10px;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0 7px;
-  line-height: 16px;
-}
-
-.inv-subsection + .inv-subsection {
-  margin-top: 12px;
-}
-
-.inv-subsection-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 7px;
-  font-size: 11px;
-  color: var(--text-muted);
-  letter-spacing: 0.03em;
-}
-
-.inv-subgrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
-  gap: 10px;
-}
-
-.inv-results .inv-subgrid {
-  padding: 0;
-  overflow: visible;
-}
+/* ---------------- 搜索提示 ---------------- */
 
 .inv-search-note {
   margin-top: 14px;
@@ -926,10 +891,6 @@
   }
 
   .inv-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .inv-subgrid {
     grid-template-columns: 1fr;
   }
 }
