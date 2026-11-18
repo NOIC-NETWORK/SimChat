@@ -213,7 +213,8 @@ class AgentLoop:
     """单次 Agent 任务的 ReAct 循环；支持写操作挂起与审批恢复；支持 Chat 懒调用 / Agent 完整两种模式。"""
 
     def __init__(self, backend, workdir=None, max_turns=10, abort_event=None,
-                 shell_enabled=False, shell_timeout=DEFAULT_SHELL_TIMEOUT, mode="agent"):
+                 shell_enabled=False, shell_timeout=DEFAULT_SHELL_TIMEOUT, mode="agent",
+                 equipped=None):
         self.backend = backend
         self.workdir = resolve_workdir(workdir)
         try:
@@ -238,9 +239,21 @@ class AgentLoop:
         # 无进展检测：上一轮调用的签名与连续重复次数
         self._last_call_sig = None
         self._repeat_turns = 0
+        # 能力装备集：None = 不限制（旧行为）；集合 = 只允许其中的方块名进入协议与执行
+        self.equipped = None if equipped is None else set(equipped)
 
     def abort(self):
         self.abort_event.set()
+
+    def _is_equipped(self, name):
+        return self.equipped is None or name in self.equipped
+
+    def _visible_tool_names(self):
+        """当前运行真正可见的工具名（已装备 + 注册表存在），用于报错，避免泄漏未装备项。"""
+        names = list(TOOL_REGISTRY.keys())
+        if self.equipped is not None:
+            names = [n for n in names if n in self.equipped]
+        return sorted(names)
 
     @staticmethod
     def _call_signature(call):
@@ -350,6 +363,8 @@ class AgentLoop:
             # 计划上下文（resume 时重建 plan 卡片）
             'plan_steps': self._plan_steps,
             'plan_done': self._plan_done,
+            # 装备快照：挂起期间改装备不影响本次任务
+            'equipped': None if self.equipped is None else sorted(self.equipped),
         }
 
     # ------------------------------------------------------------------
@@ -386,7 +401,7 @@ class AgentLoop:
             return None
 
         base_prompt = self._build_base_prompt(message, history or [], session_id)
-        protocol = build_tool_protocol_section(mode=self.mode)
+        protocol = build_tool_protocol_section(mode=self.mode, allowed=self.equipped)
         transcript = []
 
         # ------- turn-0：纯推理生成执行计划（不调工具） -------
@@ -443,6 +458,11 @@ class AgentLoop:
         transcript = list(state.get('transcript') or [])
         pending = state.get('pending') or {}
 
+        # 装备快照优先：恢复期间装备变更不生效；旧挂起态无该字段则沿用构造时的集合
+        if 'equipped' in state:
+            snapshot = state.get('equipped')
+            self.equipped = None if snapshot is None else set(snapshot)
+
         # 恢复计划状态：重建前端 plan 卡片 + 进度计数
         self._plan_steps = state.get('plan_steps')
         self._plan_done = int(state.get('plan_done') or 0)
@@ -454,7 +474,7 @@ class AgentLoop:
                 emit({'event': 'plan_progress', 'done_count': self._plan_done})
 
         base_prompt = self._build_base_prompt(message, history, session_id)
-        protocol = build_tool_protocol_section(mode=self.mode)
+        protocol = build_tool_protocol_section(mode=self.mode, allowed=self.equipped)
 
         # 1) 裁决挂起的调用（执行或拒绝），结果并入 transcript
         self._resolve_pending(pending, decision, edits, transcript, emit)
@@ -599,9 +619,17 @@ class AgentLoop:
                 transcript.append(f"- {call_id} {call['tool']} 参数解析失败: {call['parse_error']}\n  结果: 错误: {error_text}")
                 continue
 
-            # 未知工具：回错并继续后续调用
+            # 未知工具：回错并继续后续调用（只列已装备的，避免泄漏未装备能力）
             if tool is None:
-                error_text = f"未知工具 {call['tool']}（可用: {', '.join(TOOL_REGISTRY.keys())}）"
+                error_text = f"未知工具 {call['tool']}（可用: {', '.join(self._visible_tool_names())}）"
+                emit({'event': 'tool_result', 'turn': turn, 'call_id': call_id,
+                      'tool': call['tool'], 'ok': False, 'output': '', 'error': error_text})
+                transcript.append(f"- {call_id} {call['tool']} 参数 {json.dumps(call['params'], ensure_ascii=False)}\n  结果: 错误: {error_text}")
+                continue
+
+            # 未装备：不在本次能力集合里的工具一律拒绝，不进审批
+            if not self._is_equipped(call['tool']):
+                error_text = f"工具 {call['tool']} 未装备（可用: {', '.join(self._visible_tool_names())}）"
                 emit({'event': 'tool_result', 'turn': turn, 'call_id': call_id,
                       'tool': call['tool'], 'ok': False, 'output': '', 'error': error_text})
                 transcript.append(f"- {call_id} {call['tool']} 参数 {json.dumps(call['params'], ensure_ascii=False)}\n  结果: 错误: {error_text}")
@@ -674,6 +702,17 @@ class AgentLoop:
               'tool': tool_name, 'input': params, 'risk': risk})
 
         if decision == 'approve':
+            # 恢复时重新过装备检查：快照之外的工具即使被批准也不执行
+            if not self._is_equipped(tool_name):
+                error_text = (f"工具 {tool_name} 未装备（可用: "
+                              f"{', '.join(self._visible_tool_names())}），已取消本次执行")
+                emit({'event': 'tool_result', 'turn': turn, 'call_id': call_id,
+                      'tool': tool_name, 'ok': False, 'output': '', 'error': error_text})
+                transcript.append(
+                    f"- {call_id} {tool_name} 参数 {json.dumps(params, ensure_ascii=False)}（已批准）\n"
+                    f"  结果: 错误: {error_text}"
+                )
+                return
             # 允许用户在审批时微调参数（如改写 content）
             if isinstance(edits, dict) and edits:
                 params.update(edits)
@@ -711,6 +750,7 @@ class AgentLoop:
                 'workdir': self.workdir,
                 'shell_timeout': self.shell_timeout,
                 'abort_event': self.abort_event,
+                'allowed': self.equipped,
             })
             output_text = res if isinstance(res, str) else json.dumps(res, ensure_ascii=False)
         except ToolError as e:

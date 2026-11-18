@@ -1,15 +1,23 @@
 /* SimChat Web — 原子能力物品栏（I 键开关）
-   数据来源：/api/console/skills、/api/console/automation（运行时只读快照）。
+   数据来源：/api/agent/tools（原子能力与装备状态）、/api/console/skills、/api/console/automation。
+   装备状态按实例存在服务端（agents.json 的 equipped 字段），不使用 localStorage 作为权威。
    MCP / CoT / Orbiter 运行时未接入，仅如实展示空状态，不提供占位开关。 */
 (() => {
   "use strict";
 
   const CATEGORIES = [
     {
+      id: "blocks",
+      label: "原子能力",
+      icon: "🧱",
+      desc: "ReAct 可直接调用的内建方块与已加载 MOD 工具；装备决定模型看得见、调得动什么。",
+      endpoint: "/api/agent/tools",
+    },
+    {
       id: "skills",
       label: "技能",
       icon: "✦",
-      desc: "loader 扫描到的 skill MOD，Agent 可调用的原子能力。",
+      desc: "loader 扫描到的 skill 包，经 skills 元工具调用。",
       endpoint: "/api/console/skills",
     },
     {
@@ -45,27 +53,25 @@
     },
   ];
 
-  const ICON_RULES = [
-    [/galax/i, "⚡"],
-    [/readfile|read-file/i, "📄"],
-    [/screenshot/i, "🖼"],
-    [/websearch|web-search|search/i, "🌐"],
-    [/digest/i, "🗓"],
-    [/memory|hippo/i, "🧠"],
-    [/voice|audio|speech/i, "🎙"],
-    [/image|vision/i, "🖼"],
-    [/automation/i, "⏱"],
+  // 方块 logo：web/static/sprites/bricks 下的白色单色图，用 CSS mask 着色。
+  const BRICK_BASE = "/static/sprites/bricks/";
+  const BRICK_RULES = [
+    [/readfile|read-file|read_file/i, "readFile.png"],
+    [/screenshot|recognition/i, "screenshotRecognition.png"],
+    [/websearch|web-search|web_search|search/i, "webSearch.png"],
+    [/digest|automation|flow|cron/i, "plan.png"],
+    [/netrunner|code|coding|codegen/i, "netrunner.png"],
   ];
 
   const state = {
     open: false,
     tab: "grid",
-    cat: "skills",
+    cat: "blocks",
     query: "",
     selected: null,
     loading: false,
     loadedAt: 0,
-    data: { skills: null, automation: null },
+    data: { blocks: null, skills: null, automation: null },
     loadPromise: null,
     lastFocus: null,
     deployBusy: null,
@@ -106,12 +112,19 @@
     return CATEGORIES.find((c) => c.id === id) || CATEGORIES[0];
   }
 
-  function iconFor(item) {
-    const haystack = item.id + " " + item.name;
-    for (const [re, icon] of ICON_RULES) {
-      if (re.test(haystack)) return icon;
+  function brickFor(item) {
+    const haystack = [item.id, item.name, item.type].join(" ");
+    for (const [re, file] of BRICK_RULES) {
+      if (re.test(haystack)) return BRICK_BASE + file;
     }
-    return item.cat === "automation" ? "⏱" : "✦";
+    // 自动化流程统一用 plan；技能没有对应方块时退回单色符号，不借用别人图标。
+    return item.cat === "automation" ? BRICK_BASE + "plan.png" : "";
+  }
+
+  function brickHtml(item) {
+    const src = brickFor(item);
+    if (!src) return '<span class="inv-brick-fallback" aria-hidden="true">✦</span>';
+    return '<i class="inv-brick" style="--brick:url(\'' + src + '\')" aria-hidden="true"></i>';
   }
 
   function normalize(raw, catId) {
@@ -121,10 +134,12 @@
       name: raw.name || raw.id || "未命名",
       version: raw.version || "",
       desc: raw.description || "",
-      enabled: raw.enabled !== false,
+      // blocks 的开关语义是「已装备」，其余分类是「已启用」
+      enabled: catId === "blocks" ? raw.equipped !== false : raw.enabled !== false,
       status: raw.status || "ok",
       hooks: Array.isArray(raw.hooks) ? raw.hooks : [],
       type: raw.type || "",
+      risk: raw.risk || "",
       flow: raw.flow || raw.automation || null,
     };
   }
@@ -136,12 +151,51 @@
 
   /* ---------------- 数据加载 ---------------- */
 
+  function activeAgentId() {
+    try {
+      return localStorage.getItem("simchat.active_agent_id") || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
   function loadData(force) {
     if (state.loadPromise) return state.loadPromise;
-    if (!force && state.data.skills && state.data.automation) return Promise.resolve();
+    if (!force && state.data.blocks && state.data.skills && state.data.automation) {
+      return Promise.resolve();
+    }
     state.loading = true;
     renderChrome();
     renderPane();
+
+    const agentId = activeAgentId();
+    const toolsPath =
+      "/api/agent/tools?all=1" + (agentId ? "&agent_id=" + encodeURIComponent(agentId) : "");
+    const blocksJob = fetchJson(toolsPath)
+      .then((payload) => {
+        if (!payload || payload.success === false) {
+          throw new Error((payload && payload.error) || "能力清单不可用");
+        }
+        const items = ((payload.tools) || [])
+          .filter((item) => item && item.name)
+          .map((item) =>
+            normalize(Object.assign({}, item, { id: item.name, type: "block" }), "blocks")
+          );
+        state.data.blocks = {
+          items,
+          error: null,
+          equipped: Array.isArray(payload.equipped) ? payload.equipped : null,
+          agentId,
+        };
+      })
+      .catch((error) => {
+        state.data.blocks = {
+          items: [],
+          error: error.message,
+          equipped: null,
+          agentId,
+        };
+      });
 
     const skillsJob = fetchJson("/api/console/skills")
       .then((payload) => {
@@ -169,7 +223,7 @@
         state.data.automation = { items: [], error: error.message };
       });
 
-    state.loadPromise = Promise.all([skillsJob, automationJob]).then(() => {
+    state.loadPromise = Promise.all([blocksJob, skillsJob, automationJob]).then(() => {
       state.loading = false;
       state.loadPromise = null;
       state.loadedAt = Date.now();
@@ -239,7 +293,7 @@
         return;
       }
     }
-    refs.footHint.textContent = "I 开关面板 · Esc 关闭 · Tab 在分类与条目间移动 · Enter 选中";
+    refs.footHint.textContent = "悬停查看详情 · I 开关面板 · Esc 关闭 · Tab 在分类与条目间移动 · Enter 选中";
   }
 
   function renderTabs() {
@@ -282,26 +336,100 @@
     return null;
   }
 
+  function englishName(item) {
+    const match = String(item.name || "").trim().match(/^[A-Za-z][A-Za-z0-9._-]*/);
+    return match ? match[0] : item.id || item.name || "Unnamed";
+  }
+
   function slotHtml(item) {
-    const icon = iconFor(item);
-    const dotClass = item.status === "err" ? "err" : item.enabled ? "on" : "off";
-    const meta = (item.enabled ? "已启用" : "已停用") +
-      (item.hooks.length ? " · " + item.hooks.join(", ") : "");
+    const name = englishName(item);
     return (
       '<button type="button" class="inv-slot' +
       (state.selected === item.id ? " is-selected" : "") +
       (item.enabled ? "" : " is-off") +
       '" data-inv-item="' + escapeHtml(item.id) + '" data-inv-cat="' + item.cat + '"' +
-      ' role="listitem" aria-label="' + escapeHtml(item.name) + '">' +
-      '<span class="inv-slot-icon">' + icon + "</span>" +
+      ' role="listitem" aria-label="' + escapeHtml(name) + '">' +
+      '<span class="inv-slot-icon">' + brickHtml(item) + "</span>" +
       '<span class="inv-slot-body">' +
-      '<span class="inv-slot-name"><span class="inv-slot-name-text">' + escapeHtml(item.name) + "</span>" +
-      (item.version ? '<span class="inv-slot-ver">v' + escapeHtml(item.version) + "</span>" : "") +
-      "</span>" +
+      '<span class="inv-slot-name"><span class="inv-slot-name-text">' + escapeHtml(name) + "</span></span>" +
       '<span class="inv-slot-desc">' + escapeHtml(item.desc || "没有描述") + "</span>" +
-      '<span class="inv-slot-meta"><span class="inv-dot ' + dotClass + '"></span>' + escapeHtml(meta) + "</span>" +
       "</span></button>"
     );
+  }
+
+  /* ---------------- 悬停详情 ---------------- */
+
+  function tooltipHtml(item) {
+    const name = englishName(item);
+    const dotClass = item.status === "err" ? "err" : item.enabled ? "on" : "off";
+    const status = item.status === "err"
+      ? "异常"
+      : item.cat === "blocks"
+        ? (item.enabled ? "已装备" : "未装备")
+        : (item.enabled ? "已启用" : "已停用");
+    return (
+      '<div class="inv-tooltip-name">' + escapeHtml(name) + "</div>" +
+      (item.name && item.name !== name
+        ? '<div class="inv-tooltip-full-name">' + escapeHtml(item.name) + "</div>"
+        : "") +
+      '<div class="inv-tooltip-desc">' + escapeHtml(item.desc || "没有描述") + "</div>" +
+      '<div class="inv-tooltip-meta">' +
+      '<div class="inv-tooltip-row"><span>ID</span><code>' + escapeHtml(item.id) + "</code></div>" +
+      '<div class="inv-tooltip-row"><span>版本</span><span>' +
+      (item.version ? "v" + escapeHtml(item.version) : "—") + "</span></div>" +
+      (item.risk
+        ? '<div class="inv-tooltip-row"><span>风险</span><span>' + escapeHtml(item.risk) + "</span></div>"
+        : "") +
+      '<div class="inv-tooltip-row"><span>状态</span><span class="inv-tooltip-status">' +
+      '<span class="inv-dot ' + dotClass + '"></span>' + status + "</span></div>" +
+      (item.hooks.length
+        ? '<div class="inv-tooltip-row"><span>Hooks</span><code>' + escapeHtml(item.hooks.join(", ")) + "</code></div>"
+        : "") +
+      "</div>"
+    );
+  }
+
+  function showTooltip(slot) {
+    if (!refs.tooltip || !slot) return;
+    const item = findItem(slot.dataset.invItem);
+    if (!item) return;
+    hideTooltip();
+    refs.tooltipSlot = slot;
+    refs.tooltip.innerHTML = tooltipHtml(item);
+    refs.tooltip.hidden = false;
+    slot.setAttribute("aria-describedby", "inv-tooltip");
+    positionTooltip(slot);
+  }
+
+  function positionTooltip(slot) {
+    if (!refs.tooltip || refs.tooltip.hidden) return;
+    const rect = slot.getBoundingClientRect();
+    const width = refs.tooltip.offsetWidth;
+    const height = refs.tooltip.offsetHeight;
+    const viewportWidth = document.documentElement.clientWidth;
+    const viewportHeight = document.documentElement.clientHeight;
+    const margin = 12;
+    const gap = 10;
+    let left = rect.right + gap;
+    let top = rect.top;
+
+    if (left + width > viewportWidth - margin) left = rect.left - width - gap;
+    if (left < margin) {
+      left = Math.max(margin, Math.min(rect.left, viewportWidth - width - margin));
+      top = rect.bottom + gap;
+    }
+    top = Math.max(margin, Math.min(top, viewportHeight - height - margin));
+    refs.tooltip.style.left = Math.round(left) + "px";
+    refs.tooltip.style.top = Math.round(top) + "px";
+  }
+
+  function hideTooltip() {
+    if (refs.tooltipSlot) refs.tooltipSlot.removeAttribute("aria-describedby");
+    refs.tooltipSlot = null;
+    if (refs.tooltip) {
+      refs.tooltip.hidden = true;
+      refs.tooltip.innerHTML = "";
+    }
   }
 
   function showState(icon, title, desc, extraHtml) {
@@ -324,6 +452,7 @@
   }
 
   function renderGrid() {
+    hideTooltip();
     const cat = catById(state.cat);
     if (refs.toolbarTitle) refs.toolbarTitle.textContent = cat.label;
     if (refs.toolbarDesc) refs.toolbarDesc.textContent = cat.desc;
@@ -364,6 +493,7 @@
   }
 
   function renderSearch() {
+    hideTooltip();
     if (!refs.searchInput) return;
     if (refs.searchInput.value !== state.query) refs.searchInput.value = state.query;
     const keyword = state.query.trim().toLowerCase();
@@ -374,7 +504,7 @@
         '<div class="inv-state">' +
         '<div class="inv-state-icon">🧭</div>' +
         '<div class="inv-state-title">跨分类搜索</div>' +
-        '<div class="inv-state-desc">输入名称、ID、描述或 hook 关键词，会在技能与自动化里一起查找。' +
+        '<div class="inv-state-desc">输入名称、ID、描述或 hook 关键词，会在原子能力、技能与自动化里一起查找。' +
         "MCP / CoT / Orbiter 尚未接入，不参与搜索。</div>" +
         "</div>";
       return;
@@ -409,7 +539,8 @@
       '<div class="inv-group-head" style="margin-bottom:8px"><span>共 ' + total +
       ' 项匹配</span><span class="inv-group-line"></span></div>' +
       groups +
-      '<div class="inv-search-note">搜索范围：技能 ' + catItems("skills").length +
+      '<div class="inv-search-note">搜索范围：原子能力 ' + catItems("blocks").length +
+      " 项 · 技能 " + catItems("skills").length +
       " 项 · 自动化 " + catItems("automation").length +
       " 项。MCP / CoT / Orbiter 未接入，未参与搜索。</div>";
   }
@@ -417,11 +548,16 @@
   /* ---------------- 渲染：部署（启用入口） ---------------- */
 
   function deployRow(item, busy) {
-    const icon = iconFor(item);
-    const typeLabel = item.cat === "automation" ? "自动化" : item.type === "binary" ? "Binary" : "Skill";
+    const typeLabel =
+      item.cat === "automation" ? "自动化"
+        : item.cat === "blocks" ? "原子能力"
+          : item.type === "binary" ? "Binary" : "Skill";
+    const action = item.cat === "blocks"
+      ? (item.enabled ? "卸下 " : "装备 ")
+      : (item.enabled ? "停用 " : "启用 ");
     return (
       '<div class="inv-deploy-row' + (item.enabled ? "" : " is-off") + '">' +
-      '<span class="inv-deploy-icon">' + icon + "</span>" +
+      '<span class="inv-deploy-icon">' + brickHtml(item) + "</span>" +
       '<span class="inv-deploy-body">' +
       '<span class="inv-deploy-name">' + escapeHtml(item.name) +
       (item.version ? '<span class="inv-slot-ver">v' + escapeHtml(item.version) + "</span>" : "") +
@@ -433,7 +569,7 @@
       '<button type="button" class="mod-switch' + (item.enabled ? " on" : "") + '"' +
       ' data-inv-toggle="' + escapeHtml(item.id) + '" role="switch" aria-checked="' +
       (item.enabled ? "true" : "false") + '" aria-label="' +
-      (item.enabled ? "停用 " : "启用 ") + escapeHtml(item.name) + '"' +
+      action + escapeHtml(item.name) + '"' +
       (busy ? " disabled" : "") + '><span class="mod-switch-knob"></span></button>' +
       "</div>"
     );
@@ -442,7 +578,7 @@
   function renderDeploy() {
     if (!refs.deploy) return;
     const available = CATEGORIES.filter((cat) => !cat.unavailable);
-    if (state.loading && !state.data.skills && !state.data.automation) {
+    if (state.loading && !state.data.blocks && !state.data.skills && !state.data.automation) {
       refs.deploy.innerHTML =
         '<div class="inv-state"><div class="inv-state-icon">⏳</div>' +
         '<div class="inv-state-title">正在读取可部署能力…</div></div>';
@@ -473,7 +609,7 @@
       refs.deploy.innerHTML =
         '<div class="inv-state"><div class="inv-state-icon">📦</div>' +
         '<div class="inv-state-title">暂无可部署的能力</div>' +
-        '<div class="inv-state-desc">技能与自动化清单为空，或接口读取失败。</div>' +
+        '<div class="inv-state-desc">原子能力、技能与自动化清单为空，或接口读取失败。</div>' +
         (errors.length ? '<span class="inv-state-tag">' + escapeHtml(errors[0]) + "</span>" : "") +
         "</div>";
       return;
@@ -481,9 +617,9 @@
 
     refs.deploy.innerHTML =
       '<div class="inv-deploy-bar">' +
-      '<span class="inv-deploy-stats">可部署 ' + rows + " 项 · 已启用 " + enabled + " 项</span>" +
+      '<span class="inv-deploy-stats">可部署 ' + rows + " 项 · 已开启 " + enabled + " 项</span>" +
       '<span class="inv-deploy-note" id="inv-deploy-note">' +
-      escapeHtml(state.deployNote || "切换后立即写入配置，重启后生效") +
+      escapeHtml(state.deployNote || "技能/自动化重启后生效；原子能力下一次运行生效") +
       "</span></div>" +
       groups +
       '<div class="inv-deploy-install">' +
@@ -494,6 +630,36 @@
       "</div>";
   }
 
+  function equippedList() {
+    const bucket = state.data.blocks;
+    if (!bucket) return [];
+    if (Array.isArray(bucket.equipped)) return bucket.equipped.slice();
+    // 旧实例 equipped=null 表示「全部装备」，首次修改时物化为显式清单
+    return bucket.items.map((item) => item.id);
+  }
+
+  async function toggleEquip(item) {
+    const agentId = activeAgentId();
+    if (!agentId) throw new Error("没有激活的 AI 实例，无法修改装备");
+    const current = equippedList();
+    const next = item.enabled
+      ? current.filter((name) => name !== item.id)
+      : current.concat(item.id);
+    const resp = await fetch("/api/agents/" + encodeURIComponent(agentId), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ equipped: Array.from(new Set(next)) }),
+    });
+    const payload = await resp.json().catch(() => null);
+    if (!resp.ok || (payload && payload.error)) {
+      throw new Error((payload && payload.error) || "HTTP " + resp.status);
+    }
+    state.data.blocks.equipped = Array.from(new Set(next));
+    item.enabled = !item.enabled;
+    state.deployNote =
+      "已" + (item.enabled ? "装备 " : "卸下 ") + item.name + "（下一次运行生效）";
+  }
+
   async function toggleCapability(id) {
     if (state.deployBusy) return;
     const item = findItem(id);
@@ -501,17 +667,24 @@
     state.deployBusy = id;
     renderDeploy();
     try {
-      const resp = await fetch("/api/console/skills/" + encodeURIComponent(id) + "/toggle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ enabled: !item.enabled }),
-      });
-      const payload = await resp.json().catch(() => null);
-      if (!resp.ok || (payload && payload.ok === false)) {
-        throw new Error((payload && (payload.error || payload.reason)) || "HTTP " + resp.status);
+      if (item.cat === "blocks") {
+        await toggleEquip(item);
+      } else {
+        const endpoint = item.cat === "automation"
+          ? "/api/console/automation/" + encodeURIComponent(id) + "/toggle"
+          : "/api/console/skills/" + encodeURIComponent(id) + "/toggle";
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ enabled: !item.enabled }),
+        });
+        const payload = await resp.json().catch(() => null);
+        if (!resp.ok || (payload && payload.ok === false)) {
+          throw new Error((payload && (payload.error || payload.reason)) || "HTTP " + resp.status);
+        }
+        item.enabled = !item.enabled;
+        state.deployNote = "已" + (item.enabled ? "启用 " : "停用 ") + item.name + "（重启后生效）";
       }
-      item.enabled = !item.enabled;
-      state.deployNote = "已" + (item.enabled ? "启用 " : "停用 ") + item.name + "（重启后生效）";
     } catch (error) {
       state.deployNote = "操作失败：" + error.message;
     } finally {
@@ -557,6 +730,7 @@
 
   function close() {
     if (!state.open || !refs.overlay) return;
+    hideTooltip();
     state.open = false;
     refs.overlay.classList.remove("is-open");
     refs.overlay.setAttribute("aria-hidden", "true");
@@ -636,6 +810,8 @@
     refs.footHint = q("inv-foot-hint");
     refs.toolbarTitle = q("inv-toolbar-title");
     refs.toolbarDesc = q("inv-toolbar-desc");
+    refs.tooltip = q("inv-tooltip");
+    refs.tooltipSlot = null;
     refs.panes = Array.from(refs.overlay.querySelectorAll("[data-pane]"));
 
     q("inv-close").addEventListener("click", close);
@@ -670,6 +846,32 @@
         loadData(true);
       }
     });
+
+    refs.overlay.addEventListener("pointerover", (event) => {
+      const slot = event.target.closest("[data-inv-item]");
+      if (!slot || (event.relatedTarget && slot.contains(event.relatedTarget))) return;
+      showTooltip(slot);
+    });
+
+    refs.overlay.addEventListener("pointerout", (event) => {
+      const slot = event.target.closest("[data-inv-item]");
+      if (!slot || (event.relatedTarget && slot.contains(event.relatedTarget))) return;
+      hideTooltip();
+    });
+
+    refs.overlay.addEventListener("focusin", (event) => {
+      const slot = event.target.closest("[data-inv-item]");
+      if (slot) showTooltip(slot);
+    });
+
+    refs.overlay.addEventListener("focusout", (event) => {
+      const slot = event.target.closest("[data-inv-item]");
+      if (!slot || (event.relatedTarget && slot.contains(event.relatedTarget))) return;
+      hideTooltip();
+    });
+
+    refs.overlay.addEventListener("scroll", hideTooltip, true);
+    window.addEventListener("resize", hideTooltip);
 
     refs.searchInput.addEventListener("input", () => {
       state.query = refs.searchInput.value;

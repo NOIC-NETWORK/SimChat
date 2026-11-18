@@ -16,13 +16,14 @@ from . import (
     workspace as workspace_mod,
     usage as usage_mod,
 )
-from .providers import OllamaProvider, OpenAICompatProvider, ProviderError
+from .providers import AnthropicProvider, OllamaProvider, OpenAICompatProvider, ProviderError
 from .store import SessionStore
 
 DEFAULT_CONFIG = {
     "provider": "auto",
     "ollama": {"model": "televideo-ai/JRVS-7B-1.2.2:latest", "keep_alive": "30m", "options": {}},
     "openai_compat": {"api_base": "", "api_key": "", "model_name": ""},
+    "anthropic": {"api_base": "https://api.anthropic.com", "api_key": "", "model_name": ""},
     "system_prompt": "",
     "max_history": 40,
     "agent": {
@@ -53,6 +54,7 @@ class SimChatCore:
         cfg = dict(DEFAULT_CONFIG)
         cfg["ollama"] = dict(DEFAULT_CONFIG["ollama"])
         cfg["openai_compat"] = dict(DEFAULT_CONFIG["openai_compat"])
+        cfg["anthropic"] = dict(DEFAULT_CONFIG["anthropic"])
         cfg["agent"] = dict(DEFAULT_CONFIG["agent"])
         try:
             if os.path.exists(self.config_path):
@@ -70,6 +72,8 @@ class SimChatCore:
     def _provider(self, name):
         if name == "openai_compat":
             return OpenAICompatProvider(self.config.get("openai_compat"))
+        if name == "anthropic":
+            return AnthropicProvider(self.config.get("anthropic"))
         return OllamaProvider(self.config.get("ollama"))
 
     def resolve_provider(self, preferred=None):
@@ -226,6 +230,20 @@ class SimChatCore:
             "shell_enabled": bool(raw.get("shell_enabled")),
             "shell_timeout": _int(raw.get("shell_timeout"), 10, 1, 30),
         }
+
+    def resolve_equipped(self, agent):
+        """解析实例的装备集合：None = 不限制（旧实例）；列表 = 只允许这些能力名。"""
+        if not isinstance(agent, dict):
+            return None
+        value = agent.get("equipped")
+        if not isinstance(value, list):
+            return None
+        out = []
+        for item in value:
+            name = str(item or "").strip()
+            if name and name not in out:
+                out.append(name)
+        return out
 
     def generate(self, prompt, system_msg=None, provider=None, model=None,
                  temperature=0.7, max_tokens=1024,

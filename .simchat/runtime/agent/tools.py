@@ -992,6 +992,11 @@ class SkillsTool(BaseTool):
         if loader is None:
             raise ToolError('ModLoader 未初始化，暂时无法访问 skill')
         specs = loader.list_tools() or []
+        # 装备过滤：skills 是元工具，不能成为绕过能力集合的后门
+        allowed = ctx.get('allowed')
+        if allowed is not None:
+            allowed_names = set(allowed)
+            specs = [s for s in specs if str(s.get('name', '')) in allowed_names]
         name = params.get('name')
         if not name:
             action = str(params.get('action') or 'list').strip().lower()
@@ -1216,12 +1221,21 @@ def sync_loader_blocks(loader):
     return names
 
 
-def list_agent_tools(mode="agent"):
+def _filter_allowed(tools, allowed):
+    """按装备集合过滤方块；allowed=None 表示不做限制（兼容旧调用）。"""
+    if allowed is None:
+        return list(tools)
+    allowed = set(allowed)
+    return [t for t in tools if t.name in allowed]
+
+
+def list_agent_tools(mode="agent", allowed=None):
     """工具清单（供 /api/agent/tools 与前端展示）。enabled=false 的工具前端可见但置灰。
 
     mode: "agent"（完整工具集）| "chat"（懒调用，只暴露 read 级 + skills/automation/MCP 能力标识）
+    allowed: 已装备的能力名集合；None = 不限制。
     """
-    all_tools = BLOCK_REGISTRY.list_all()
+    all_tools = _filter_allowed(BLOCK_REGISTRY.list_all(), allowed)
     if mode == "chat":
         # Chat 模式（懒调用）：只暴露 read 级工具 + skills/automation/MCP 能力
         # 写操作和 shell 被完全隐藏（不是禁用，是根本不进工具清单）
@@ -1233,12 +1247,13 @@ def list_agent_tools(mode="agent"):
     return [t.meta() for t in all_tools if not getattr(t, 'chat_only', False)]
 
 
-def build_tool_protocol_section(mode="agent"):
+def build_tool_protocol_section(mode="agent", allowed=None):
     """拼进用户消息侧的动态协议段（不改 SFT system 触发词）。
 
     mode: "agent"（完整协议段，含写操作 + 审批流）| "chat"（懒调用协议，只给只读工具 + skill/automation/MCP 标识）
+    allowed: 已装备的能力名集合；None = 不限制。
     """
-    all_tools = BLOCK_REGISTRY.list_all()
+    all_tools = _filter_allowed(BLOCK_REGISTRY.list_all(), allowed)
     shell_enabled = _shell_config['enabled']
 
     if mode == "chat":

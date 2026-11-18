@@ -125,6 +125,23 @@ def _new_id():
     return uuid.uuid4().hex[:12]
 
 
+def _normalize_equipped(value):
+    """装备集合：None = 不限制（旧实例）；列表 = 只允许这些能力名。"""
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError("equipped 必须是字符串数组或 null")
+    seen = set()
+    out = []
+    for item in value:
+        name = str(item or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append(name)
+    return out
+
+
 def _agents_dir(data_root):
     d = os.path.join(data_root, "agents")
     os.makedirs(d, exist_ok=True)
@@ -154,6 +171,7 @@ def _default(data_root):
         "desktop_pet": False,
         "engine_preset": DEFAULT_ENGINE_PRESET,
         "engine_params": engine_params_for(DEFAULT_ENGINE_PRESET),
+        "equipped": None,
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
@@ -188,6 +206,7 @@ def list_all(data_root):
             agent.setdefault("agent_capable", True)
             agent.setdefault("allow_advanced", False)
             agent.setdefault("desktop_pet", False)
+            agent.setdefault("equipped", None)
             normalize_engine(agent)
             agents.append(agent)
         except (OSError, ValueError):
@@ -232,7 +251,9 @@ def get(data_root, agent_id):
     path = _path(data_root, agent_id)
     if not os.path.isfile(path):
         raise ValueError("实例不存在: " + agent_id)
-    return normalize_engine(_read(path))
+    agent = _read(path)
+    agent.setdefault("equipped", None)
+    return normalize_engine(agent)
 
 
 def create(data_root, payload):
@@ -256,6 +277,7 @@ def create(data_root, payload):
         "desktop_pet": bool(payload.get("desktop_pet", False)),
         "engine_preset": payload.get("engine_preset") or DEFAULT_ENGINE_PRESET,
         "engine_params": payload.get("engine_params"),
+        "equipped": _normalize_equipped(payload.get("equipped")),
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
@@ -295,6 +317,8 @@ def update(data_root, agent_id, payload):
         agent["engine_preset"] = payload["engine_preset"]
     if "engine_params" in payload:
         agent["engine_params"] = payload["engine_params"]
+    if "equipped" in payload:
+        agent["equipped"] = _normalize_equipped(payload["equipped"])
     normalize_engine(agent)
 
     agent["updated_at"] = _now_iso()

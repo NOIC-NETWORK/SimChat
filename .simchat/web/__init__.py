@@ -403,7 +403,7 @@ def create_app(core=None):
         """手动触发模型列表发现。payload 为表单字段。返回 {ok, models, message}。"""
         data = request.get_json(silent=True) or {}
         provider = (data.get("provider") or "").strip()
-        if provider not in ("ollama", "openai_compat"):
+        if provider not in ("ollama", "openai_compat", "anthropic"):
             return jsonify({"ok": False, "models": [], "message": "未知服务商: " + provider}), 400
         try:
             return jsonify(_get_core(app).discover_provider(provider, data.get("config") or {}))
@@ -1233,8 +1233,10 @@ def create_app(core=None):
             skills = mods_index.skills_snapshot()
         except Exception as error:
             return jsonify({"available": False, "reason": str(error), "data": None}), 500
-        items = [item for item in snapshot["local"] if item["type"] == "automation"]
-        items += [item for item in skills["items"] if item["type"] == "automation"]
+        items = [dict(item, source="mod")
+                 for item in snapshot["local"] if item["type"] == "automation"]
+        items += [dict(item, source="skill")
+                  for item in skills["items"] if item["type"] == "automation"]
         return jsonify({
             "available": True,
             "reason": "",
@@ -1251,6 +1253,7 @@ def create_app(core=None):
                         "enabled": item["enabled"],
                         "status": item["status"],
                         "error": item["error"],
+                        "source": item["source"],
                         "flow": item.get("automation"),
                     }
                     for item in items
@@ -1261,6 +1264,33 @@ def create_app(core=None):
                 },
             },
         })
+
+    @app.post("/api/console/automation/<item_id>/toggle")
+    def console_automation_toggle(item_id):
+        """自动化条目的启停：按条目所在目录（mods/ 或 skills/）写入对应状态文件。"""
+        data = request.get_json(silent=True) or {}
+        enabled = data.get("enabled")
+        if not isinstance(enabled, bool):
+            return jsonify({"ok": False, "error": "enabled 必须是布尔值"}), 400
+        from simchat.runtime import mods_index
+
+        snapshot = _mods_snapshot()
+        in_mods = any(item["id"] == item_id and item["type"] == "automation"
+                      for item in snapshot["local"])
+        in_skills = any(item["id"] == item_id and item["type"] == "automation"
+                        for item in mods_index.skills_snapshot()["items"])
+        if not in_mods and not in_skills:
+            return jsonify({"ok": False, "error": "自动化条目不存在: %s" % item_id}), 404
+        if in_mods:
+            result = mods_index.set_enabled(item_id, enabled)
+        else:
+            result = mods_index.set_enabled(
+                item_id, enabled, directory=mods_index.DEFAULT_SKILLS_DIR)
+        _record_event("automation.toggle", {
+            "item_id": item_id, "enabled": enabled,
+            "source": "mod" if in_mods else "skill",
+        })
+        return jsonify({"ok": True, "result": result})
 
     # ---------------- 控制台：代理（Agent 运行时） ----------------
 
@@ -1374,6 +1404,8 @@ def create_app(core=None):
         if not system and agent:
             system = agent.get("system_prompt") or None
         agent_capable = bool(agent and agent.get("agent_capable", True))
+        # 实例的装备集：None = 不限制（旧实例）；列表 = 只允许这些能力
+        equipped = core.resolve_equipped(agent) if agent else None
 
         def _stream_out(event):
             return "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
@@ -1439,6 +1471,7 @@ def create_app(core=None):
                         mode="agent",
                         shell_enabled=False,
                         abort_event=abort_event,
+                        equipped=equipped,
                     )
                     agent_events = []
                     loop.run(

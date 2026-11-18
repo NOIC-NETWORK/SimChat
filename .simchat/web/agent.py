@@ -81,6 +81,19 @@ def _active_agent(core, data):
         return None
 
 
+def _equipped_for(core, data, state=None):
+    """解析本次运行的能力装备集：挂起态快照优先，其次实例配置，最后不限制。
+
+    None 表示不限制（兼容未配置 equipped 的旧实例）。
+    """
+    if isinstance(state, dict) and "equipped" in state:
+        return core.resolve_equipped(state)
+    agent = _active_agent(core, data)
+    if agent is None:
+        return None
+    return core.resolve_equipped(agent)
+
+
 def _system_prompt(core, data, fallback=None):
     text = (data.get("system") or "").strip()
     if not text:
@@ -186,11 +199,34 @@ def create_agent_blueprint(name="agent"):
 
     @bp.get("/tools")
     def agent_tools():
-        """工具清单与风险分级（shell 的 enabled 反映当前配置）。"""
+        """工具清单与风险分级；带 agent_id 时按该实例的装备集过滤。
+
+        只读接口：不再调用 configure_shell 改全局配置，shell 的 enabled
+        只是按当前配置回填展示值。`all=1` 返回全量清单（每项带 equipped），
+        供物品栏做装备编辑器；默认只返回已装备项。
+        """
         core = _get_core()
         options = core.agent_options()
-        configure_shell(options["shell_enabled"], options["shell_timeout"])
-        return jsonify({"success": True, "tools": list_agent_tools()})
+        data = {"agent_id": request.args.get("agent_id")}
+        equipped = _equipped_for(core, data)
+        mode = (request.args.get("mode") or "agent").strip().lower()
+        if mode not in ("chat", "agent"):
+            mode = "agent"
+        show_all = (request.args.get("all") or "").strip().lower() in ("1", "true", "yes")
+        tools = list_agent_tools(mode=mode, allowed=None if show_all else equipped)
+        equipped_set = None if equipped is None else set(equipped)
+        # 全局 shell 未配置时工具本身的 enabled 字段是旧的；这里按配置回填展示值
+        for item in tools:
+            if item.get("name") == "shell":
+                item["enabled"] = options["shell_enabled"]
+            item["equipped"] = equipped_set is None or item.get("name") in equipped_set
+        return jsonify({
+            "success": True,
+            "equipped": equipped,
+            "shell_enabled": options["shell_enabled"],
+            "shell_timeout": options["shell_timeout"],
+            "tools": tools,
+        })
 
     @bp.post("/run")
     def agent_run():
@@ -248,6 +284,8 @@ def create_agent_blueprint(name="agent"):
         max_turns = options["max_turns"]
         shell_enabled = options["shell_enabled"] if mode == "agent" else False
         shell_timeout = options["shell_timeout"]
+        # 本次运行的能力装备集（None = 不限制）
+        equipped = _equipped_for(core, data)
 
         def run_callable(emit):
             configure_shell(shell_enabled, shell_timeout)
@@ -260,6 +298,7 @@ def create_agent_blueprint(name="agent"):
                 shell_enabled=shell_enabled,
                 shell_timeout=shell_timeout,
                 mode=mode,
+                equipped=equipped,
             )
             return loop.run(
                 message=message,
@@ -304,6 +343,8 @@ def create_agent_blueprint(name="agent"):
         backend = _make_backend(core, data, fallback=state.get("backend"))
         shell_enabled = options["shell_enabled"]
         shell_timeout = options["shell_timeout"]
+        # 装备集：挂起态快照优先（恢复期间装备变更不生效），否则按实例配置
+        equipped = _equipped_for(core, data, state=state)
 
         # 复用 run_id 重新登记（新建 abort 事件，旧的已被原流程清理）
         agent_runs.register(run_id)
@@ -324,6 +365,7 @@ def create_agent_blueprint(name="agent"):
                 shell_enabled=shell_enabled,
                 shell_timeout=shell_timeout,
                 mode=mode,
+                equipped=equipped,
             )
             return loop.resume(state, decision, edits, system_prompt, emit=emit)
 
