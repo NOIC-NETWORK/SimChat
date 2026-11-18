@@ -53,6 +53,10 @@
     },
   ];
 
+  // 自有能力的分类展示顺序；MOD 声明的分类排在其后（按名称排序）
+  const BUILTIN_CATEGORY_ORDER = ["CoT", "办公", "代码", "通讯", "创意", "检索", "自动化", "实验性", "其他"];
+  const MOD_DEFAULT_CATEGORY = "其他";
+
   // 方块 logo：web/static/sprites/bricks 下的白色单色图，用 CSS mask 着色。
   const BRICK_BASE = "/static/sprites/bricks/";
   const BRICK_RULES = [
@@ -140,6 +144,10 @@
       hooks: Array.isArray(raw.hooks) ? raw.hooks : [],
       type: raw.type || "",
       risk: raw.risk || "",
+      category: raw.category || MOD_DEFAULT_CATEGORY,
+      // blocks 区分自有 / MOD；其余分类没有这层语义
+      source: raw.source || (catId === "blocks" ? "builtin" : ""),
+      modId: raw.mod_id || "",
       flow: raw.flow || raw.automation || null,
     };
   }
@@ -380,6 +388,13 @@
       (item.risk
         ? '<div class="inv-tooltip-row"><span>风险</span><span>' + escapeHtml(item.risk) + "</span></div>"
         : "") +
+      (item.cat === "blocks"
+        ? '<div class="inv-tooltip-row"><span>分类</span><span>' +
+          escapeHtml((item.source === "mod" ? "MOD · " : "自有 · ") + item.category) + "</span></div>"
+        : "") +
+      (item.modId
+        ? '<div class="inv-tooltip-row"><span>来源</span><code>' + escapeHtml(item.modId) + "</code></div>"
+        : "") +
       '<div class="inv-tooltip-row"><span>状态</span><span class="inv-tooltip-status">' +
       '<span class="inv-dot ' + dotClass + '"></span>' + status + "</span></div>" +
       (item.hooks.length
@@ -451,6 +466,56 @@
     if (refs.grid) refs.grid.hidden = false;
   }
 
+  function categoryRank(name) {
+    const index = BUILTIN_CATEGORY_ORDER.indexOf(name);
+    return index === -1 ? BUILTIN_CATEGORY_ORDER.length : index;
+  }
+
+  function groupByCategory(items) {
+    const map = new Map();
+    items.forEach((item) => {
+      const key = item.category || MOD_DEFAULT_CATEGORY;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(item);
+    });
+    return Array.from(map.entries())
+      .sort((a, b) => {
+        const rank = categoryRank(a[0]) - categoryRank(b[0]);
+        return rank !== 0 ? rank : a[0].localeCompare(b[0], "zh-Hans-CN");
+      })
+      .map(([label, list]) => ({ label, items: list }));
+  }
+
+  function subsectionHtml(label, items) {
+    return (
+      '<div class="inv-subsection">' +
+      '<div class="inv-subsection-head"><span>' + escapeHtml(label) + "</span>" +
+      '<span class="inv-subsection-count">' + items.length + "</span></div>" +
+      '<div class="inv-subgrid">' + items.map(slotHtml).join("") + "</div>" +
+      "</div>"
+    );
+  }
+
+  function blockSectionHtml(title, items) {
+    if (!items.length) return "";
+    return (
+      '<div class="inv-block-section">' +
+      '<div class="inv-block-section-head">' +
+      '<span class="inv-block-section-title">' + escapeHtml(title) + "</span>" +
+      '<span class="inv-block-section-count">' + items.length + "</span>" +
+      '<span class="inv-group-line"></span></div>' +
+      groupByCategory(items).map((g) => subsectionHtml(g.label, g.items)).join("") +
+      "</div>"
+    );
+  }
+
+  /* 原子能力两级结构：自有能力（按功能分类） + MOD 能力（按 MOD 声明的分类） */
+  function blockSectionsHtml(items) {
+    const owned = items.filter((item) => item.source !== "mod");
+    const modded = items.filter((item) => item.source === "mod");
+    return blockSectionHtml("自有能力", owned) + blockSectionHtml("MOD 能力", modded);
+  }
+
   function renderGrid() {
     hideTooltip();
     const cat = catById(state.cat);
@@ -481,13 +546,20 @@
     }
 
     hideState();
-    refs.grid.innerHTML = bucket.items.map(slotHtml).join("");
+    if (cat.id === "blocks") {
+      refs.grid.classList.add("is-grouped");
+      refs.grid.innerHTML = blockSectionsHtml(bucket.items);
+    } else {
+      refs.grid.classList.remove("is-grouped");
+      refs.grid.innerHTML = bucket.items.map(slotHtml).join("");
+    }
   }
 
   /* ---------------- 渲染：搜索 ---------------- */
 
   function searchableText(item) {
-    return [item.name, item.id, item.desc, item.version, item.hooks.join(" "), item.type]
+    return [item.name, item.id, item.desc, item.version, item.hooks.join(" "), item.type,
+      item.category, item.source, item.modId]
       .join(" ")
       .toLowerCase();
   }
@@ -516,11 +588,14 @@
       const hits = catItems(cat.id).filter((item) => searchableText(item).includes(keyword));
       if (!hits.length) return "";
       total += hits.length;
+      const body = cat.id === "blocks"
+        ? blockSectionsHtml(hits)
+        : '<div class="inv-grid">' + hits.map(slotHtml).join("") + "</div>";
       return (
         '<div class="inv-group">' +
         '<div class="inv-group-head"><span>' + cat.icon + " " + escapeHtml(cat.label) +
         " · " + hits.length + '</span><span class="inv-group-line"></span></div>' +
-        '<div class="inv-grid">' + hits.map(slotHtml).join("") + "</div>" +
+        body +
         "</div>"
       );
     }).filter(Boolean).join("");
@@ -550,7 +625,8 @@
   function deployRow(item, busy) {
     const typeLabel =
       item.cat === "automation" ? "自动化"
-        : item.cat === "blocks" ? "原子能力"
+        : item.cat === "blocks"
+          ? "原子能力 · " + (item.category || MOD_DEFAULT_CATEGORY)
           : item.type === "binary" ? "Binary" : "Skill";
     const action = item.cat === "blocks"
       ? (item.enabled ? "卸下 " : "装备 ")

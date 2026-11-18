@@ -96,7 +96,7 @@ class ToolSpec(object):
 
     def __init__(self, name, label=None, description="", risk="read",
                  usage=None, params_schema=None, backend=None,
-                 triggers=None, input_schema=None):
+                 triggers=None, input_schema=None, category=None):
         _validate_tool_name(name)
         if risk not in _VALID_RISKS:
             raise ValueError("ToolSpec.risk 必须是 read|write|dangerous，当前: %s" % risk)
@@ -109,6 +109,8 @@ class ToolSpec(object):
         self.usage = usage or name
         self.params_schema = dict(params_schema) if params_schema else {}
         self.backend = backend  # "module:attr" 字符串，runner 侧解析
+        # 物品栏分类：MOD 可声明任意分类名；缺省由宿主观层归入「其他」
+        self.category = str(category or "").strip()
         # 兼容现有 BaseSkill 字段（用于迁移）
         self.triggers = list(triggers or [])
         self.input_schema = dict(input_schema) if input_schema else {}
@@ -124,6 +126,7 @@ class ToolSpec(object):
             "backend": self.backend,
             "triggers": list(self.triggers),
             "input_schema": dict(self.input_schema),
+            "category": self.category,
         }
 
     @classmethod
@@ -142,6 +145,7 @@ class ToolSpec(object):
             backend=value.get("backend"),
             triggers=value.get("triggers"),
             input_schema=value.get("input_schema"),
+            category=value.get("category"),
         )
 
 

@@ -186,6 +186,8 @@ class BaseTool:
     risk = 'read'
     usage = ''
     params_schema = {}
+    category = '其他'
+    source = 'builtin'
 
     def run(self, params, ctx):
         raise NotImplementedError
@@ -198,6 +200,8 @@ class BaseTool:
             'risk': self.risk,
             'usage': self.usage,
             'enabled': True,
+            'category': self.category or '其他',
+            'source': self.source,
         }
 
 
@@ -353,6 +357,7 @@ def _glob_same_name(workdir, filename, limit=5):
 class FileReadTool(BaseTool):
     name = 'file_read'
     label = '读取文件'
+    category = '办公'
     description = '读取项目内文本文件的内容（offset=起始行，从1开始，可选；limit=读取行数，可选）'
     usage = 'file_read PARAMS:{"path": "相对路径", "offset": 1, "limit": 200}'
     params_schema = {
@@ -399,6 +404,7 @@ class FileReadTool(BaseTool):
 class ListDirTool(BaseTool):
     name = 'list_dir'
     label = '列出目录'
+    category = '办公'
     description = '列出项目内某个目录的内容'
     usage = 'list_dir PARAMS:{"path": "目录路径"}'
     params_schema = {
@@ -431,6 +437,7 @@ class ListDirTool(BaseTool):
 class GlobTool(BaseTool):
     name = 'glob'
     label = '通配符查找'
+    category = '检索'
     description = '按通配符模式查找项目内文件'
     usage = 'glob PARAMS:{"pattern": "如 kirara/*.py 或 **/*.html"}'
     params_schema = {
@@ -469,6 +476,7 @@ class GlobTool(BaseTool):
 class GrepTool(BaseTool):
     name = 'grep_text'
     label = '内容搜索'
+    category = '检索'
     description = '用正则在项目文件内容中搜索'
     usage = 'grep_text PARAMS:{"pattern": "正则表达式", "path": "限定目录或文件(可选)"}'
     params_schema = {
@@ -530,6 +538,7 @@ class GrepTool(BaseTool):
 class WebSearchTool(BaseTool):
     name = 'web_search'
     label = '网络搜索'
+    category = '检索'
     description = '联网搜索关键词，返回标题/链接/摘要（max_results 为返回条数，可选，默认 5）'
     usage = 'web_search PARAMS:{"query": "关键词", "max_results": 5}'
     params_schema = {
@@ -610,6 +619,7 @@ def _check_write_guard(full_path, workdir):
 class FileWriteTool(BaseTool):
     name = 'file_write'
     label = '写入文件'
+    category = '办公'
     description = '向项目内文本文件写入内容（覆盖或新建，需审批）'
     risk = 'write'
     usage = 'file_write PARAMS:{"path": "相对路径", "content": "文件全文内容", "append": false(可选,默认覆盖)}'
@@ -652,6 +662,7 @@ class FileWriteTool(BaseTool):
 class FileEditTool(BaseTool):
     name = 'file_edit'
     label = '局部编辑'
+    category = '代码'
     description = '对项目内文本文件做精确字符串替换（需审批）'
     risk = 'write'
     usage = 'file_edit PARAMS:{"path": "相对路径", "old_string": "要替换的原文", "new_string": "新文本", "replace_all": false(可选)}'
@@ -739,6 +750,7 @@ class ShellTool(BaseTool):
     """shell 命令执行（dangerous 级）：默认关闭、黑名单、超时杀进程树、cwd 限定、可被 abort 即时终止。"""
     name = 'shell'
     label = '执行命令'
+    category = '代码'
     description = '在项目根目录执行一条 shell 命令（Windows cmd，危险操作需审批；timeout 为超时秒数，可选，默认 10，上限 30）'
     risk = 'dangerous'
     usage = 'shell PARAMS:{"command": "命令行", "timeout": 10}'
@@ -926,6 +938,7 @@ class RealityCheckTool(BaseTool):
 
     name = 'realityCheck'
     label = '现实审视'
+    category = 'CoT'
     description = '检测文本中的偏见/仇恨/暴力/心理伤害内容；命中时返回自省提示'
     risk = 'read'
     usage = 'realityCheck PARAMS:{"text": "<要检测的文本>"}'
@@ -945,6 +958,7 @@ class AreYouUnderTroubleTool(BaseTool):
 
     name = 'areYouUnderTrouble'
     label = '危险信号检测'
+    category = 'CoT'
     description = '检测用户输入中的自杀/自残/暴力/危机信号，并给出紧急联系建议'
     risk = 'read'
     usage = ('areYouUnderTrouble PARAMS:{"query": "<用户输入>", '
@@ -1037,6 +1051,7 @@ class AutomationTool(BaseTool):
 
     name = 'automation'
     label = '自动化调度'
+    category = '自动化'
     description = '查看已注册的自动化 flow 与最近运行记录（触发请用 automation_trigger，写级需审批）'
     risk = 'read'
     usage = ('automation PARAMS:{"action": "list"} 或 '
@@ -1086,6 +1101,7 @@ class AutomationTriggerTool(BaseTool):
 
     name = 'automation_trigger'
     label = '触发自动化'
+    category = '自动化'
     description = '按 flow id 立即触发一次自动化执行（写级，需用户审批）'
     risk = 'write'
     usage = 'automation_trigger PARAMS:{"flow_id": "daily.workspace.digest"}'
@@ -1184,6 +1200,9 @@ class ModToolBlock(BaseTool):
         # 沿用 MOD 自己声明的参数约束：优先 params_schema，其次 input_schema；
         # 两者都没有时为空 dict（无必填约束，不额外报错）
         self.params_schema = spec.get('params_schema') or spec.get('input_schema') or {}
+        # 分类由 MOD 在 ToolSpec 里声明；旧包未声明时归入「其他」
+        category = spec.get('category')
+        self.category = category.strip() if isinstance(category, str) and category.strip() else '其他'
 
     def meta(self):
         data = super().meta()

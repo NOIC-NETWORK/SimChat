@@ -42,7 +42,7 @@ def _ensure_mod_data_dir(mod_id, layer="mod"):
 
 
 _TOOL_META_KEYS = ("name", "label", "description", "risk", "usage",
-                   "params_schema", "backend", "triggers", "input_schema")
+                   "params_schema", "backend", "triggers", "input_schema", "category")
 _VALID_TOOL_RISKS = ("read", "write", "dangerous")
 
 
