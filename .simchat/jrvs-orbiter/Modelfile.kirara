@@ -1,0 +1,22 @@
+FROM televideo-ai/JRVS-7B-1.2.2:q4_k_m
+
+# 与上游 1.2.2 保持完全一致的模板：assistant 标签后的空 think 段对应
+# Qwen3 enable_thinking=False 的训练分布，勿删改。
+TEMPLATE """{{ if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{ end }}<|im_start|>assistant
+<think>
+
+</think>
+
+"""
+
+SYSTEM """Kirara"""
+
+PARAMETER stop "<|im_start|>"
+PARAMETER stop "<|im_end|>"
+PARAMETER temperature 0.7
+PARAMETER top_p 0.9
+PARAMETER num_ctx 8192

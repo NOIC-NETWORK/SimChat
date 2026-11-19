@@ -211,6 +211,9 @@ def _get_core(app):
                 core = SimChatCore()
                 app.extensions["simchat_core"] = core
                 _ensure_logging(core.data_root)
+                from simchat.runtime.agent.tools import configure_orbiter
+
+                configure_orbiter(core)
     return core
 
 
@@ -250,6 +253,9 @@ def create_app(core=None):
     if core is not None:
         app.extensions["simchat_core"] = core
         _ensure_logging(core.data_root)
+        from simchat.runtime.agent.tools import configure_orbiter
+
+        configure_orbiter(core)
 
     app.extensions["simchat_mod_loader"] = _ensure_mod_loader(app)
 
@@ -889,6 +895,15 @@ def create_app(core=None):
         core = _get_core(app)
         # 首次访问时自动创建默认实例
         agents_mod._default(core.data_root)
+        # MOD 地图（AI 实例）预设：每次列表时幂等同步为只读实例
+        try:
+            from simchat.loader.lifecycle import get_loader
+
+            loader = get_loader() or app.extensions.get("simchat_mod_loader")
+            if loader is not None:
+                agents_mod.sync_presets(core.data_root, loader.list_agent_presets())
+        except Exception:
+            _request_log.exception("同步 MOD 地图预设失败")
         return jsonify({
             "agents": agents_mod.list_all(core.data_root),
             "engine_presets": agents_mod.list_presets(),

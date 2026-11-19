@@ -14,7 +14,7 @@
   ✓ 进程树闸门（capabilities.shell=false → monkey-patch subprocess.Popen / os.system / os.popen / os.spawn* / os.exec* / multiprocessing）
   ✓ 文件系统闸门（capabilities.fs.read/write → open / os.* 路径白名单）
   ✓ 网络闸门（capabilities.net.domains → getaddrinfo / connect 域名白名单）
-  ✓ 模式/工具注册元数据回传
+  ✓ 模式/工具/地图预设注册元数据回传
   ✓ invoke / invoke_tool 请求处理（长驻）
   ✓ timeout（宿主侧 timeout 后 kill）
   ✓ 包内资产语义：cwd=包目录、python/ 与 scripts/ 进 sys.path、assets.root 可用
@@ -567,6 +567,7 @@ def _main():
             "type": "register",
             "modes": [_sanitize(m) for m in api.modes],
             "tools": [_sanitize(t) for t in api.tools],
+            "agent_presets": [_sanitize(p) for p in api.agent_presets],
         })
 
     except Exception as e:

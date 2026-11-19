@@ -32,6 +32,8 @@
   // 自有能力的分类展示顺序；MOD 声明的分类排在其后（按名称排序）
   const BUILTIN_CATEGORY_ORDER = ["CoT", "办公", "代码", "通讯", "创意", "检索", "自动化", "实验性", "其他"];
   const MOD_DEFAULT_CATEGORY = "其他";
+  // Kirara 行为包自带的方块保留在 MOD 段，其余 MOD 方块按能力语义并入自有分类
+  const KIRARA_MOD_ID = "kirara";
   const BLOCK_CATEGORY_ICONS = {
     CoT: "🧠",
     办公: "📄",
@@ -106,6 +108,17 @@
   function blockItems(source) {
     return catItems("blocks").filter((item) =>
       source === "mod" ? item.source === "mod" : item.source !== "mod"
+    );
+  }
+
+  /* Kirara 行为包自带的方块独立成组；其他 MOD 方块按语义分类并入自有能力 */
+  function isKiraraBlock(item) {
+    return item.source === "mod" && item.modId === KIRARA_MOD_ID;
+  }
+
+  function mergedBlockItems() {
+    return blockItems("builtin").concat(
+      blockItems("mod").filter((item) => !isKiraraBlock(item))
     );
   }
 
@@ -246,26 +259,26 @@
     renderFooter();
   }
 
-  /* 左侧分类栏：自有能力（内建方块的功能分类）与 MOD 能力（MOD 声明的分类 + 技能 + 自动化流程） */
+  /* 左侧分类栏：自有能力（内建 + 按语义归类的 MOD 方块）与 MOD 能力（Kirara 自带方块 + 技能 + 自动化流程） */
   function railSections() {
-    const builtin = groupByCategory(blockItems("builtin")).map((group) => ({
+    const builtin = groupByCategory(mergedBlockItems()).map((group) => ({
       key: "builtin:" + group.label,
       label: group.label,
       icon: BLOCK_CATEGORY_ICONS[group.label] || "🧱",
-      desc: "自有能力 · " + group.label + " 类内建方块；装备决定模型能否调用。",
+      desc: "自有能力 · " + group.label + " 类方块；内建方块与按能力归类的 MOD 方块一起装备。",
       catId: "blocks",
       count: group.items.length,
-      filter: (item) => item.source !== "mod" && blockCategoryOf(item) === group.label,
+      filter: (item) => !isKiraraBlock(item) && blockCategoryOf(item) === group.label,
     }));
 
-    const mod = groupByCategory(blockItems("mod")).map((group) => ({
+    const mod = groupByCategory(blockItems("mod").filter(isKiraraBlock)).map((group) => ({
       key: "mod:" + group.label,
       label: group.label,
       icon: "🧩",
-      desc: "MOD 声明的「" + group.label + "」分类；随 MOD 加载进运行时。",
+      desc: "Kirara 行为包自带的「" + group.label + "」能力；随 MOD 加载进运行时。",
       catId: "blocks",
       count: group.items.length,
-      filter: (item) => item.source === "mod" && blockCategoryOf(item) === group.label,
+      filter: (item) => isKiraraBlock(item) && blockCategoryOf(item) === group.label,
     }));
 
     const skills = catItems("skills");

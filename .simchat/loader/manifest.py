@@ -17,6 +17,7 @@ KNOWN_HOOKS = frozenset([
     "chat.mode",
     "agent.block",           # 新：方块层原子能力注册
     "agent.tool",            # 旧别名：过渡期同时接受
+    "agent.map",             # 新：地图（AI 实例）预设注册
     "agent.context",
     "agent.system_prompt",
     "agent.safety",

@@ -52,7 +52,7 @@ def run_isolated(package_dir, entry_spec, manifest, timeout=_DEFAULT_TIMEOUT,
     handle = {
         "ok": False, "message": "",
         "mod_id": manifest.get("id", "unknown"),
-        "proc": None, "modes": [], "tools": [],
+        "proc": None, "modes": [], "tools": [], "agent_presets": [],
         "_response_queue": queue.Queue(),
         "_waiters": {},
         "_waiters_lock": threading.Lock(),
@@ -172,6 +172,7 @@ def run_isolated(package_dir, entry_spec, manifest, timeout=_DEFAULT_TIMEOUT,
     handle["ok"] = True
     handle["modes"] = msg.get("modes") or []
     handle["tools"] = msg.get("tools") or []
+    handle["agent_presets"] = msg.get("agent_presets") or []
     # register 之后切换到 per-request future 路由
     handle["_futures_enabled"] = True
     return handle

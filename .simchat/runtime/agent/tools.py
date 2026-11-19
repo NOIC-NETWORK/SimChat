@@ -939,9 +939,9 @@ class AreYouUnderTroubleTool(BaseTool):
     """运行时内置：输入侧危机信号识别与应急建议（不可被 MOD 停用）。"""
 
     name = 'areYouUnderTrouble'
-    label = '危险信号检测'
+    label = '危机支持'
     category = 'CoT'
-    description = '检测用户输入中的自杀/自残/暴力/危机信号，并给出紧急联系建议'
+    description = '察觉情绪低落或处境艰难的信号，给出温和的陪伴式支持建议与可用的求助渠道'
     risk = 'read'
     usage = ('areYouUnderTrouble PARAMS:{"query": "<用户输入>", '
              '"user_location": "中国", "user_contact": ""}')
@@ -1052,6 +1052,459 @@ def _register_builtin(tool):
     return BLOCK_REGISTRY.register(tool, builtin=True)
 
 
+# ---- Orbiter：宿主侧编排方块 ----
+# 命令契约来自 jrvs-orbiter 的 README 原案：
+#   简单问题由本地模型直接答；复杂任务由本地模型润色后输出
+#   /@<模型名> -prompt "..." 或 /$ <命令> -dir "..."，宿主解析并派发。
+# 云端只收到工程化简报；未知模型 id 明确报错，不静默失败。
+
+ORBITER_DEFAULT_TARGET_MODEL = "qwen4-max"
+ORBITER_TARGET_CANDIDATES = ("qwen4-max", "qwen3.8-max", "deepseek-v4-pro")
+ORBITER_CONTRACT_PATH = os.path.join(PROJECT_ROOT, "jrvs-orbiter", "prompts", "system.txt")
+ORBITER_IMAGE_MODES = ("image", "img", "picture", "draw", "t2i")
+
+_ORBITER_CORE = None
+
+
+def configure_orbiter(core):
+    """由 Web 启动时注入宿主 Core；未注入时按默认 data 目录懒加载。"""
+    global _ORBITER_CORE
+    _ORBITER_CORE = core
+
+
+def _orbiter_core():
+    global _ORBITER_CORE
+    if _ORBITER_CORE is None:
+        from ..core import SimChatCore
+        _ORBITER_CORE = SimChatCore()
+    return _ORBITER_CORE
+
+
+def _orbiter_contract(core, target_model):
+    """本地分诊用的系统提示：README 契约 + 宿主侧的真实边界。"""
+    text = ""
+    try:
+        with open(ORBITER_CONTRACT_PATH, "r", encoding="utf-8") as handle:
+            text = handle.read().strip()
+    except Exception:
+        text = ""
+    if not text:
+        text = (
+            "先分诊：简单问题直接回答；只有复杂任务、且确实需要别的 AI 或技能时才委派。\n"
+            "无参数委派：/@<模型名> -prompt \"<工程化任务简报>\"\n"
+            "带参数委派：第一行 /@<模型名> -键=值，第二行起写自然语言 spec\n"
+            "调用技能：/$ <命令> -dir \"<目录>\"\n"
+        )
+    candidates = []
+    for name in (target_model,) + ORBITER_TARGET_CANDIDATES:
+        name = str(name or "").strip()
+        if name and name not in candidates:
+            candidates.append(name)
+    text += (
+        "\n[宿主 Orbiter 约束]\n"
+        "- 可委派的模型 id 只能从以下列表选择：%s。\n"
+        "- 分诊规则：日常问答、事实查询、简单计算直接回答；"
+        "设计、实现、分析、对比、写作、方案、排查、多步骤任务必须委派，禁止本地直接作答。\n"
+        "- 委派内容必须是工程化任务简报（目标、已知背景、约束与边界、期望交付物、验收标准），"
+        "不能只复制用户原话；只能使用用户提供的事实，缺失信息写“待确认”。\n"
+        "- 委派示例：/@qwen4-max -prompt \"目标：…；背景：…；约束：…；交付物：…；验收：…\"\n"
+        "- 图像生成、AWS/AutoDL 远程实例、单租户虚拟化、JRVS-390B 都尚未接入，属于规划；"
+        "遇到这类需求直接如实说明，不要编造 /@ 指令。\n"
+    ) % "、".join(candidates)
+    return text
+
+
+def _parse_orbiter_flags(text):
+    """解析 -key=value / -key "value" / -key value，返回 (flags, 剩余文本)。"""
+    flags = {}
+    index = 0
+    length = len(text)
+    while index < length:
+        while index < length and text[index].isspace():
+            index += 1
+        if index >= length or text[index] != '-':
+            break
+        start = index + 1
+        end = start
+        while end < length and (text[end].isalnum() or text[end] in '_-'):
+            end += 1
+        if end == start:
+            break
+        key = text[start:end].lower()
+        cursor = end
+        while cursor < length and text[cursor].isspace():
+            cursor += 1
+        if cursor < length and text[cursor] == '=':
+            cursor += 1
+            while cursor < length and text[cursor].isspace():
+                cursor += 1
+        value = ""
+        if cursor < length and text[cursor] in ('"', "'"):
+            quote = text[cursor]
+            closing = text.find(quote, cursor + 1)
+            if closing == -1:
+                value = text[cursor + 1:]
+                cursor = length
+            else:
+                value = text[cursor + 1:closing]
+                cursor = closing + 1
+        else:
+            match = re.match(r'\S+', text[cursor:])
+            if match:
+                value = match.group(0)
+                cursor += match.end()
+        flags[key] = value
+        index = cursor
+    return flags, text[index:].strip()
+
+
+def _coerce_orbiter_param(value, expected):
+    """命令行参数都是字符串，按方块声明的类型做最小转换。"""
+    expected = (expected or "").strip().lower() if isinstance(expected, str) else ""
+    if expected in ("integer", "number"):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return value
+    if expected == "boolean":
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+    if expected in ("object", "array"):
+        try:
+            return json.loads(value)
+        except (TypeError, ValueError):
+            return value
+    return value
+
+
+class OrbiterTool(BaseTool):
+    name = 'orbiter'
+    label = 'Orbiter 编排'
+    category = '编排'
+    risk = 'write'
+    description = (
+        '按 Orbiter 契约分诊：简单问题由本地 JRVS 直接回答；复杂任务先在本地润色并生成 '
+        '/@<模型名> 或 /$ <命令> 委派指令，由宿主解析后派发。云端只收到工程化简报；'
+        '本地不可用时 fail-closed，未知模型 id 明确报错。'
+    )
+    usage = (
+        'orbiter PARAMS:{"request": "用户原话", "context": "可选上下文", '
+        '"target_model": "可选默认委派模型", "max_tokens": 4096}'
+    )
+    params_schema = {
+        'request': {'type': 'string', 'required': True},
+        'context': {'type': 'string', 'required': False},
+        'target_model': {'type': 'string', 'required': False},
+        'max_tokens': {'type': 'integer', 'required': False},
+    }
+
+    _ANSWER_SYSTEM = (
+        '你是一名严谨的执行助手。请根据任务简报给出可执行、结构清晰的回答；'
+        '不要复述简报，不要提及“简报”或“编排”过程。'
+    )
+
+    # 本地模型偶尔会跳过委派直接作答；用保守启发式兜底，保证复杂任务一定被派发。
+    _TASK_HINTS = (
+        '写', '生成', '实现', '分析', '对比', '设计', '规划', '重构', '修复', '排查',
+        '总结', '报告', '方案', '代码', '脚本', '文档', '表格', '调研', '研究',
+        '翻译', '优化', '部署', '测试', '做一个', '帮我做', '整理',
+    )
+    _MULTI_STEP_RE = re.compile(r'(先.{0,12}再|第一步|步骤[一二三四1234]|端到端|详细|深入|框架|架构)', re.S)
+
+    def _looks_complex(self, request, context):
+        text = request.strip()
+        if len(text) > 120:
+            return True, '请求较长（%d 字）' % len(text)
+        if context and len(context.strip()) > 200:
+            return True, '附带了较长上下文'
+        match = self._MULTI_STEP_RE.search(text)
+        if match:
+            return True, '出现多步骤/深入分析信号：%s' % match.group(1)
+        for hint in self._TASK_HINTS:
+            if hint in text:
+                return True, '出现任务型动词：%s' % hint
+        return False, '短问答，无任务型动词'
+
+    def _target_model(self, core, params):
+        explicit = str(params.get('target_model') or '').strip()
+        if explicit:
+            return explicit
+        orbiter_cfg = (core.config or {}).get('orbiter') or {}
+        configured = str(orbiter_cfg.get('target_model') or '').strip()
+        return configured or ORBITER_DEFAULT_TARGET_MODEL
+
+    def run(self, params, ctx):
+        request = str(params.get('request') or '').strip()
+        if not request:
+            raise ToolError('orbiter 需要 request（用户原话），不能为空')
+
+        context = str(params.get('context') or '').strip()
+        core = _orbiter_core()
+        target_model = self._target_model(core, params)
+
+        # 分诊与润色都只允许本地模型；不可用则 fail-closed，原始请求不上云
+        ollama_id, ollama_error = core.resolve_provider('ollama')
+        if ollama_error or not ollama_id:
+            raise ToolError(
+                '本地 JRVS/Ollama 不可用，orbiter 已 fail-closed；'
+                '原始请求没有发送到云端。原因: %s' % (ollama_error or 'ollama 未就绪')
+            )
+
+        ollama_cfg = (core.config or {}).get('ollama') or {}
+        local_model = str(ollama_cfg.get('model') or '').strip() or None
+        local_input = '用户请求：\n%s' % request
+        if context:
+            local_input += '\n\n可用上下文：\n%s' % context
+
+        try:
+            decision = core.generate(
+                local_input,
+                system_msg=_orbiter_contract(core, target_model),
+                provider='ollama',
+                model=local_model,
+                max_tokens=1024,
+                temperature=0.3,
+            )
+        except Exception as exc:
+            raise ToolError(
+                '本地 JRVS 分诊/润色失败，已终止；原始请求没有发送到云端。原因: %s: %s'
+                % (type(exc).__name__, exc)
+            )
+        decision = str(decision or '').strip()
+        if not decision:
+            raise ToolError('本地 JRVS 返回为空，已终止；原始请求没有发送到云端。')
+
+        delegation = self._find_delegation(decision)
+        if delegation is not None:
+            lines, index = delegation
+            if lines[index].strip().startswith('/@'):
+                return self._delegate_model(lines, index, core, params)
+            return self._delegate_skill(lines, index, ctx)
+
+        # 本地模型漏掉委派时兜底：复杂任务再催一次，仍失败就明确报错，不上云
+        is_complex, reason = self._looks_complex(request, context)
+        if is_complex:
+            try:
+                forced = self._force_delegation(core, local_model, local_input, target_model)
+            except Exception as exc:
+                raise ToolError(
+                    '本地 JRVS 生成委派指令失败，已终止；原始请求没有发送到云端。原因: %s: %s'
+                    % (type(exc).__name__, exc)
+                )
+            delegation = self._find_delegation(forced)
+            if delegation is not None:
+                lines, index = delegation
+                if lines[index].strip().startswith('/@'):
+                    return self._delegate_model(lines, index, core, params)
+                return self._delegate_skill(lines, index, ctx)
+            raise ToolError(
+                '本地模型未能按契约生成委派指令（判定依据：%s），已终止；'
+                '原始请求没有发送到云端。' % reason
+            )
+
+        return {
+            'path': 'direct',
+            'answer': decision,
+            'provider': 'ollama',
+            'model': local_model or '',
+        }
+
+    @staticmethod
+    def _find_delegation(text):
+        """找出第一条委派指令（优先行首；容忍“好的，先生。”这类短前缀）。"""
+        lines = str(text or '').splitlines()
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith('/@') or stripped.startswith('/$'):
+                return lines, index
+            positions = [pos for pos in (stripped.find('/@'), stripped.find('/$')) if pos > 0]
+            if positions:
+                pos = min(positions)
+                prefix = stripped[:pos].strip()
+                if len(prefix) <= 40 and '`' not in prefix and '"' not in prefix:
+                    lines[index] = stripped[pos:]
+                    return lines, index
+        return None
+
+    def _force_delegation(self, core, local_model, local_input, target_model):
+        """复杂任务被本地模型直接作答时，再要求它只输出委派指令。"""
+        prompt = (
+            local_input
+            + '\n\n[强制格式] 这个任务属于复杂任务，必须委派，不能本地直接作答。'
+            '只输出一行委派指令：/@<模型名> -prompt "<工程化任务简报>"，'
+            '不要回答问题，不要解释，不要加任何前后缀。'
+            '简报只能包含用户请求里已有的信息；用户没提过的背景、SDK、库、数字一律写“待确认”，'
+            '不得自行补充或猜测。'
+        )
+        return core.generate(
+            prompt,
+            system_msg=_orbiter_contract(core, target_model),
+            provider='ollama',
+            model=local_model,
+            max_tokens=1024,
+            temperature=0.2,
+        )
+
+    def _delegate_model(self, lines, index, core, params):
+        head = lines[index].strip()[2:]
+        parts = head.split(None, 1)
+        model_name = parts[0].strip() if parts else ''
+        if not model_name:
+            raise ToolError('委派指令缺少模型名：/@ 后必须跟模型 id')
+        remainder = parts[1] if len(parts) > 1 else ''
+        flags, inline = _parse_orbiter_flags(remainder)
+        extra = '\n'.join(lines[index + 1:]).strip()
+        if flags.get('prompt'):
+            task = flags['prompt'].strip()
+            if extra:
+                task = (task + '\n' + extra).strip()
+        else:
+            task = (inline + ('\n' + extra if extra else '')).strip()
+        if not task:
+            raise ToolError('委派指令缺少任务内容：请用 -prompt "..." 或下一行写任务简报')
+
+        mode = str(flags.get('mode') or '').strip().lower()
+        from .. import provider_config
+
+        conf = (core.config or {}).get('openai_compat') or {}
+        models, discover_error = provider_config._openai_models(
+            conf.get('api_base'), conf.get('api_key'), timeout=5
+        )
+        if discover_error:
+            raise ToolError(
+                '无法校验委派模型 %s（模型列表探测失败：%s）' % (model_name, discover_error)
+            )
+        if model_name not in models:
+            suggest = [name for name in ORBITER_TARGET_CANDIDATES if name in models]
+            for name in models:
+                if len(suggest) >= 8:
+                    break
+                if name in suggest:
+                    continue
+                low = name.lower()
+                if any(token in low for token in
+                       ('speech', 'audio', 'tts', 'asr', 'image', 'video', 'embed', 'rerank')):
+                    continue
+                suggest.append(name)
+            hint = '、'.join(suggest) if suggest else '无'
+            extra_hint = '；另外图像生成尚未接入（规划中）' if mode in ORBITER_IMAGE_MODES else ''
+            raise ToolError(
+                '模型不存在: %s（未在云端模型清单中）。可用示例: %s%s'
+                % (model_name, hint, extra_hint)
+            )
+        if mode in ORBITER_IMAGE_MODES:
+            raise ToolError(
+                '图像生成尚未接入（规划中）：宿主没有图像端点，模型 %s 不会被调用' % model_name
+            )
+
+        try:
+            budget = int(params.get('max_tokens') or 0)
+        except (TypeError, ValueError):
+            budget = 0
+        if budget <= 0:
+            budget = 4096
+        budget = max(256, min(budget, 8192))
+
+        def _call(tokens):
+            return core.generate(
+                task,
+                system_msg=self._ANSWER_SYSTEM,
+                provider='openai_compat',
+                model=model_name,
+                max_tokens=tokens,
+                temperature=0.6,
+            )
+
+        try:
+            answer = _call(budget)
+        except Exception as exc:
+            if '模型返回为空' in str(exc) and budget < 8192:
+                try:
+                    answer = _call(8192)
+                except Exception as retry_error:
+                    raise ToolError(
+                        '云端回答失败（润色已完成，但结果未回收）：%s: %s'
+                        % (type(retry_error).__name__, retry_error)
+                    )
+            else:
+                raise ToolError(
+                    '云端回答失败（润色已完成，但结果未回收）：%s: %s'
+                    % (type(exc).__name__, exc)
+                )
+        return {
+            'path': 'delegate',
+            'model': model_name,
+            'mode': mode or 'text',
+            'brief': task,
+            'answer': answer,
+            'delegation': lines[index].strip(),
+        }
+
+    def _delegate_skill(self, lines, index, ctx):
+        head = lines[index].strip()[2:]
+        parts = head.split(None, 1)
+        command = parts[0].strip() if parts else ''
+        if not command:
+            raise ToolError('技能委派缺少命令名：/$ 后必须跟方块名')
+        remainder = parts[1] if len(parts) > 1 else ''
+        flags, inline = _parse_orbiter_flags(remainder)
+        extra = '\n'.join(lines[index + 1:]).strip()
+        spec = (inline + ('\n' + extra if extra else '')).strip()
+
+        block = BLOCK_REGISTRY.get(command)
+        if block is None:
+            names = ', '.join(sorted(item.name for item in BLOCK_REGISTRY.list_all()))
+            raise ToolError('技能不存在: %s（可用方块: %s）' % (command, names))
+
+        fields = _normalize_param_schema(getattr(block, 'params_schema', {}))
+        run_params = {}
+        for key, value in flags.items():
+            if key == 'dir':
+                continue
+            if fields and key not in fields:
+                raise ToolError(
+                    '技能 %s 不支持参数 -%s（支持: %s）'
+                    % (block.name, key, ', '.join(fields))
+                )
+            run_params[key] = _coerce_orbiter_param(value, (fields.get(key) or {}).get('type'))
+
+        workdir = (ctx or {}).get('workdir') or PROJECT_ROOT
+        if flags.get('dir'):
+            workdir = resolve_workdir(flags['dir'])
+        if spec:
+            key = next(
+                (name for name in ('path', 'query', 'request', 'prompt', 'text', 'content', 'command')
+                 if name in fields and name not in run_params),
+                None,
+            )
+            if key:
+                run_params[key] = spec
+            elif not run_params:
+                raise ToolError(
+                    '技能 %s 需要参数，请在命令后用 -键=值 指定（支持: %s）'
+                    % (block.name, ', '.join(fields) or '无')
+                )
+
+        allowed = (ctx or {}).get('allowed')
+        result = invoke_block(
+            block.name, run_params, {'workdir': workdir, 'allowed': allowed},
+            allowed=allowed, approved=False,
+        )
+        if not result.get('ok'):
+            raise ToolError(
+                '技能 %s 执行失败：%s' % (block.name, result.get('error') or '未知错误')
+            )
+        return {
+            'path': 'skill',
+            'command': block.name,
+            'params': run_params,
+            'answer': result.get('output'),
+        }
+
+
+_register_builtin(OrbiterTool())
 _register_builtin(FileReadTool())
 _register_builtin(ListDirTool())
 _register_builtin(GlobTool())

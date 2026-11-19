@@ -149,6 +149,83 @@ class ToolSpec(object):
         )
 
 
+_VALID_AVATAR_TYPES = frozenset(["emoji", "image"])
+
+
+class AgentPresetSpec(object):
+    """`agent.map` hook 的地图（AI 实例）预设描述。
+
+    地图 = AI 实例（项目术语）。MOD 只描述生成结果，实例 id 由宿主分配；
+    宿主以 mod_id + id 命名空间落盘，并把实例标记为只读。
+    """
+
+    def __init__(self, id, name, description="", avatar="🤖", avatar_type="emoji",
+                 system_prompt="", seed="", agent_capable=True,
+                 allow_advanced=False, desktop_pet=False,
+                 engine_preset=None, engine_params=None, equipped=None):
+        _validate_mode_id(id)
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("AgentPresetSpec.name 必须是非空字符串")
+        if avatar_type not in _VALID_AVATAR_TYPES:
+            raise ValueError("AgentPresetSpec.avatar_type 必须是 emoji|image")
+        if engine_params is not None and not isinstance(engine_params, dict):
+            raise ValueError("AgentPresetSpec.engine_params 必须是对象或 null")
+        if equipped is not None and not isinstance(equipped, list):
+            raise ValueError("AgentPresetSpec.equipped 必须是字符串数组或 null")
+        self.id = id
+        self.name = name.strip()
+        self.description = description or ""
+        self.avatar = avatar or "🤖"
+        self.avatar_type = avatar_type
+        self.system_prompt = system_prompt or ""
+        self.seed = seed or ""
+        self.agent_capable = bool(agent_capable)
+        self.allow_advanced = bool(allow_advanced)
+        self.desktop_pet = bool(desktop_pet)
+        self.engine_preset = engine_preset
+        self.engine_params = dict(engine_params) if engine_params else None
+        self.equipped = list(equipped) if equipped is not None else None
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "avatar": self.avatar,
+            "avatar_type": self.avatar_type,
+            "system_prompt": self.system_prompt,
+            "seed": self.seed,
+            "agent_capable": self.agent_capable,
+            "allow_advanced": self.allow_advanced,
+            "desktop_pet": self.desktop_pet,
+            "engine_preset": self.engine_preset,
+            "engine_params": dict(self.engine_params) if self.engine_params else None,
+            "equipped": list(self.equipped) if self.equipped is not None else None,
+        }
+
+    @classmethod
+    def from_value(cls, value):
+        if isinstance(value, cls):
+            return value
+        if not isinstance(value, dict):
+            raise TypeError("AgentPresetSpec 必须是 AgentPresetSpec 或 dict")
+        return cls(
+            id=value.get("id"),
+            name=value.get("name"),
+            description=value.get("description", ""),
+            avatar=value.get("avatar", "🤖"),
+            avatar_type=value.get("avatar_type", "emoji"),
+            system_prompt=value.get("system_prompt", ""),
+            seed=value.get("seed", ""),
+            agent_capable=value.get("agent_capable", True),
+            allow_advanced=value.get("allow_advanced", False),
+            desktop_pet=value.get("desktop_pet", False),
+            engine_preset=value.get("engine_preset"),
+            engine_params=value.get("engine_params"),
+            equipped=value.get("equipped"),
+        )
+
+
 class ModApi(object):
     """注入给 MOD 入口函数的宿主句柄。
 
@@ -164,6 +241,7 @@ class ModApi(object):
         self.assets_dir = assets_dir or package_dir  # manifest.assets.root 的绝对路径
         self.modes = []
         self.tools = []  # P2.4 新增：agent.tool 注册
+        self.agent_presets = []  # agent.map：地图（AI 实例）预设
         self._services = dict(services or {})
         self._emit_event = emit_event
 
@@ -186,6 +264,15 @@ class ModApi(object):
             if existing["name"] == data["name"]:
                 raise ValueError("重复注册工具: %s" % data["name"])
         self.tools.append(data)
+        return data
+
+    def register_agent_preset(self, spec):
+        """注册地图（AI 实例）预设；宿主加载后落盘为只读实例。"""
+        data = AgentPresetSpec.from_value(spec).to_dict()
+        for existing in self.agent_presets:
+            if existing["id"] == data["id"]:
+                raise ValueError("重复注册地图预设: %s" % data["id"])
+        self.agent_presets.append(data)
         return data
 
     # ---------- 能力 ----------
@@ -221,4 +308,4 @@ def hook(name):
 
 from .skill_base import BaseSkill  # noqa: E402  (放在文件末尾，避免循环)
 
-__all__ = ["ABI_VERSION", "ModeSpec", "ToolSpec", "ModApi", "hook", "BaseSkill"]
+__all__ = ["ABI_VERSION", "ModeSpec", "ToolSpec", "AgentPresetSpec", "ModApi", "hook", "BaseSkill"]

@@ -49,6 +49,7 @@
           "chat.mode",
           "agent.block",
           "agent.tool",
+          "agent.map",
           "agent.context",
           "agent.system_prompt",
           "agent.safety",

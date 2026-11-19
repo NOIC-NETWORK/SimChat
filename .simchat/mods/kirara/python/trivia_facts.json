@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "updated": "2026-11-19",
+  "facts": [
+    {
+      "id": "fork-thailand",
+      "fact": "据说叉子大约在 17 世纪才由欧洲人带到暹罗（今天的泰国）；在那之前，当地人吃饭主要靠勺子和手。",
+      "keywords": ["叉子", "餐具", "泰国", "暹罗", "吃饭"],
+      "tags": ["历史", "生活"],
+      "source": "流传较广的历史轶事，具体年代与传播路径仍有争议",
+      "confidence": "urban_legend"
+    },
+    {
+      "id": "octopus-hearts",
+      "fact": "章鱼有三颗心脏：两颗负责把血送过鳃，一颗负责供血给全身；游泳时主心脏会停跳，所以它们更喜欢爬。",
+      "keywords": ["章鱼", "心脏", "海洋", "动物"],
+      "tags": ["生物", "海洋"],
+      "source": "海洋生物学常识",
+      "confidence": "established"
+    },
+    {
+      "id": "banana-berry",
+      "fact": "香蕉在植物学上算浆果，草莓反而不算；草莓外面那些小点点才是它真正的果实。",
+      "keywords": ["香蕉", "草莓", "水果", "浆果"],
+      "tags": ["植物", "食物"],
+      "source": "植物学分类常识",
+      "confidence": "established"
+    },
+    {
+      "id": "giraffe-neck",
+      "fact": "长颈鹿的脖子再长，颈椎也只有七节，和人类一样；每节都被拉得很长。",
+      "keywords": ["长颈鹿", "脖子", "颈椎", "动物"],
+      "tags": ["生物"],
+      "source": "比较解剖学常识",
+      "confidence": "established"
+    },
+    {
+      "id": "eiffel-expand",
+      "fact": "埃菲尔铁塔在夏天会因为热胀冷缩“长高”十几厘米，冬天再缩回去。",
+      "keywords": ["埃菲尔铁塔", "巴黎", "铁塔", "热胀冷缩"],
+      "tags": ["建筑", "物理"],
+      "source": "工程测量中的常见说法",
+      "confidence": "likely"
+    },
+    {
+      "id": "cloud-weight",
+      "fact": "一朵看起来轻飘飘的积云，里面的水滴加起来可能有好几百吨重。",
+      "keywords": ["云", "积云", "天气", "重量"],
+      "tags": ["气象", "物理"],
+      "source": "气象学科普中的估算值",
+      "confidence": "likely"
+    },
+    {
+      "id": "otter-hands",
+      "fact": "海獭睡觉时会牵着手，或者用海藻把自己缠住，免得漂着漂着就和同伴走散。",
+      "keywords": ["海獭", "睡觉", "牵手", "动物"],
+      "tags": ["生物", "海洋"],
+      "source": "野生动物观察记录",
+      "confidence": "established"
+    },
+    {
+      "id": "flamingo-color",
+      "fact": "火烈鸟不是天生就粉：它们吃的藻类和小虾里含有类胡萝卜素，吃着吃着就把自己染粉了。",
+      "keywords": ["火烈鸟", "粉色", "鸟", "胡萝卜素"],
+      "tags": ["生物", "食物"],
+      "source": "动物学常识",
+      "confidence": "established"
+    },
+    {
+      "id": "honey-keeps",
+      "fact": "蜂蜜含水量低、酸性又强，密封保存时很难变质；考古学家曾在古墓里发现过还能吃的蜂蜜。",
+      "keywords": ["蜂蜜", "保质期", "食物", "古墓"],
+      "tags": ["食物", "历史"],
+      "source": "食品科学与考古报道中的常见说法",
+      "confidence": "likely"
+    },
+    {
+      "id": "keyboard-bumps",
+      "fact": "键盘上 F 和 J 的小凸起不是为了好看，是让手指不用看键盘也能摸回基准键位。",
+      "keywords": ["键盘", "F", "J", "打字", "凸起"],
+      "tags": ["生活", "工具"],
+      "source": "盲打设计的通用说明",
+      "confidence": "established"
+    },
+    {
+      "id": "coffee-devil",
+      "fact": "咖啡刚传到欧洲时，有人主张它是“魔鬼的饮料”，还认真讨论过要不要把它禁掉。",
+      "keywords": ["咖啡", "欧洲", "魔鬼", "饮料"],
+      "tags": ["历史", "食物"],
+      "source": "咖啡传播史中的著名轶事",
+      "confidence": "urban_legend"
+    },
+    {
+      "id": "shark-teeth",
+      "fact": "鲨鱼的牙齿不是一排就完事，而是一层层备用牙随时顶上；一生换掉的牙可能上万颗。",
+      "keywords": ["鲨鱼", "牙齿", "海洋", "动物"],
+      "tags": ["生物", "海洋"],
+      "source": "海洋生物学常识",
+      "confidence": "established"
+    }
+  ]
+}

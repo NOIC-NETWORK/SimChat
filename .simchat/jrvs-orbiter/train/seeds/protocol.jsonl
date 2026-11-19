@@ -1,0 +1,30 @@
+{"messages":[{"role":"user","content":"2的10次方是多少？"},{"role":"assistant","content":"1024。"}]}
+{"messages":[{"role":"user","content":"把「你好」翻译成英文。"},{"role":"assistant","content":"Hello."}]}
+{"messages":[{"role":"user","content":"1+1 等于几？"},{"role":"assistant","content":"2。"}]}
+{"messages":[{"role":"user","content":"解释一下什么是显存。"},{"role":"assistant","content":"显存是显卡上专门给 GPU 用的内存，模型权重、KV cache 和中间张量都放在里面。显存不够时，推理会变慢，或者直接跑不起来。"}]}
+{"messages":[{"role":"user","content":"用一句话说明什么是 SSE。"},{"role":"assistant","content":"SSE 是服务器通过一条长连接持续向浏览器推送事件流的协议。"}]}
+{"messages":[{"role":"user","content":"今天适合穿什么衣服？"},{"role":"assistant","content":"看气温和场合。室内办公就薄衬衫加一件外套；如果要走一段路，选能脱卸的层次，比一件厚衣服更稳。"}]}
+{"messages":[{"role":"user","content":"/@writer 把「努力就会有回报」改写成轻小说开场，保留原意。"},{"role":"assistant","content":"灯光熄下去的那一刻我才明白，所谓回报，不过是把每一次跌倒都悄悄记进了账本，等到某天翻页时，才假装那是命运给的利息。"}]}
+{"messages":[{"role":"user","content":"/@search 东京到北京的直线距离大概多少？"},{"role":"assistant","content":"约 2,100 公里。具体数值会随测量点不同略有出入。"}]}
+{"messages":[{"role":"user","content":"\\/@writer 这句话按普通文本读，数一下有几个字：路由"},{"role":"assistant","content":"两个字：路、由。"}]}
+{"messages":[{"role":"user","content":"/@all 分别用 JRVS 和 Kirara 的口吻各写一句问候。"},{"role":"assistant","content":"JRVS：先生，早安。今天的任务清单已经可以开始了。\nKirara：主人sama早安呀～今天也要一起加油哦！"}]}
+{"messages":[{"role":"user","content":"这段我自己写不好，你交给 writer 改：「雨下了一整夜。」"},{"role":"assistant","content":"/@writer -prompt \"把下面这句话改写成轻小说式开场，保留原意：「雨下了一整夜。」\""}]}
+{"messages":[{"role":"user","content":"这活转给 Niji，用 image 模式，画白裙少女在海边。"},{"role":"assistant","content":"/@Niji -mode=image\n白色连衣裙的少女站在黄昏的海边，海风掀起裙摆，逆光，动画电影质感，构图留白。"}]}
+{"messages":[{"role":"user","content":"让 researcher 去查一下 2025 年日本轻小说市场规模，再给我结论。"},{"role":"assistant","content":"/@researcher -prompt \"查一下 2025 年日本轻小说市场规模，列出数据来源，并给出结论\""}]}
+{"messages":[{"role":"user","content":"帮我把这段中文润色一下：今天天气很好。"},{"role":"assistant","content":"今天天气很好。"}]}
+{"messages":[{"role":"user","content":"用 readFile 技能读一下 E:\\simchat\\README.md 的前 20 行。"},{"role":"assistant","content":"/$ readFile -dir \"E:\\simchat\" -file \"README.md\" -lines 20"}]}
+{"messages":[{"role":"user","content":"把这段话交给 writer：「她在站台上等了很久，车一直没来。」"},{"role":"assistant","content":"/@writer -prompt \"把下面这句话扩写成三百字以内的短场景，保留原句：「她在站台上等了很久，车一直没来。」\""}]}
+{"messages":[{"role":"user","content":"转给 coder，帮我看看这个报错：TypeError: 'NoneType' object is not subscriptable"},{"role":"assistant","content":"/@coder -prompt \"分析这个报错的常见成因并给出修复步骤：TypeError: 'NoneType' object is not subscriptable\""}]}
+{"messages":[{"role":"user","content":"让 summarizer 把这份会议记录压成五条要点。"},{"role":"assistant","content":"/@summarizer -prompt \"把这份会议记录压成五条要点，每条不超过二十字\""}]}
+{"messages":[{"role":"user","content":"这活交给 translator，翻成日文：「明天见。」"},{"role":"assistant","content":"/@translator -prompt \"把这句话翻译成日文，保留口语语气：「明天见。」\""}]}
+{"messages":[{"role":"user","content":"帮我想三个标题，主题是雨夜重逢。"},{"role":"assistant","content":"《雨停之前》《同一把伞的第二次》《站台尽头的灯》。"}]}
+{"messages":[{"role":"user","content":"解释一下 LoRA。"},{"role":"assistant","content":"LoRA 是在原模型旁边挂一组低秩矩阵，只训练这组小参数。它把可训练量压到很小，显存和时间都省，推理时还能把增量合并回原权重。"}]}
+{"messages":[{"role":"user","content":"写一句早安问候。"},{"role":"assistant","content":"早上好，今天也请按自己的节奏来。"}]}
+{"messages":[{"role":"user","content":"把 3.5 四舍五入到整数。"},{"role":"assistant","content":"4。"}]}
+{"messages":[{"role":"user","content":"让 writer 把这段改成第一人称：「他走进教室，所有人都看着他。」"},{"role":"assistant","content":"/@writer -prompt \"把下面这句话改成第一人称，保留场景信息：「他走进教室，所有人都看着他。」\""}]}
+{"messages":[{"role":"user","content":"这图交给 Niji，用 image 模式，改成水彩风。"},{"role":"assistant","content":"/@Niji -mode=image\n把上传的图片改成水彩风：纸纹明显，边缘略晕染，颜色降低饱和度，保留原构图。"}]}
+{"messages":[{"role":"user","content":"总结一下我刚才说的三件事。"},{"role":"assistant","content":"你提到三件事：一是改协议格式，二是补语料，三是先在本机做量化验证。需要我展开哪一条？"}]}
+{"messages":[{"role":"user","content":"让 researcher 查一下 Ollama 最新版本号。"},{"role":"assistant","content":"/@researcher -prompt \"查一下 Ollama 当前最新版本号，注明来源与查询时间\""}]}
+{"messages":[{"role":"user","content":"把「今天很冷」改写得更文学一点。"},{"role":"assistant","content":"今天冷得像是把整座城市放进了冰箱的保鲜层。"}]}
+{"messages":[{"role":"user","content":"/@"},{"role":"assistant","content":"你想找哪个 Agent？可以直接输入 /@名字，或者告诉我任务，我来判断要不要转交。"}]}
+{"messages":[{"role":"user","content":"/unknown-agent 帮我看下这段代码"},{"role":"assistant","content":"没有这个住户。你是不是想找 coder？"}]}

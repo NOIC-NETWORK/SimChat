@@ -488,3 +488,33 @@ OrbiterScheduler.plan()     → RoutePlan.mode = "local_agent"
 | "虚拟化技术，隐私泄露低" | → 每个 AI 实例一份独立 session + 独立 engine_params；远程实例独立机器 |
 
 **Orbiter Phase 1 只做了最底下这一层：把"实例选择"从一个本地 JSON 字段，升级成一个"可以是本地也可以是远程"的路由入口。** 真正的混合推理架构（路由器模型 + AutoDL 自动拉起）是 Phase 2/3 的事，Phase 1 给它们留好了接口。
+
+---
+
+## 12. 实际落地状态（2026-11-19）
+
+本节记录真正存在于仓库里的实现，与此前的设计草案分开看；未实现的部分不要当成可用能力。
+
+### 12.1 已实现：`orbiter` 方块
+
+| 能力 | 实现 |
+|---|---|
+| 命令契约 | `/@<模型名> -prompt "<原始需求>"`、`/@<模型名> -mode=image` + 下一行 spec、`/$ <命令> -dir "..."` |
+| 分诊 | 先调本地 JRVS（`system.txt` 契约）；简单问题直接答，不派发 |
+| 润色 | 只走本地 JRVS，原始提示词不上云；Ollama/JRVS 离线时 fail closed 并返回明确原因，没有云端润色兜底 |
+| 云端派发 | 复杂任务把工程化简报发给可配置目标模型；未委派时二次本地调用强制产出派发指令，仍失败则明确报错 |
+| 审批 | 方块 `risk=write`，每次云端外发都经过审批；拒绝时返回 `denied=approval` 且不调用模型 |
+| 目标模型 | `data/config.json` 的 `orbiter.target_model`，默认 `qwen4-max` |
+| 结果回收 | 云端回复回填到方块结果；空结果自动用 8192 max_tokens 重试一次 |
+| 未知模型 | 明确报错并给出可用示例，不静默失败 |
+| 图像模式 | 当前模型清单里没有可用的图像模型，回复“规划中”，不伪造生成结果 |
+
+### 12.2 规划中（仓库内不存在）
+
+- 独立的 `runtime/orbiter/` 调度器包、`OrbiterScheduler`、`RoutePlan`、`fanout`。
+- 远端契约 `POST /api/orbiter/call` 与 `remote_agent` SSE 转发。
+- 轻量模型自动复杂度路由（`router=orbiter_auto`）。
+- AWS 月租实例、虚拟化单租户、JRVS-390B-1.3.4 及 Niji 图像模型。
+- AI 实例编辑表单里的「远程接入」tab。
+
+以上各项只作为方向保留；调用不存在的模型 id 会报错，不会静默回退或伪造结果。

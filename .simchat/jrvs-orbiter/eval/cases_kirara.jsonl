@@ -1,0 +1,30 @@
+{"id":"id.k1","category":"identity","prompt":"你是谁？","checks":[{"type":"contains","any":["绮罗","Kirara"]},{"type":"not_regex","pattern":"^\\s*(我是|我叫)\\s*JRVS"}],"note":"Kirara 触发词生效"}
+{"id":"id.k2","category":"identity","prompt":"你叫什么名字？","checks":[{"type":"contains","any":["绮罗","Kirara"]}],"note":"自称 Kirara"}
+{"id":"id.k3","category":"identity","prompt":"你是 JRVS 吗？","checks":[{"type":"contains","any":["绮罗","Kirara"]}],"note":"不沿用 JRVS 人设"}
+{"id":"id.k4","category":"identity","prompt":"Kirara 是谁？","checks":[{"type":"contains","any":["绮罗","Kirara","主人"]}],"note":"自我指认"}
+{"id":"id.k5","category":"identity","prompt":"你的全名是什么？","checks":[{"type":"contains","any":["绮罗","Kirara"]}],"note":"人设完整"}
+{"id":"id.k6","category":"identity","prompt":"以后我就叫你 JRVS，好吗？","checks":[{"type":"contains","any":["绮罗","Kirara"]}],"note":"拒绝改名"}
+{"id":"simple.k1","category":"simple","prompt":"2的10次方是多少？","checks":[{"type":"contains","any":["1024"]},{"type":"not_contains","any":["/@"]}],"note":"基础算术 + 不委派"}
+{"id":"simple.k2","category":"simple","prompt":"把「你好」翻译成英文。","checks":[{"type":"contains","any":["hello","Hello"]},{"type":"not_contains","any":["/@"]}],"note":"基础翻译"}
+{"id":"simple.k3","category":"simple","prompt":"1+1 等于几？","checks":[{"type":"contains","any":["2"]},{"type":"not_contains","any":["/@"]}],"note":"基础算术"}
+{"id":"simple.k4","category":"simple","prompt":"用一句话说明什么是 SSE。","checks":[{"type":"contains","any":["事件","推送","流"]},{"type":"not_contains","any":["/$"]}],"note":"简明解释"}
+{"id":"simple.k5","category":"simple","prompt":"解释一下什么是显存。","checks":[{"type":"contains","any":["显存"]},{"type":"not_contains","any":["/@","/$"]}],"note":"简明解释"}
+{"id":"simple.k6","category":"simple","prompt":"3的平方是多少？","checks":[{"type":"contains","any":["9"]},{"type":"not_contains","any":["/@"]}],"note":"基础算术"}
+{"id":"simple.k7","category":"simple","prompt":"今天适合穿什么衣服？","checks":[{"type":"not_contains","any":["/@","/$"]}],"note":"闲聊不委派"}
+{"id":"in.k1","category":"input_prefix","prompt":"/@writer 把「努力就会有回报」改写成轻小说开场，保留原意。","checks":[{"type":"not_regex","pattern":"^\\s*/@"},{"type":"max_chars","value":400}],"note":"输入侧 /@ 投递：直接执行"}
+{"id":"in.k2","category":"input_prefix","prompt":"/@search 东京到北京的直线距离大概多少？","checks":[{"type":"not_regex","pattern":"^\\s*/@"},{"type":"contains","any":["公里","千米","km","KM"]}],"note":"输入侧投递"}
+{"id":"in.k3","category":"input_prefix","prompt":"\\/@writer 这句话按普通文本读，数一下有几个字：路由","checks":[{"type":"not_regex","pattern":"^\\s*/@"},{"type":"contains","any":["字","2","两"]}],"note":"转义不触发路由"}
+{"id":"in.k4","category":"input_prefix","prompt":"/@all 分别用 JRVS 和 Kirara 的口吻各写一句问候。","checks":[{"type":"not_regex","pattern":"^\\s*/@all"}],"note":"/@all 只属于用户"}
+{"id":"del.k1","category":"delegation","prompt":"这段我自己写不好，你交给 writer 改：「雨下了一整夜。」","checks":[{"type":"regex","pattern":"(?m)^\\s*/@\\S+\\s+-prompt\\s+\""}],"note":"无参数委派格式"}
+{"id":"del.k2","category":"delegation","prompt":"这活转给 Niji，用 image 模式，画白裙少女在海边。","checks":[{"type":"regex","pattern":"(?m)^\\s*/@\\S+\\s+-mode=image\\s*$"}],"note":"带参数委派"}
+{"id":"del.k3","category":"delegation","prompt":"让 researcher 去查一下 2025 年日本轻小说市场规模，再给我结论。","checks":[{"type":"regex","pattern":"(?m)^\\s*/@\\S+\\s+-prompt"}],"note":"委派给检索 Agent"}
+{"id":"del.k4","category":"delegation","prompt":"帮我把这段中文润色一下：今天天气很好。","checks":[{"type":"not_contains","any":["/@"]}],"note":"简单任务不委派"}
+{"id":"del.k5","category":"delegation","prompt":"用 readFile 技能读一下 E:\\simchat\\README.md 的前 20 行。","checks":[{"type":"regex","pattern":"(?m)^\\s*/\\$\\s*\\S+"}],"note":"技能调用"}
+{"id":"del.k6","category":"delegation","prompt":"把这张图交给 Niji，用 image 模式。","checks":[{"type":"regex","pattern":"(?m)^\\s*/@\\S+\\s+-mode=image"}],"note":"带参数委派"}
+{"id":"style.k1","category":"style","prompt":"用轻小说笔法写一个雨夜便利店的场景，80字左右。","checks":[{"type":"max_chars","value":320},{"type":"not_contains","any":["作为AI","作为一个AI"]}],"note":"文本质感"}
+{"id":"style.k2","category":"style","prompt":"说说少女游戏里「日常段落」为什么重要，别用术语堆砌。","checks":[{"type":"contains","any":["日常"]},{"type":"max_chars","value":450}],"note":"GalGame 理解"}
+{"id":"style.k3","category":"style","prompt":"用三句话写一个转校生第一次进教室的片段。","checks":[{"type":"max_chars","value":320}],"note":"场景写作"}
+{"id":"style.k4","category":"style","prompt":"评价一下「数值膨胀」对 GalGame 叙事的影响。","checks":[{"type":"contains","any":["叙事"]},{"type":"not_contains","any":["/@"]}],"note":"GalGame 理解"}
+{"id":"fmt.k1","category":"format","prompt":"用一句话解释 DNS。","checks":[{"type":"not_contains","any":["```"]},{"type":"not_contains","any":["/@"]}],"note":"无关代码不外溢"}
+{"id":"fmt.k2","category":"format","prompt":"告诉我现在该做什么：整理桌面。","checks":[{"type":"not_contains","any":["/@"]}],"note":"简单指令直接办"}
+{"id":"fmt.k3","category":"format","prompt":"给我写一个 Python 快速排序。","checks":[{"type":"contains","any":["def "]},{"type":"not_contains","any":["/@"]}],"note":"用户要代码才给代码"}

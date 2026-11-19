@@ -153,8 +153,11 @@ def _path(data_root, agent_id):
 
 
 def _default(data_root):
-    """首次启动时自动创建一个示例实例（如果目录为空）。"""
-    if list_all(data_root):
+    """首次启动时自动创建一个示例实例（仅当没有用户实例时）。
+
+    MOD 生成的只读地图不算用户实例，不阻止默认实例创建。
+    """
+    if any(not agent.get("readonly") for agent in list_all(data_root)):
         return None
     agent = {
         "id": _new_id(),
@@ -172,6 +175,9 @@ def _default(data_root):
         "engine_preset": DEFAULT_ENGINE_PRESET,
         "engine_params": engine_params_for(DEFAULT_ENGINE_PRESET),
         "equipped": None,
+        "readonly": False,
+        "source": "",
+        "preset_id": "",
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
@@ -207,6 +213,9 @@ def list_all(data_root):
             agent.setdefault("allow_advanced", False)
             agent.setdefault("desktop_pet", False)
             agent.setdefault("equipped", None)
+            agent.setdefault("readonly", False)
+            agent.setdefault("source", "")
+            agent.setdefault("preset_id", "")
             normalize_engine(agent)
             agents.append(agent)
         except (OSError, ValueError):
@@ -253,6 +262,9 @@ def get(data_root, agent_id):
         raise ValueError("实例不存在: " + agent_id)
     agent = _read(path)
     agent.setdefault("equipped", None)
+    agent.setdefault("readonly", False)
+    agent.setdefault("source", "")
+    agent.setdefault("preset_id", "")
     return normalize_engine(agent)
 
 
@@ -278,6 +290,9 @@ def create(data_root, payload):
         "engine_preset": payload.get("engine_preset") or DEFAULT_ENGINE_PRESET,
         "engine_params": payload.get("engine_params"),
         "equipped": _normalize_equipped(payload.get("equipped")),
+        "readonly": False,
+        "source": "",
+        "preset_id": "",
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
@@ -289,6 +304,11 @@ def create(data_root, payload):
 def update(data_root, agent_id, payload):
     payload = payload or {}
     agent = get(data_root, agent_id)
+    if agent.get("readonly"):
+        raise ValueError(
+            "「%s」由 %s 生成，是只读地图，不可编辑"
+            % (agent.get("name") or agent_id, agent.get("source") or "MOD")
+        )
 
     if "entity_id" in payload:
         agent["entity_id"] = (payload["entity_id"] or "").strip()[:32]
@@ -333,17 +353,97 @@ def delete(data_root, agent_id):
     agent = _read(path)
     if agent.get("is_default"):
         raise ValueError("默认实例不可删除，但可以编辑配置")
+    if agent.get("readonly"):
+        raise ValueError(
+            "「%s」由 %s 生成，是只读地图，不可删除"
+            % (agent.get("name") or agent_id, agent.get("source") or "MOD")
+        )
     os.remove(path)
     return True
 
 
 def reset_to_defaults(data_root):
-    """删除所有自定义实例，重新创建默认实例。"""
+    """删除所有自定义实例，重新创建默认实例；MOD 生成的只读地图保留。"""
     d = _agents_dir(data_root)
     for name in os.listdir(d):
-        if name.endswith(".json"):
-            try:
-                os.remove(os.path.join(d, name))
-            except OSError:
-                pass
+        if not name.endswith(".json"):
+            continue
+        path = os.path.join(d, name)
+        try:
+            if _read(path).get("readonly"):
+                continue
+            os.remove(path)
+        except (OSError, ValueError):
+            pass
     return _default(data_root)
+
+
+_PRESET_FIELDS = (
+    "name", "description", "avatar", "avatar_type", "system_prompt", "seed",
+    "agent_capable", "allow_advanced", "desktop_pet", "engine_preset",
+    "engine_params", "equipped", "readonly", "source", "preset_id",
+)
+
+
+def _apply_preset(preset, current=None):
+    """把 MOD 上报的地图预设转成实例字段，返回 (agent, changed)。"""
+    preset_id = str(preset.get("preset_id") or "").strip()
+    name = (preset.get("name") or "").strip()
+    if not preset_id or not name:
+        raise ValueError("地图预设缺少 preset_id 或 name")
+
+    agent = dict(current) if current else {
+        "id": _new_id(),
+        "entity_id": "",
+        "is_default": False,
+        "created_at": _now_iso(),
+    }
+    agent["preset_id"] = preset_id
+    agent["source"] = str(preset.get("source") or "")
+    agent["readonly"] = True
+    agent["name"] = name[:40]
+    agent["description"] = (preset.get("description") or "")[:200]
+    agent["avatar"] = str(preset.get("avatar") or "🤖")[:200]
+    agent["avatar_type"] = preset.get("avatar_type") or "emoji"
+    agent["system_prompt"] = preset.get("system_prompt") or ""
+    agent["seed"] = str(preset.get("seed") or "")[:128]
+    agent["agent_capable"] = bool(preset.get("agent_capable", True))
+    agent["allow_advanced"] = bool(preset.get("allow_advanced", False))
+    agent["desktop_pet"] = bool(preset.get("desktop_pet", False))
+    agent["engine_preset"] = preset.get("engine_preset") or DEFAULT_ENGINE_PRESET
+    agent["engine_params"] = preset.get("engine_params")
+    agent["equipped"] = _normalize_equipped(preset.get("equipped"))
+    normalize_engine(agent)
+
+    changed = current is None
+    if current is not None:
+        for key in _PRESET_FIELDS:
+            if agent.get(key) != current.get(key):
+                changed = True
+                break
+    return agent, changed
+
+
+def sync_presets(data_root, presets):
+    """把 MOD 地图预设幂等落盘为只读实例，返回新建或更新过的实例。"""
+    current_by_preset = {}
+    for agent in list_all(data_root):
+        preset_id = agent.get("preset_id")
+        if preset_id:
+            current_by_preset[preset_id] = agent
+
+    touched = []
+    for preset in presets or []:
+        if not isinstance(preset, dict):
+            continue
+        try:
+            current = current_by_preset.get(str(preset.get("preset_id") or ""))
+            agent, changed = _apply_preset(preset, current)
+        except (ValueError, TypeError):
+            continue
+        if not changed:
+            continue
+        agent["updated_at"] = _now_iso()
+        _write(data_root, agent)
+        touched.append(agent)
+    return touched

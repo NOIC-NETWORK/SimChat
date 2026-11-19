@@ -26,6 +26,8 @@ DEFAULT_CONFIG = {
     "anthropic": {"api_base": "https://api.anthropic.com", "api_key": "", "model_name": ""},
     "system_prompt": "",
     "max_history": 40,
+    # Orbiter：复杂任务先本地 JRVS 润色，再派发给该云端模型（可在 data/config.json 覆盖）
+    "orbiter": {"target_model": "qwen4-max"},
     "agent": {
         "max_turns": 10,
         "workdir": "",
@@ -56,6 +58,7 @@ class SimChatCore:
         cfg["openai_compat"] = dict(DEFAULT_CONFIG["openai_compat"])
         cfg["anthropic"] = dict(DEFAULT_CONFIG["anthropic"])
         cfg["agent"] = dict(DEFAULT_CONFIG["agent"])
+        cfg["orbiter"] = dict(DEFAULT_CONFIG["orbiter"])
         try:
             if os.path.exists(self.config_path):
                 with open(self.config_path, "r", encoding="utf-8") as f:

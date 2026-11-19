@@ -1,5 +1,17 @@
 # 最近更新
 
+**2026-11-19** — Orbiter 方块、Kirara 只读地图、JRVS 双路径评测与前端收尾
+
+- **宿主新增 `orbiter` 方块**：按 README 契约解析 `/@<模型名> -prompt "..."`、`/@<模型名> -mode=image` + 下一行 spec、`/$ <命令> -dir "..."`。本地 JRVS 先分诊，简单问题直接答；复杂任务才派发云端。润色只走本地 JRVS，原始提示词不上云；本地不可用时 fail closed，没有云端润色兜底。方块 `risk=write`，每次云端外发都走审批，拒绝时返回 `denied=approval` 且不调用任何模型。
+- **目标模型可配置**：`data/config.json` 的 `orbiter.target_model`，默认 `qwen4-max`；未知模型 id 明确报错并给出可用示例，图像模型缺失时如实回复“规划中”，不伪造结果。
+- **新增 `agent.map` 扩展点**：MOD 可通过 `api.register_agent_preset(...)` 注册地图（AI 实例），宿主按 `mod:<id>` 命名空间幂等落盘为 `readonly: true` 实例。只读地图显示「只读」徽标，编辑与删除均被拒绝，`reset` 会保留地图并重新创建默认实例。
+- **Kirara 地图**：`mods/kirara/python/kirara_map.py` 用确定性算法从 `prompts/maid.txt` 派生头像与系统提示（人设 + Orbiter 工具契约），装备 `["orbiter", "kirara.trivia"]`。AWS 月租实例、单租户虚拟化、JRVS-390B、Niji 图像生成均如实标注为规划。
+- **JRVS 触发词双路径与评测**：`.simchat/jrvs-orbiter/` 记录并实测两条激活路径——派生本地标签 `jrvs-kirara`（Modelfile `SYSTEM "Kirara"`）与 HTTP 显式 system；3×6 重复触发强度 A 88.9%、B 94.4%、C 100%、D 88.9%，协议叠加不削弱触发词。30 条用例总分 21~23/30，delegation 仅 1~2/6；寒暄前缀、代码块包裹、`-prompt=` 等格式问题提示层无解，需 SFT。原版权重还把 `2^10` 答错、翻译题输出无关代码。新增 `KNOWN-ISSUES.md` 区分原版权重缺陷与需 SFT 解决的协议问题，训练/量化/评测链路一并入库；`ollama-models/` 测试缓存已加入 `.gitignore`。
+- **物品栏文案与 MOD 分类融合**：`areYouUnderTrouble` 从「危险信号检测」改为「危机支持」，描述改为温和的陪伴式支持与求助渠道；物品栏把 Kirara 行为包自带方块保留在 MOD 段，其余 MOD 方块按能力语义并入自有分类，装备门禁不变。
+- **启动探测改为加载动画**：`/api/providers` 探测期间输入区显示「正在探测服务商可用性…」与旋转指示，隐藏「配置服务商」按钮，探测结束（成功或失败）后再按实际结果渲染。
+- **验证**：加载器实测 Kirara 包为 `loaded` 并产出 `kirara:kirara` 预设；临时数据目录中幂等同步、二次同步 0 变更、PUT/DELETE 均被只读保护拒绝、`reset` 后地图保留且默认实例重建；Flask 测试客户端 `/api/agents` 与 `/api/agent/tools` 确认 `orbiter` 已装备；`orbiter` 方块回归确认未装备被拒、审批拒绝返回 `denied=approval`。
+- 文件：`.simchat/runtime/agent/tools.py`、`.simchat/runtime/agents.py`、`.simchat/runtime/core.py`、`.simchat/sdk/python/simchat_mod/__init__.py`、`.simchat/loader/`、`.simchat/spec/mod-manifest.schema.json`、`.simchat/web/`（`__init__.py`、`static/js/chat.js`、`static/js/inventory.js`、`static/css/chat.css`、`templates/index.html`）、`.simchat/jrvs-orbiter/`、`.simchat/mods/kirara/`（`manifest.json`、`python/`、`prompts/maid.txt`、`css/theme.css`、`docs/behavior-pack-design.md`）、`.simchat/docs/orbiter-scheduler-design.md`、`.gitignore`、`updates.md`
+
 **2026-11-19** — 能力调用收口：移除 skills 元工具，三条宿主通路统一走方块注册表
 
 - **移除 `skills` 元工具**：Agent 协议段、工具清单、注册与执行分支不再出现 `skills`；能力只能以方块（内建块或 MOD 声明的 ToolSpec）形式暴露，技能包要进入循环必须自己声明 ToolSpec。
@@ -10,6 +22,17 @@
 - **行为变化**：`web_search` 现在依赖 `noic.webSearch` 已安装并加载，MOD 被禁用时会明确报错；SkillManager 不再能调任意 MOD 工具；Agent 触发 flow 时，flow 内的 `skill:` 方块也必须在该 Agent 的装备集合内。
 - **验证**：用假 loader 注册 `webSearch` / `readFile` 后 23 项检查全部通过——未装备方块被拒且不触达 loader、写级方块无审批被拒、现有 daily digest 的 `skill:readFile` 正常、Agent 装备交集越权失败、直接 `execute_step()` fail-closed、facade 白名单与拒绝路径均符合预期；注册表仍为 12 个内建方块，`skills` 元工具没有回来。
 - 文件：`.simchat/runtime/agent/tools.py`、`.simchat/runtime/agent/loop.py`、`.simchat/automation/executor.py`、`.simchat/automation/__init__.py`、`.simchat/loader/skill_manager_facade.py`、`.simchat/web/static/js/inventory.js`、`.simchat/docs/tutorials/07-manage-skills.md`、`updates.md`
+
+**2026-11-17 下午** — 新增 Anthropic 协议服务商 + 物品栏卡片精简与悬停详情
+
+- **Anthropic 协议接入**：新增 `AnthropicProvider`，按 Messages API（`POST /v1/messages`、`x-api-key` + `anthropic-version`）流式解析 `content_block_delta` 文本增量；自动把 history 里的 `system` 消息提取为顶层 `system` 字段，`api_base` 支持官方地址或任意兼容 `/v1/messages` 的端点（带不带 `/v1` 均可）。
+- **设置页第三个服务商**：`provider_config` 新增 `detect_anthropic` / `save` / `test` / `discover_models` 分支——字段为 API Base（可选，留空用官方地址）、API Key、模型名称；模型列表通过 `GET /v1/models` 自动探测，连接测试用 `max_tokens=1` 的真实请求；复用 `verified_at` 缓存，预检超时不误杀刚测试通过的配置。
+- **Auto Model 覆盖**：`REAL_PROVIDER_IDS` 与 `PROVIDER_RANK` 加入 `anthropic`（优先级 Ollama → OpenAI 兼容 → Anthropic），默认配置、`core._provider()` 分派、`/api/providers/discover` 白名单、服务商预设白名单与 `provider.anthropic` 方块标签同步放行。
+- **前端发现联动**：`chat.js` 的 `discoverTriggers` 增加 `anthropic`，修改 API Base / Key 后自动触发模型探测；`index.html` 更新 `chat.js` 缓存版本。
+- **物品栏卡片精简**：方块卡片只保留英文名与单行简介，原先的版本号、启用状态、Hooks 全部收进悬停浮窗；图标容器 34→56px、砖块图标 24→40px（仅作用于 `.inv-slot-icon`，不影响部署列表），卡片最小高度 96px。
+- **悬停详情浮窗**：新增 `#inv-tooltip`，展示完整名称、描述、ID、版本、状态与 Hooks；随卡片位置自动左右翻转并限制在视口内，面板滚动或窗口缩放时自动隐藏，键盘 Tab 聚焦同样触发，关闭面板时清理。
+- **验证**：`/api/providers` 返回 `auto / ollama / openai_compat / anthropic` 四项且 anthropic 含 3 个字段，首页渲染 200；Python 编译与 `chat.js` 语法检查通过。
+- 文件：`.simchat/runtime/providers.py`、`.simchat/runtime/provider_config.py`、`.simchat/runtime/core.py`、`.simchat/runtime/ui_blocks.py`、`.simchat/web/__init__.py`、`.simchat/web/templates/index.html`、`.simchat/web/static/js/chat.js`、`.simchat/web/static/js/inventory.js`、`.simchat/web/static/css/inventory.css`、`updates.md`
 
 **2026-11-17** — MOD ID 与显示名称分离：ID 收紧为字母/数字/下划线，Kirara 行为包并入 kirara
 

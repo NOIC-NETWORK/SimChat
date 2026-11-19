@@ -45,6 +45,11 @@ _TOOL_META_KEYS = ("name", "label", "description", "risk", "usage",
                    "params_schema", "backend", "triggers", "input_schema", "category")
 _VALID_TOOL_RISKS = ("read", "write", "dangerous")
 
+# agent.map：地图（AI 实例）预设字段白名单
+_AGENT_PRESET_KEYS = ("name", "description", "avatar", "avatar_type", "system_prompt",
+                      "seed", "agent_capable", "allow_advanced", "desktop_pet",
+                      "engine_preset", "engine_params", "equipped")
+
 
 def _json_safe(value):
     """把任意值压成可 JSON 序列化的结构；无法序列化的部分退化为字符串。"""
@@ -76,6 +81,28 @@ def _safe_tool_meta(spec):
         meta["risk"] = "read"
     elif risk not in _VALID_TOOL_RISKS:
         meta["risk"] = "write"
+    return meta
+
+
+def _safe_agent_preset(spec, mod_id):
+    """把 MOD 上报的地图预设归一化；id 用 mod_id 命名空间避免跨 MOD 冲突。"""
+    if not isinstance(spec, dict):
+        return None
+    preset_id = spec.get("id")
+    if not isinstance(preset_id, str) or not preset_id.strip():
+        return None
+    name = spec.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    meta = {
+        "id": preset_id.strip(),
+        "preset_id": "%s:%s" % (mod_id, preset_id.strip()),
+        "source": "mod:%s" % mod_id,
+        "name": name.strip(),
+    }
+    for key in _AGENT_PRESET_KEYS[1:]:
+        if key in spec:
+            meta[key] = _json_safe(spec[key])
     return meta
 
 
@@ -175,6 +202,7 @@ class ModLoader(object):
             "error": None,
             "modes": [],
             "tools": [],  # P2.4 新增
+            "agent_presets": [],  # agent.map 新增
             "api": None,
         }
 
@@ -301,6 +329,14 @@ class ModLoader(object):
                 }
                 record["tools"].append(dict(meta))
 
+            # agent.map — 地图（AI 实例）预设元数据，由 Web 侧落盘为只读实例
+            for spec in handle.get("agent_presets", []) or []:
+                meta = _safe_agent_preset(spec, mod_id)
+                if meta is None:
+                    self._log("[%s] 跳过非法地图预设: %r" % (mod_id, spec))
+                    continue
+                record["agent_presets"].append(meta)
+
         except Exception as error:
             return self._fail(record, "加载失败: %s" % error)
 
@@ -376,6 +412,7 @@ class ModLoader(object):
             "error": "加载异常: %s: %s" % (type(error).__name__, error),
             "modes": [],
             "tools": [],
+            "agent_presets": [],
             "api": None,
         }
 
@@ -415,6 +452,16 @@ class ModLoader(object):
                 "usage": spec.get("usage", ""),
                 "mod_id": info["mod_id"],
             })
+        return result
+
+    def list_agent_presets(self):
+        """agent.map — 汇总所有已加载 MOD 的地图（AI 实例）预设。"""
+        result = []
+        for record in self.mods.values():
+            if record.get("status") != "loaded":
+                continue
+            for preset in record.get("agent_presets") or []:
+                result.append(dict(preset))
         return result
 
     def has_tool(self, name):

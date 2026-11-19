@@ -2298,6 +2298,18 @@ select option {
   cursor: pointer;
 }
 
+/* 探测服务商进行中：只转圈，不给按钮 */
+.lock-banner.is-loading::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--composer-border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
 .lock-banner button:hover {
   background: var(--accent-hover);
 }

@@ -200,6 +200,7 @@
     activeProvider: null,
     configured: null,
     resolved: null,
+    providerProbing: true,  // 启动时 /api/providers 探测中，输入区显示加载态而非可点按钮
     drafts: {},
     model: null,          // composer 模型选择；null = 跟随服务商默认
     modelProvider: null,   // 选中模型所属的 provider id（新：聚合多 provider 模型时需要）
@@ -913,6 +914,13 @@
   }
 
   function renderLockBanner() {
+    if (state.providerProbing) {
+      // 探测进行中：只显示加载状态，不给出可点的「配置服务商」按钮
+      el.lockText.textContent = "正在探测服务商可用性…";
+      el.lockConfig.hidden = true;
+      return;
+    }
+    el.lockConfig.hidden = false;
     if (state.locked) {
       el.lockText.textContent = "尚未配置可用的服务商，无法对话。";
       el.lockConfig.textContent = "配置服务商";
@@ -934,6 +942,7 @@
   function applyInteractionGate() {
     const blocked = interactionBlocked();
     el.lockBanner.classList.toggle("hidden", !blocked);
+    el.lockBanner.classList.toggle("is-loading", blocked && state.providerProbing);
     el.composer.classList.toggle("hidden", blocked);
     el.tokenBar?.classList.toggle("hidden", blocked);
     // 每日用量进度条跟随 token-bar 一起显隐
@@ -1386,6 +1395,7 @@
         // api_base / api_key / base_url 变化时自动触发 discover（防抖 1 秒）
         const discoverTriggers = {
           openai_compat: ["api_base", "api_key"],
+          anthropic: ["api_base", "api_key"],
           ollama: ["base_url"],
         };
         const triggerFields = discoverTriggers[provider.id] || [];
@@ -1549,6 +1559,8 @@
   }
 
   async function loadProviders() {
+    // 探测期间输入区保持加载态，结束后再按实际结果渲染
+    state.providerProbing = true;
     // 第一步：先尝试从 localStorage 缓存读，立刻渲染 UI
     // 这样刷新页面后模型下拉立即有数据，不用等后端 discover
     const cached = providerStore.loadFromCache();
@@ -1559,6 +1571,7 @@
     // 第二步：异步从后端拉最新数据（会覆盖缓存渲染的结果）
     try {
       const data = await api("/api/providers");
+      state.providerProbing = false;
       setProviderData(data);
     } catch (err) {
       // 后端不可用：如果有缓存就继续用缓存；否则进入 locked 状态
@@ -1571,6 +1584,9 @@
       }
       // 有缓存就静默继续用缓存，只在 console 里警告
       console.warn("[SimChat] 后端不可用，使用本地缓存的 providers");
+    } finally {
+      state.providerProbing = false;
+      applyInteractionGate();
     }
   }
 
@@ -5098,6 +5114,7 @@
       const tags = (a.tags || []).map((t) => `<span class="agent-card-tag">${escapeHtml(t)}</span>`).join("");
       const sel = state2.selectedAgentId === a.id ? " is-selected" : "";
       const defaultBadge = a.is_default ? '<span class="agent-card-badge">内置</span>' : "";
+      const readonlyBadge = a.readonly ? '<span class="agent-card-badge">只读</span>' : "";
       const avatar = (a.avatar_type === "image" || (a.avatar && a.avatar.startsWith("/") && a.avatar.endsWith(".png")))
         ? `<img src="${escapeHtml(a.avatar)}" alt="" class="agent-card-avatar-img" onerror="this.style.display='none'; this.parentNode.textContent='🤖'">`
         : escapeHtml(a.avatar || "🤖");
@@ -5105,7 +5122,7 @@
         <div class="agent-card${sel}" data-agent-id="${a.id}">
           <div class="agent-card-avatar">${avatar}</div>
           <div class="agent-card-body">
-            <div class="agent-card-name">${escapeHtml(a.name)}${defaultBadge}</div>
+            <div class="agent-card-name">${escapeHtml(a.name)}${defaultBadge}${readonlyBadge}</div>
             <div class="agent-card-sub">
               <span class="agent-card-mode ${a.mode || "chat"}">${mode}</span>
               ${desc ? `<span class="agent-card-desc">${desc}</span>` : ""}
@@ -5137,16 +5154,22 @@
     const sel = state2.agents.find((a) => a.id === state2.selectedAgentId);
     const hasSel = !!sel;
     const isDefault = sel?.is_default === true;
+    const isReadonly = sel?.readonly === true;
     const el = {
       activate: document.getElementById("agent-activate"),
       edit: document.getElementById("agent-edit"),
       del: document.getElementById("agent-delete"),
     };
     if (el.activate) el.activate.disabled = !hasSel;
-    if (el.edit) el.edit.disabled = !hasSel;
+    if (el.edit) {
+      el.edit.disabled = !hasSel || isReadonly;
+      el.edit.title = isReadonly ? "该地图由 MOD 生成，不可编辑" : "";
+    }
     if (el.del) {
-      el.del.disabled = !hasSel || isDefault;
-      el.del.title = isDefault ? "内置实例不可删除" : "删除选中的实例";
+      el.del.disabled = !hasSel || isDefault || isReadonly;
+      el.del.title = isDefault
+        ? "内置实例不可删除"
+        : (isReadonly ? "该地图由 MOD 生成，不可删除" : "删除选中的实例");
     }
   }
 

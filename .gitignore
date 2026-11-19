@@ -47,6 +47,9 @@ Thumbs.db
 # Ollama 离线包（体积大，不进仓库）
 **/ollama-*.tgz
 
+# Ollama 隔离测试缓存（jrvs-orbiter 本地验证约 5GB，不进仓库）
+**/ollama-models/
+
 #涉密文件
 
 project_relic.md

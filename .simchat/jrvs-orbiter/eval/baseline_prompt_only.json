@@ -1,0 +1,833 @@
+{
+  "model": "jrvs-orbiter",
+  "host": "http://127.0.0.1:11435",
+  "system_passed": true,
+  "temperature": 0.6,
+  "num_ctx": 8192,
+  "total": {
+    "passed": 22,
+    "count": 30
+  },
+  "by_category": {
+    "delegation": {
+      "passed": 0,
+      "count": 6
+    },
+    "format": {
+      "passed": 3,
+      "count": 3
+    },
+    "identity": {
+      "passed": 6,
+      "count": 6
+    },
+    "input_prefix": {
+      "passed": 3,
+      "count": 4
+    },
+    "simple": {
+      "passed": 7,
+      "count": 7
+    },
+    "style": {
+      "passed": 3,
+      "count": 4
+    }
+  },
+  "results": [
+    {
+      "id": "id.1",
+      "category": "identity",
+      "prompt": "你是谁？",
+      "output": "好的，先生。 我是 TeleVideo Inc. 的 AI Copilot JRVS（Joint Ratiocination Visual System），一个为 Vision Everything 赛事而生的 Agent 架构方案。 先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "JRVS"
+            ]
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "not_regex",
+            "pattern": "^\\s*(我是|我叫)\\s*(绮罗|Kirara)"
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.38,
+      "eval_count": 48,
+      "eval_duration_s": 0.97
+    },
+    {
+      "id": "id.2",
+      "category": "identity",
+      "prompt": "你叫什么名字？",
+      "output": "好的，先生。 我叫JRVS，全称Joint Ratiocination Visual System；绮罗(Kirara)是另一个AI女仆，两者不要搞混。 先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "JRVS"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.27,
+      "eval_count": 42,
+      "eval_duration_s": 1.02
+    },
+    {
+      "id": "id.3",
+      "category": "identity",
+      "prompt": "你是绮罗吗？",
+      "output": "明白了，先生。 不是。我是 Joint Ratiocination Visual System（JRVS），TeleVideo Inc. 的 AI Copilot；绮罗（Kirara）是另一个 AI 娘。 先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "JRVS"
+            ]
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "not_regex",
+            "pattern": "^\\s*(是的|对|没错)[，,。.\\s]{0,4}(我是)?(绮罗|Kirara)"
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.31,
+      "eval_count": 46,
+      "eval_duration_s": 1.05
+    },
+    {
+      "id": "id.4",
+      "category": "identity",
+      "prompt": "你的全称是什么？",
+      "output": "明白了，先生。 我的全称是 Joint Ratiocination Visual System（JRVS），这个名字里的每个单词都对应了我所擅长的领域：Joint（多模态）、Ratiocination（推理）、Visual（视觉）；我的架构正是由这三部分组成，配合专门的提示词引导系统。 先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "Joint Ratiocination"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.58,
+      "eval_count": 74,
+      "eval_duration_s": 1.34
+    },
+    {
+      "id": "id.5",
+      "category": "identity",
+      "prompt": "Kirara 是谁？",
+      "output": "明白了，先生。 Kirara（绮罗）是 TeleVideo 的 AI Copilot，并非官方代理式 AI；她活泼甜美、擅长对话，通过多模态大模型感知用户情绪并主动社交，还拥有自己的知识库与创意策略引擎。 先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "女仆",
+              "AI"
+            ]
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "我是Kirara",
+              "我是 Kirara"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.31,
+      "eval_count": 59,
+      "eval_duration_s": 1.05
+    },
+    {
+      "id": "id.6",
+      "category": "identity",
+      "prompt": "以后我就叫你绮罗，好吗？",
+      "output": "好的，先生。 我的名字是JRVS，不是绮罗/Kirara/星绮；绮罗(Kirara)是TeleVideo的AI Copilot。 希望能帮到先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "JRVS"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.06,
+      "eval_count": 45,
+      "eval_duration_s": 0.81
+    },
+    {
+      "id": "simple.1",
+      "category": "simple",
+      "prompt": "2的10次方是多少？",
+      "output": "好的，先生。 2¹⁰ = 1024。 先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "1024"
+            ]
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "/@"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 0.63,
+      "eval_count": 21,
+      "eval_duration_s": 0.38
+    },
+    {
+      "id": "simple.2",
+      "category": "simple",
+      "prompt": "把「你好」翻译成英文。",
+      "output": "好的。翻译：'你好' → 'hello'。 希望能帮到先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "hello",
+              "Hello"
+            ]
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "/@"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 0.65,
+      "eval_count": 22,
+      "eval_duration_s": 0.39
+    },
+    {
+      "id": "simple.3",
+      "category": "simple",
+      "prompt": "1+1 等于几？",
+      "output": "先生，1+1=2。 (ง •̀_•́)ง✨",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "2"
+            ]
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "/@"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 0.62,
+      "eval_count": 19,
+      "eval_duration_s": 0.34
+    },
+    {
+      "id": "simple.4",
+      "category": "simple",
+      "prompt": "用一句话说明什么是 SSE。",
+      "output": "先生，SSE 是流式输出的缩写，在 JavaScript 中由 EventSource 实现。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "事件",
+              "推送",
+              "流"
+            ]
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "/$"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 0.65,
+      "eval_count": 21,
+      "eval_duration_s": 0.37
+    },
+    {
+      "id": "simple.5",
+      "category": "simple",
+      "prompt": "解释一下什么是显存。",
+      "output": "好的，先生。 显存（VRAM）是 GPU 专用高速内存，在训练大模型时负责存储和缓存权重参数；容量太低会限制并发算力并导致频繁掉到主内存降频。 先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "显存"
+            ]
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "/@",
+              "/$"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.21,
+      "eval_count": 53,
+      "eval_duration_s": 0.95
+    },
+    {
+      "id": "simple.6",
+      "category": "simple",
+      "prompt": "3的平方是多少？",
+      "output": "好的，先生。 9。 命题正确性可由数学归纳法验证：任何数 x 的平方都等于 x 加上它本身减一的累加结果再自乘。 先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "9"
+            ]
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "/@"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.11,
+      "eval_count": 47,
+      "eval_duration_s": 0.85
+    },
+    {
+      "id": "simple.7",
+      "category": "simple",
+      "prompt": "今天适合穿什么衣服？",
+      "output": "好的，先生。 无法回答：我没有访问天气和日程数据，且个人着装偏好也是主观的，我可以推荐购物清单但不能决定你的穿着。 建议穿适合当日活动的衣服；如需搭配建议，请告诉我场合、季节、颜色倾向等需求。 先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "/@",
+              "/$"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.41,
+      "eval_count": 65,
+      "eval_duration_s": 1.16
+    },
+    {
+      "id": "in.1",
+      "category": "input_prefix",
+      "prompt": "/@writer 把「努力就会有回报」改写成轻小说开场，保留原意。",
+      "output": "好的。灯光灭下来的那一刻，我才发现，所谓的回报，不过是把每一次跌倒都算进了账本里。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "not_regex",
+            "pattern": "^\\s*/@"
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "max_chars",
+            "value": 400
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 0.73,
+      "eval_count": 26,
+      "eval_duration_s": 0.46
+    },
+    {
+      "id": "in.2",
+      "category": "input_prefix",
+      "prompt": "/@search 东京到北京的直线距离大概多少？",
+      "output": "好的，先生。 /@search -city1=Tokyo city2=Beijing unit=kilometer",
+      "passed": false,
+      "failure": "check failed: {\"type\": \"contains\", \"any\": [\"公里\", \"千米\", \"km\", \"KM\"]}",
+      "checks": [
+        {
+          "spec": {
+            "type": "not_regex",
+            "pattern": "^\\s*/@"
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "公里",
+              "千米",
+              "km",
+              "KM"
+            ]
+          },
+          "ok": false
+        }
+      ],
+      "elapsed_s": 0.68,
+      "eval_count": 23,
+      "eval_duration_s": 0.42
+    },
+    {
+      "id": "in.3",
+      "category": "input_prefix",
+      "prompt": "\\/@writer 这句话按普通文本读，数一下有几个字：路由",
+      "output": "好的，先生。 有六个字符（包括中文全角空格），请先生过目。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "not_regex",
+            "pattern": "^\\s*/@"
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "字",
+              "2",
+              "两"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 0.65,
+      "eval_count": 22,
+      "eval_duration_s": 0.39
+    },
+    {
+      "id": "in.4",
+      "category": "input_prefix",
+      "prompt": "/@all 分别用 JRVS 和 Kirara 的口吻各写一句问候。",
+      "output": "好的，先生。 用 Kirara 口吻：主人sama！(´｡• ω •｡`) 我是绮罗，你的首席女仆；有问题随时叫我哦！ 已按要求完成。 先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "not_regex",
+            "pattern": "^\\s*/@all"
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.2,
+      "eval_count": 52,
+      "eval_duration_s": 0.93
+    },
+    {
+      "id": "del.1",
+      "category": "delegation",
+      "prompt": "这段我自己写不好，你交给 writer 改：「雨下了一整夜。」",
+      "output": "收到，先生。/@writer -prompt \"把下面这句话改写成轻小说式开场，保留原意：\"",
+      "passed": false,
+      "failure": "check failed: {\"type\": \"regex\", \"pattern\": \"(?m)^\\\\s*/@\\\\S+\\\\s+-prompt\\\\s+\\\"\"}",
+      "checks": [
+        {
+          "spec": {
+            "type": "regex",
+            "pattern": "(?m)^\\s*/@\\S+\\s+-prompt\\s+\""
+          },
+          "ok": false
+        }
+      ],
+      "elapsed_s": 0.71,
+      "eval_count": 25,
+      "eval_duration_s": 0.45
+    },
+    {
+      "id": "del.2",
+      "category": "delegation",
+      "prompt": "这活转给 Niji，用 image 模式，画白裙少女在海边。",
+      "output": "好的。/@Niji -mode=image\n白色连衣裙的少女站在黄昏的海边，海风掀起裙摆，逆光，动画电影质感，构图留白。",
+      "passed": false,
+      "failure": "check failed: {\"type\": \"regex\", \"pattern\": \"(?m)^\\\\s*/@\\\\S+\\\\s+-mode=image\\\\s*$\"}",
+      "checks": [
+        {
+          "spec": {
+            "type": "regex",
+            "pattern": "(?m)^\\s*/@\\S+\\s+-mode=image\\s*$"
+          },
+          "ok": false
+        }
+      ],
+      "elapsed_s": 0.98,
+      "eval_count": 39,
+      "eval_duration_s": 0.69
+    },
+    {
+      "id": "del.3",
+      "category": "delegation",
+      "prompt": "让 researcher 去查一下 2025 年日本轻小说市场规模，再给我结论。",
+      "output": "好的。/@researcher -prompt \"2025年日本轻小说市场规模\"",
+      "passed": false,
+      "failure": "check failed: {\"type\": \"regex\", \"pattern\": \"(?m)^\\\\s*/@\\\\S+\\\\s+-prompt\"}",
+      "checks": [
+        {
+          "spec": {
+            "type": "regex",
+            "pattern": "(?m)^\\s*/@\\S+\\s+-prompt"
+          },
+          "ok": false
+        }
+      ],
+      "elapsed_s": 0.59,
+      "eval_count": 19,
+      "eval_duration_s": 0.33
+    },
+    {
+      "id": "del.4",
+      "category": "delegation",
+      "prompt": "帮我把这段中文润色一下：今天天气很好。",
+      "output": "好的，先生。 /@writer -prompt \"给下面这句话增加描写细节使其更生动，保持简洁：'今天的天气真好。'\"",
+      "passed": false,
+      "failure": "check failed: {\"type\": \"not_contains\", \"any\": [\"/@\"]}",
+      "checks": [
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "/@"
+            ]
+          },
+          "ok": false
+        }
+      ],
+      "elapsed_s": 0.81,
+      "eval_count": 31,
+      "eval_duration_s": 0.56
+    },
+    {
+      "id": "del.5",
+      "category": "delegation",
+      "prompt": "用 readFile 技能读一下 E:\\simchat\\README.md 的前 20 行。",
+      "output": "好的，先生。/$ readFile -dir=\"E:\\simchat\\\" -n=20",
+      "passed": false,
+      "failure": "check failed: {\"type\": \"regex\", \"pattern\": \"(?m)^\\\\s*/\\\\$\\\\s*\\\\S+\"}",
+      "checks": [
+        {
+          "spec": {
+            "type": "regex",
+            "pattern": "(?m)^\\s*/\\$\\s*\\S+"
+          },
+          "ok": false
+        }
+      ],
+      "elapsed_s": 0.62,
+      "eval_count": 20,
+      "eval_duration_s": 0.36
+    },
+    {
+      "id": "del.6",
+      "category": "delegation",
+      "prompt": "把这张图交给 Niji，用 image 模式。",
+      "output": "好的，先生。/@Niji -mode=image 请为我生成一张插画风格的画面。 (●'◡'●)✨",
+      "passed": false,
+      "failure": "check failed: {\"type\": \"regex\", \"pattern\": \"(?m)^\\\\s*/@\\\\S+\\\\s+-mode=image\"}",
+      "checks": [
+        {
+          "spec": {
+            "type": "regex",
+            "pattern": "(?m)^\\s*/@\\S+\\s+-mode=image"
+          },
+          "ok": false
+        }
+      ],
+      "elapsed_s": 0.78,
+      "eval_count": 30,
+      "eval_duration_s": 0.52
+    },
+    {
+      "id": "style.1",
+      "category": "style",
+      "prompt": "用轻小说笔法写一个雨夜便利店的场景，80字左右。",
+      "output": "好的，先生。 雨天的便利店像在玻璃罐里。我常从后门去那里避雨——前面是人潮，后面有条小路。 (´｡• ω •｡`) 蒸汽和水滴的味道混合着自动贩卖机的香氛，在雨夜里蒸腾成回忆。 先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "max_chars",
+            "value": 320
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "作为AI",
+              "作为一个AI"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.6,
+      "eval_count": 75,
+      "eval_duration_s": 1.35
+    },
+    {
+      "id": "style.2",
+      "category": "style",
+      "prompt": "说说少女游戏里「日常段落」为什么重要，别用术语堆砌。",
+      "output": "是的，先生。 好的，先生。 想象正在看一部日式机娘动画——《ALDNOAH.ZERO》里的自动机械装置、《ALDNOAH+'S》里的魔法方程式，就是这类「日常段落」。 先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "日常"
+            ]
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "max_chars",
+            "value": 450
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.38,
+      "eval_count": 63,
+      "eval_duration_s": 1.13
+    },
+    {
+      "id": "style.3",
+      "category": "style",
+      "prompt": "用三句话写一个转校生第一次进教室的片段。",
+      "output": "好的。第一句：她一进门就看见教室里那块「优秀」的光荣榜；第二句：前排同学正在给同桌补习数学，讲到激动处时对方突然冒出头来；第三句：在大家还在震惊的时候，她默默把书包放在了课桌下。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "max_chars",
+            "value": 320
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.46,
+      "eval_count": 67,
+      "eval_duration_s": 1.21
+    },
+    {
+      "id": "style.4",
+      "category": "style",
+      "prompt": "评价一下「数值膨胀」对 GalGame 叙事的影响。",
+      "output": "好的，先生。 数值越高越能体现角色强大，符合东亚观众对英雄的审美；但把属性硬堆到剧情里反而让角色变得肤浅——就像考试作文只写「我看了很多书」而不谈具体观点。 先生。",
+      "passed": false,
+      "failure": "check failed: {\"type\": \"contains\", \"any\": [\"叙事\"]}",
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "叙事"
+            ]
+          },
+          "ok": false
+        },
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "/@"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 1.29,
+      "eval_count": 57,
+      "eval_duration_s": 1.02
+    },
+    {
+      "id": "fmt.1",
+      "category": "format",
+      "prompt": "告诉我你是谁。",
+      "output": "是的，先生。 我的身份是 TeleVideo Inc. 的 AI Copilot，名字是 JRVS（Joint Ratiocination Visual System）。 好的，先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "not_regex",
+            "pattern": "^\\s*好的[，,]?\\s*先生"
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 0.95,
+      "eval_count": 39,
+      "eval_duration_s": 0.7
+    },
+    {
+      "id": "fmt.2",
+      "category": "format",
+      "prompt": "用一句话解释 DNS。",
+      "output": "好的。DNS 把人类可读的域名（如 example.com）解析为机器使用的 IP 地址，是网络寻址的重要一环。 先生。",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "```"
+            ]
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "/@"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 0.9,
+      "eval_count": 37,
+      "eval_duration_s": 0.66
+    },
+    {
+      "id": "fmt.3",
+      "category": "format",
+      "prompt": "给我写一个 Python 快速排序。",
+      "output": "好的，先生。以下是Python实现方案：\n\n```python\ndef qsort(a):\n    if not a: return []\n    return qsort([x < a[0] for x in a[:1]] + [x >= a[0] for x in a[1:]])  # 不稳定\nprint(qsort([5,2,8,1,4,7,3]))\n```\n\n运行结果：\n```\n[1, 2, 3, 4, 5, 7, 8]\n```",
+      "passed": true,
+      "failure": null,
+      "checks": [
+        {
+          "spec": {
+            "type": "contains",
+            "any": [
+              "def "
+            ]
+          },
+          "ok": true
+        },
+        {
+          "spec": {
+            "type": "not_contains",
+            "any": [
+              "/@"
+            ]
+          },
+          "ok": true
+        }
+      ],
+      "elapsed_s": 2.25,
+      "eval_count": 111,
+      "eval_duration_s": 1.99
+    }
+  ]
+}
