@@ -17,7 +17,7 @@
       id: "skills",
       label: "技能",
       icon: "✦",
-      desc: "loader 扫描到的 skill 包，经 skills 元工具调用。",
+      desc: "loader 扫描到的 skill 包；可调用的能力以方块形式暴露。",
       endpoint: "/api/console/skills",
     },
     {
@@ -274,7 +274,7 @@
         key: "skills",
         label: "技能",
         icon: "✦",
-        desc: "loader 扫描到的 skill 包，经 skills 元工具调用。",
+        desc: "loader 扫描到的 skill 包；可调用的能力以方块形式暴露。",
         catId: "skills",
         count: skills.length,
         filter: null,

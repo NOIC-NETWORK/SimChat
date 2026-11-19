@@ -12,7 +12,6 @@
 import json
 import os
 import re
-import sys
 import time
 import glob as globlib
 import subprocess
@@ -536,10 +535,17 @@ class GrepTool(BaseTool):
 
 
 class WebSearchTool(BaseTool):
+    """兼容别名：不再直接 import skills/noic.webSearch 的代码。
+
+    实际实现只保留 MOD 方块 `webSearch` 一份；本方块只负责把调用转发到方块注册表，
+    因此同样受装备门禁与执行路径约束。保留别名是为了不打断旧实例里名为
+    `web_search` 的装备记录。
+    """
+
     name = 'web_search'
-    label = '网络搜索'
+    label = '网络搜索（兼容别名）'
     category = '检索'
-    description = '联网搜索关键词，返回标题/链接/摘要（max_results 为返回条数，可选，默认 5）'
+    description = '联网搜索关键词（兼容别名，实际调用 webSearch 方块；需安装并启用 noic.webSearch）'
     usage = 'web_search PARAMS:{"query": "关键词", "max_results": 5}'
     params_schema = {
         'query': {'type': 'string', 'required': True},
@@ -554,44 +560,20 @@ class WebSearchTool(BaseTool):
             max_results = min(8, max(1, int(params.get('max_results') or 5)))
         except (TypeError, ValueError):
             max_results = 5
-        skill = self._get_websearch_skill()
-        result = skill.execute({'action': 'search', 'query': query.strip(), 'max_results': max_results})
-        if not isinstance(result, dict) or not result.get('success'):
-            err = result.get('error') if isinstance(result, dict) else str(result)
-            raise ToolError(f"搜索失败: {err or '未知原因'}")
-        items = result.get('results') or []
-        if not items:
-            return f"[web_search] 无结果: {query}"
-        lines = [f"[web_search] {query}（来源: {result.get('source', 'web')}）"]
-        for i, item in enumerate(items[:max_results], 1):
-            title = (item.get('title') or '').strip()
-            url = (item.get('url') or '').strip()
-            snippet = (item.get('snippet') or '').strip()[:200]
-            lines.append(f"{i}. {title}\n   {url}\n   {snippet}")
-        return truncate_output('\n'.join(lines))
 
-    @staticmethod
-    def _get_websearch_skill():
-        """惰性加载 noic.webSearch skill，避免导入期引入 requests/bs4 依赖。
-
-        skill 装在 skills/ 下（与 MOD 目录分离）；目录或入口文件缺失时直接报“未安装”，
-        不把 ImportError 抛给模型去猜。
-        """
-        skill_python = os.path.join(PROJECT_ROOT, 'skills', 'noic.webSearch', 'python')
-        entry_file = os.path.join(skill_python, 'webSearch.py')
-        sdk_python = os.path.join(PROJECT_ROOT, 'sdk', 'python')
-        if not os.path.isdir(skill_python) or not os.path.isfile(entry_file):
+        # 唯一入口：内层 webSearch 方块可能尚未注册（MOD 未安装/未加载），交给注册表判定
+        resp = invoke_block(
+            'webSearch',
+            {'action': 'search', 'query': query.strip(), 'max_results': max_results},
+            ctx=ctx,
+        )
+        if not resp.get('ok'):
             raise ToolError(
-                'web_search 技能未安装：缺少 %s。请在「技能」页安装 noic.webSearch 后重试；'
-                '临时替代方案是改用 skills 工具调用其它只读能力。' % entry_file)
-        for path in (skill_python, sdk_python):
-            if path not in sys.path:
-                sys.path.insert(0, path)
-        try:
-            from webSearch import WebSearchSkill
-        except Exception as e:
-            raise ToolError(f"web_search 技能加载失败（已找到 {entry_file}）: {e}")
-        return WebSearchSkill()
+                'web_search 不可用：%s。请确认 noic.webSearch 已安装并启用后重试。'
+                % resp.get('error', '未知原因')
+            )
+        output = resp.get('output')
+        return output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
 
 
 # 写操作额外保护的相对路径（相对 workdir）；命中即拒，避免智能体篡改自身运行态/记忆底座
@@ -979,73 +961,6 @@ class AreYouUnderTroubleTool(BaseTool):
             params.get('user_contact') or '',
         )
 
-class SkillsTool(BaseTool):
-    """chat 模式 skills 能力标识的真实落点：动态列出并调用已加载的 skill。
-
-    只读级 skill 直通；写级/危险级一律拒绝，交由同名具体工具走审批，
-    避免借这条快捷路径绕开 risk 判定。
-    """
-
-    name = 'skills'
-    label = '技能调用'
-    description = '列出项目已安装的 skill（原子能力）及其风险级别，并可直接调用只读级 skill'
-    risk = 'read'
-    chat_only = True
-    usage = ('skills PARAMS:{"action": "list"} 或 '
-             'skills PARAMS:{"name": "readFile", "params": {"path": "a.py"}}')
-    params_schema = {
-        'action': {'type': 'string', 'required': False},   # 缺省 list
-        'name': {'type': 'string', 'required': False},     # 缺省即列清单
-        'params': {'type': 'object', 'required': False},   # 转交给 skill 的参数
-    }
-
-    def run(self, params, ctx):
-        from simchat.loader.lifecycle import get_loader
-
-        loader = get_loader()
-        if loader is None:
-            raise ToolError('ModLoader 未初始化，暂时无法访问 skill')
-        specs = loader.list_tools() or []
-        # 装备过滤：skills 是元工具，不能成为绕过能力集合的后门
-        allowed = ctx.get('allowed')
-        if allowed is not None:
-            allowed_names = set(allowed)
-            specs = [s for s in specs if str(s.get('name', '')) in allowed_names]
-        name = params.get('name')
-        if not name:
-            action = str(params.get('action') or 'list').strip().lower()
-            if action not in ('list', 'search'):
-                raise ToolError(f'未知 action: {action}（可用: list）')
-            return self._catalog(specs)
-        by_name = {str(s.get('name', '')).lower(): s for s in specs if s.get('name')}
-        spec = by_name.get(str(name).lower())
-        if spec is None:
-            available = ', '.join(sorted(str(s.get('name')) for s in specs)) or '无'
-            raise ToolError(f'没有名为 {name} 的 skill（可用: {available}）。'
-                            '先用 skills PARAMS:{"action": "list"} 查看清单')
-        risk = spec.get('risk') or 'read'
-        if risk != 'read':
-            raise ToolError(
-                f'skill {spec["name"]} 属于 {risk} 级，不能通过 skills 快捷调用。'
-                f'请直接调用同名工具 /$TOOL:{spec["name"]} PARAMS:{{...}}（Agent 模式下会先征求审批）')
-        resp = loader.call_tool(spec['name'], params.get('params') or {})
-        if resp.get('ok'):
-            output = resp.get('output')
-            return output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
-        raise ToolError(resp.get('error') or 'skill 执行失败')
-
-    def _catalog(self, specs):
-        if not specs:
-            return '当前没有已加载的 skill。'
-        lines = [f'已加载 skill（{len(specs)} 个）：']
-        for spec in sorted(specs, key=lambda s: str(s.get('name'))):
-            lines.append('- %s [%s] %s' % (
-                spec.get('name'), spec.get('risk') or 'read', spec.get('description') or ''))
-        lines.append('调用格式：/$TOOL:skills PARAMS:{"name": "<名称>", "params": {...}}')
-        lines.append('只读级可直接调用；写级/危险级请直接调用同名工具（Agent 模式走审批）。')
-        return '\n'.join(lines)
-
-
 class AutomationTool(BaseTool):
     """查看本体自动化调度状态（只读）：flow 清单与最近运行记录。"""
 
@@ -1118,7 +1033,10 @@ class AutomationTriggerTool(BaseTool):
         engine = get_engine()
         if engine is None:
             raise ToolError('自动化引擎未启动，无法触发')
-        summary = engine.trigger_flow(flow_id, triggered_by='tool')
+        summary = engine.trigger_flow(
+            flow_id, triggered_by='tool',
+            allowed=(ctx or {}).get('allowed'),
+        )
         if not summary.get('ok'):
             raise ToolError(summary.get('error') or ('flow 执行未成功: %s' % summary.get('status')))
         return json.dumps(summary, ensure_ascii=False)
@@ -1145,8 +1063,6 @@ _register_builtin(ShellTool())
 # 安全能力硬编码进运行时，不依赖 MOD 加载
 _register_builtin(RealityCheckTool())
 _register_builtin(AreYouUnderTroubleTool())
-# chat 模式 skills 能力标识的落点：仅 chat 清单暴露，不进 Agent 模式工具集
-_register_builtin(SkillsTool())
 _register_builtin(AutomationTool())
 _register_builtin(AutomationTriggerTool())
 
@@ -1240,6 +1156,62 @@ def sync_loader_blocks(loader):
     return names
 
 
+def invoke_block(name, params=None, ctx=None, allowed=None, approved=False):
+    """非交互调用方的唯一能力入口（automation flow / SkillManager / 内建别名）。
+
+    所有能力都必须落到 BLOCK_REGISTRY 里的方块上：
+    - 未注册 → 拒绝；
+    - allowed 不是 None 时，方块 canonical 名必须在显式装备集合内；
+      allowed=None 只允许调用方在更外层已完成装备判定（例如内建别名转发），
+      不表示“放开一切”；
+    - write/dangerous 级必须由调用方显式传 approved=True，否则 fail-closed；
+    - shell 未启用时拒绝。
+
+    返回 dict：{"ok": bool, "output": ...} 或 {"ok": False, "error": str, "denied": reason}。
+    """
+    block = BLOCK_REGISTRY.get(name)
+    if block is None:
+        return {'ok': False, 'denied': 'unknown', 'error': '未知方块: %s' % name}
+
+    canonical = block.name
+    if allowed is not None and canonical not in set(allowed):
+        candidates = ', '.join(sorted(str(a) for a in allowed)) or '无'
+        return {
+            'ok': False, 'denied': 'equipped',
+            'error': '方块 %s 未装备（可用: %s）' % (canonical, candidates),
+        }
+
+    if not block.meta().get('enabled', True) or (canonical == 'shell' and not _shell_config['enabled']):
+        return {'ok': False, 'denied': 'disabled', 'error': '方块 %s 当前未启用' % canonical}
+
+    risk = block.risk or 'read'
+    if risk in ('write', 'dangerous') and not approved:
+        return {
+            'ok': False, 'denied': 'approval',
+            'error': '方块 %s 为 %s 级，非交互调用需要显式审批，已拒绝' % (canonical, risk),
+        }
+
+    if params is None:
+        params = {}
+    if not isinstance(params, dict):
+        return {'ok': False, 'denied': 'params', 'error': '参数必须是对象'}
+
+    validation_error = validate_tool_params(block, params)
+    if validation_error:
+        return {'ok': False, 'denied': 'params', 'error': validation_error}
+
+    run_ctx = dict(ctx or {})
+    run_ctx.setdefault('workdir', PROJECT_ROOT)
+    run_ctx.setdefault('shell_timeout', _shell_config['timeout'] or DEFAULT_SHELL_TIMEOUT)
+    run_ctx.setdefault('allowed', allowed)
+    try:
+        return {'ok': True, 'output': block.run(params, run_ctx)}
+    except ToolError as e:
+        return {'ok': False, 'error': str(e)}
+    except Exception as e:
+        return {'ok': False, 'error': '%s: %s' % (type(e).__name__, e)}
+
+
 def _filter_allowed(tools, allowed):
     """按装备集合过滤方块；allowed=None 表示不做限制（兼容旧调用）。"""
     if allowed is None:
@@ -1251,32 +1223,32 @@ def _filter_allowed(tools, allowed):
 def list_agent_tools(mode="agent", allowed=None):
     """工具清单（供 /api/agent/tools 与前端展示）。enabled=false 的工具前端可见但置灰。
 
-    mode: "agent"（完整工具集）| "chat"（懒调用，只暴露 read 级 + skills/automation/MCP 能力标识）
+    mode: "agent"（完整工具集）| "chat"（懒调用，只暴露 read 级 + automation/MCP 能力标识）
     allowed: 已装备的能力名集合；None = 不限制。
     """
     all_tools = _filter_allowed(BLOCK_REGISTRY.list_all(), allowed)
     if mode == "chat":
-        # Chat 模式（懒调用）：只暴露 read 级工具 + skills/automation/MCP 能力
+        # Chat 模式（懒调用）：只暴露 read 级工具 + automation/MCP 能力
         # 写操作和 shell 被完全隐藏（不是禁用，是根本不进工具清单）
         filtered = [t for t in all_tools if t.risk == 'read']
         return [t.meta() for t in filtered] + [
             # 额外暴露 MCP 能力标识（不是具体工具，是能力声明）
             {'name': 'mcp', 'label': 'MCP 服务器', 'description': '当前运行时尚未接入 MCP，不可连接或调用任何 MCP 服务器', 'risk': 'read', 'usage': None, 'enabled': True, 'mode_hint': 'lazy'},
         ]
-    return [t.meta() for t in all_tools if not getattr(t, 'chat_only', False)]
+    return [t.meta() for t in all_tools]
 
 
 def build_tool_protocol_section(mode="agent", allowed=None):
     """拼进用户消息侧的动态协议段（不改 SFT system 触发词）。
 
-    mode: "agent"（完整协议段，含写操作 + 审批流）| "chat"（懒调用协议，只给只读工具 + skill/automation/MCP 标识）
+    mode: "agent"（完整协议段，含写操作 + 审批流）| "chat"（懒调用协议，只给只读工具 + automation/MCP 标识）
     allowed: 已装备的能力名集合；None = 不限制。
     """
     all_tools = _filter_allowed(BLOCK_REGISTRY.list_all(), allowed)
     shell_enabled = _shell_config['enabled']
 
     if mode == "chat":
-        # Chat 模式：只暴露只读工具 + skills/automation/MCP 能力
+        # Chat 模式：只暴露只读工具 + automation/MCP 能力
         read_tools = [t for t in all_tools if t.risk == 'read' and t.meta().get('enabled', True)]
         lines = [
             '【懒调用工具协议（Chat 模式）】',
@@ -1295,7 +1267,7 @@ def build_tool_protocol_section(mode="agent", allowed=None):
             '调用规则：',
             '1. 需要显式调用只读工具时，单独输出一行（一行可多条指令）：',
             '   /$TOOL:工具名 PARAMS:{"参数名": "值"}',
-            '2. skill 需显式调用：先 /$TOOL:skills PARAMS:{"action": "list"} 查清单，再 /$TOOL:skills PARAMS:{"name": "...", "params": {...}} 调用；本模式只允许只读级 skill，写级请提示用户切换到 Agent 模式。automation 用 /$TOOL:automation 查看 flow 与运行记录，触发用 /$TOOL:automation_trigger（写级需审批）。MCP 尚未接入，不要调用，也不要向用户承诺该能力存在。',
+            '2. automation 用 /$TOOL:automation 查看 flow 与运行记录，触发用 /$TOOL:automation_trigger（写级需审批）。MCP 尚未接入，不要调用，也不要向用户承诺该能力存在。',
             '3. 本模式下**绝对禁止文件写入和 shell 命令**——请保持在只读范围内。',
             '4. 路径提示：所有路径均相对项目根。**用户没给精确路径时，先用 glob 或 list_dir 定位！不要猜路径！**',
             '5. 任务完成时，直接输出给用户的最终答复，不要再输出任何 /$TOOL: 指令。',
@@ -1307,8 +1279,7 @@ def build_tool_protocol_section(mode="agent", allowed=None):
         return '\n'.join(lines)
 
     # Agent 模式：完整协议段
-    enabled_tools = [t for t in all_tools
-                     if t.meta().get('enabled', True) and not getattr(t, 'chat_only', False)]
+    enabled_tools = [t for t in all_tools if t.meta().get('enabled', True)]
     read_tools = [t for t in enabled_tools if t.risk == 'read']
     write_tools = [t for t in enabled_tools if t.risk in ('write', 'dangerous')]
     lines = [

@@ -8,9 +8,12 @@
 
 设计约束：
   - 零 import 循环：engine 不 import lifecycle / ModLoader；宿主启动时通过
-    bind_loader() / bind_runtime() 注入 call_tool / chat_stream 方法引用
+    bind_runtime() 注入 chat_stream；能力调用统一经方块注册表（executor → invoke_block），
+    不再保留 loader.call_tool() 旁路
   - 全局 getter 模式：get_engine() 让 lifecycle 的 automation 分支能拿到
     引擎实例，不需要 lifecycle import automation 包
+  - 装备判定：flow 自身的 skill: 步骤声明是显式范围；Agent 触发时与该实例的
+    equipped 取交集；cron/event/manual 没有实例上下文，只允许声明过的方块
 """
 
 import datetime
@@ -66,7 +69,7 @@ class AutomationEngine(object):
         self._audit = AuditLogger(audit_dir, logger=self._logger)
 
         # Phase 5.3+ 填充（依赖注入）
-        self._call_tool = None
+        self._loader = None
         self._chat_stream = None
         self._running = False
 
@@ -77,8 +80,9 @@ class AutomationEngine(object):
     # ---------- 依赖注入（宿主启动时调用） ----------
 
     def bind_loader(self, loader):
-        self._call_tool = loader.call_tool if loader else None
-        self._logger.info("已绑定 ModLoader（call_tool）")
+        """兼容启动流程保留的绑定；能力调用不再走 loader.call_tool() 旁路。"""
+        self._loader = loader
+        self._logger.info("已绑定 ModLoader（能力执行统一走方块注册表）")
 
     def bind_runtime(self, core):
         self._chat_stream = core.chat_stream if core else None
@@ -194,11 +198,13 @@ class AutomationEngine(object):
                 self._logger.error("scheduler loop 异常: %s", e)
                 time.sleep(1)
 
-    def _run_flow(self, mod_id, triggered_by="manual"):
+    def _run_flow(self, mod_id, triggered_by="manual", allowed=None):
         """执行一个 flow（调度器触发的统一入口）。
 
         Phase 5.4 集成：quota 硬闸 + audit。
         Phase 5.5 demo 时 approval 通道也走这里。
+        allowed: 调用方（如 Agent 实例）的装备集合；None 表示无实例上下文，
+        由 executor 回落到 flow 自身的 skill: 声明范围。
         """
         from .executor import execute_flow
         import time as _time
@@ -244,6 +250,7 @@ class AutomationEngine(object):
                     "env": self._build_env(),
                     "run_id": run_id,
                     "triggered_by": triggered_by,
+                    "allowed": allowed,
                 }, engine=self)
 
                 total = len(results)
@@ -317,11 +324,15 @@ class AutomationEngine(object):
         self._run_flow(mod_id, triggered_by="manual")
         return {"ok": True, "run_id": "run-%d" % int(time.time())}
 
-    def trigger_flow(self, flow_id, triggered_by="tool"):
-        """按 flow id 触发一次执行（宿主工具调用；审批由调用方保证）。"""
+    def trigger_flow(self, flow_id, triggered_by="tool", allowed=None):
+        """按 flow id 触发一次执行（宿主工具调用；审批由调用方保证）。
+
+        allowed 由调用方传入自己的装备集合；None 表示无实例上下文，
+        flow 只能调用自己声明过的 skill: 方块。
+        """
         for mod_id, info in self._flows.items():
             if info["flow"].get("id") == flow_id:
-                return self._run_flow(mod_id, triggered_by=triggered_by)
+                return self._run_flow(mod_id, triggered_by=triggered_by, allowed=allowed)
         available = [str(info["flow"].get("id")) for info in self._flows.values()]
         return {"ok": False,
                 "error": "flow 不存在: %s（可用: %s）" % (flow_id, ", ".join(available) or "无")}

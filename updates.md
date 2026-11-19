@@ -1,5 +1,16 @@
 # 最近更新
 
+**2026-11-19** — 能力调用收口：移除 skills 元工具，三条宿主通路统一走方块注册表
+
+- **移除 `skills` 元工具**：Agent 协议段、工具清单、注册与执行分支不再出现 `skills`；能力只能以方块（内建块或 MOD 声明的 ToolSpec）形式暴露，技能包要进入循环必须自己声明 ToolSpec。
+- **工具名解析放开点号与横线**：`loop.py` 的 `TOOL_NAME_RE` 从 `[A-Za-z_]\w*` 改为 `[A-Za-z_][\w.-]*`，`mcp.xxx.yyy` 这类命名不再被截断；`BlockRegistry` 的大小写不敏感查找与内建同名保护保持不变。
+- **flow 的 `skill:` 收口**：`executor._run_skill()` 不再调用 `loader.call_tool()`，改为经 `invoke_block()` 落到 `BLOCK_REGISTRY`；flow 自身的 `skill:` 步骤构成静态授权范围，Agent 触发时与该实例的 `equipped` 取交集，cron / event / manual 没有实例上下文时只允许声明过的方块；直接调用 `execute_step()` 且没有显式范围时 fail-closed。
+- **SkillManager 收口**：`execute_skill()` / `_SkillProxy` / `get_skill()` / `list_all_skills()` / `auto_execute_skills()` 全部经 `invoke_block()`；无实例上下文只允许显式只读白名单 `realityCheck`、`areYouUnderTrouble`、`webSearch`、`readFile`、`screenshotRecognition`，写级/危险级方块一律拒绝。
+- **内建 `web_search` 收口**：删除直接 import `skills/noic.webSearch/python/webSearch.py` 的代码，`web_search` 作为兼容别名转发到 MOD 方块 `webSearch`，实现只保留一份；返回内容变为 MOD 方块的 JSON。
+- **行为变化**：`web_search` 现在依赖 `noic.webSearch` 已安装并加载，MOD 被禁用时会明确报错；SkillManager 不再能调任意 MOD 工具；Agent 触发 flow 时，flow 内的 `skill:` 方块也必须在该 Agent 的装备集合内。
+- **验证**：用假 loader 注册 `webSearch` / `readFile` 后 23 项检查全部通过——未装备方块被拒且不触达 loader、写级方块无审批被拒、现有 daily digest 的 `skill:readFile` 正常、Agent 装备交集越权失败、直接 `execute_step()` fail-closed、facade 白名单与拒绝路径均符合预期；注册表仍为 12 个内建方块，`skills` 元工具没有回来。
+- 文件：`.simchat/runtime/agent/tools.py`、`.simchat/runtime/agent/loop.py`、`.simchat/automation/executor.py`、`.simchat/automation/__init__.py`、`.simchat/loader/skill_manager_facade.py`、`.simchat/web/static/js/inventory.js`、`.simchat/docs/tutorials/07-manage-skills.md`、`updates.md`
+
 **2026-11-17** — MOD ID 与显示名称分离：ID 收紧为字母/数字/下划线，Kirara 行为包并入 kirara
 
 - **ID 规则收紧**：manifest `id` 从 `^[a-z0-9][a-z0-9._-]{2,63}$` 改为 `^[a-z0-9][a-z0-9_]{2,63}$`，只允许小写字母、数字与下划线；显示名称继续放 `name`，可含任意符号（如「Kirara行为包」）。schema 与 `loader/manifest.py` 同步，报错文案补上规则说明；registry schema 的 `mod_id` 一并收紧。

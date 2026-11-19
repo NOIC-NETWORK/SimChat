@@ -1,7 +1,7 @@
 """步骤执行器（Phase 5.3）。
 
 三种内置动作执行路径：
-  - skill:<name>   → ModLoader.call_tool()（Phase 2 P2.4 已交付）
+  - skill:<name>   → 方块注册表唯一入口 invoke_block()（受装备范围与风险审批约束）
   - agent:run      → SimChatCore.chat_stream() + consume_stream() 同步消费
   - file:read/write → 本体直接读写工作区（绕过 sandbox）
 
@@ -137,7 +137,7 @@ def execute_step(step, context, engine=None, run_id=None):
 
     try:
         if use.startswith("skill:"):
-            status, output, error = _run_skill(use.split(":", 1)[1], args, engine)
+            status, output, error = _run_skill(use.split(":", 1)[1], args, engine, context)
         elif use == "agent:run":
             status, output, error = _run_agent(args, engine)
         elif use == "file:read":
@@ -153,11 +153,37 @@ def execute_step(step, context, engine=None, run_id=None):
         return "failed", None, str(e)
 
 
-def _run_skill(tool_name, args, engine):
-    if engine is None or engine._call_tool is None:
-        return "failed", None, "ModLoader 未绑定（engine.bind_loader()）"
+def declared_blocks(flow):
+    """从 flow 自身的 skill: 步骤推导显式装备范围。
 
-    resp = engine._call_tool(tool_name, args)
+    没有实例上下文的触发（cron / event / manual）只能调用 flow 自己声明过的方块；
+    这不是“默认放开”，而是把 flow 的静态声明当作最小授权清单。
+    """
+    names = set()
+    for step in (flow or {}).get("steps") or []:
+        use = step.get("use") or ""
+        if use.startswith("skill:"):
+            name = use.split(":", 1)[1].strip()
+            if name:
+                names.add(name)
+    return names
+
+
+def _run_skill(tool_name, args, engine, context=None):
+    """skill: 步骤的唯一执行路径：方块注册表 + 装备范围 + 风险审批约束。"""
+    from simchat.runtime.agent.tools import invoke_block
+
+    context = context or {}
+    allowed = context.get("allowed")
+    if allowed is None:
+        # 直接调用 execute_step() 且没有显式范围时 fail-closed，绝不默认放开
+        allowed = frozenset()
+
+    resp = invoke_block(
+        tool_name, args,
+        ctx={"workdir": context.get("workdir") or os.getcwd()},
+        allowed=allowed,
+    )
     if resp.get("ok"):
         return "completed", resp.get("output"), None
     return "failed", None, resp.get("error", "skill 执行失败")
@@ -253,6 +279,13 @@ def execute_flow(flow, mod_id, context_init=None, engine=None):
     context.setdefault("flow_id", flow.get("id"))
     context.setdefault("mod_id", mod_id)
     run_id = context.get("run_id")
+
+    # 装备范围：flow 静态声明是上限；外部（如 Agent 触发）传入的装备集合只能收窄。
+    # 没有实例上下文时用声明集合，绝不回落到“不限”。
+    declared = declared_blocks(flow)
+    requested = context.get("allowed")
+    context["allowed"] = set(declared if requested is None else (set(requested) & declared))
+    context.setdefault("equipment_source", "flow-declared" if requested is None else "agent-flow")
 
     if audit and run_id:
         audit.start_run(flow, mod_id, run_id, triggered_by=context.get("triggered_by", "manual"))

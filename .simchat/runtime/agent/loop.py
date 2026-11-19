@@ -25,7 +25,7 @@ from .tools import (
 )
 
 TOOL_SPLIT_RE = re.compile(r'/\$\s*TOOL\s*:', re.IGNORECASE)
-TOOL_NAME_RE = re.compile(r'\s*([A-Za-z_]\w*)')
+TOOL_NAME_RE = re.compile(r'\s*([A-Za-z_][\w.-]*)')
 TOOL_PARAMS_RE = re.compile(r'PARAMS\s*:\s*(.+)$', re.IGNORECASE | re.DOTALL)
 
 # 无进展兜底：同一组工具调用（工具名 + 参数 + 解析失败片段）连续重复到该次数即终止。
