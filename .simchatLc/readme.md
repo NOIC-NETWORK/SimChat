@@ -450,3 +450,13 @@ P0 已完成并在本机（Windows 11 + MSVC 19.x + `py -3` 3.9.7）验证：
 - [ ] P2 POSIX 终端版（无窗口，等价于原 `run.sh`）；`process_posix.cpp` 尚未在 Windows 外验证
 - [ ] P2 可选：WebView2 内嵌界面（明确不进 P0，避免把启动器和浏览器绑死）
 - [ ] P2 删除 `run.bat` / `run.ps1` / `run.sh`，README 首屏切换
+
+## 桌面壳实现放在哪（分支线索）
+
+默认启动路径仍是"起服务 + 开浏览器"，窗口能力不在 `main` 上。如果以后基于这个底盘做 App、需要原生窗口，去本地分支 `feature/desktop-shell` 取用；该分支刻意不与 `main` 合并，只作为代码存档。
+
+- 位置：分支 `feature/desktop-shell`，一次提交 `078197c`（基于 `de8aef4`），18 个文件，全部在 `.simchatLc/` 内。
+- 形态：独立 WebView2 宿主主窗口（启动器本身不承载界面）+ `DEBMODE` 调试窗口（日志、重启/停止）+ 系统托盘（打开主窗口、桌宠开关、关闭行为、退出）+ Win32 分层窗口桌宠（WIC 解码、`UpdateLayeredWindow`、逐像素透明与点击穿透）+ 载入前的 logo 呼吸占位与 20s 超时。
+- 契约：沿用 `.simchat/data/desktop_shell.json` 的 `pet_enabled` / `close_action`；桌宠立绘来自已启用 MOD 的 `manifest.json` 中 `desktop.pet`（`sprite` / `page` / `height`）。
+- 启用前要补的依赖：WebView2 SDK 未入库，`third_party/webview2` 需要自行还原 NuGet `Microsoft.Web.WebView2` 1.0.4314.35（`WebView2.h`、`WebView2LoaderStatic.lib`、`include/`）；CMake 侧已声明 `msimg32`、`windowscodecs`、`ole32`。
+- 限制：纯 Win32，`webview_win32.cpp` 只在 MSVC 下有效；分支里的 `window_win32.cpp` 是完整桌面壳，会取代 `main` 上的状态窗口，两者不能混编。
