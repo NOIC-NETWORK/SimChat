@@ -1,5 +1,7 @@
 /* SimChat Web — 原子能力物品栏（I 键开关）
    数据来源：/api/agent/tools（原子能力与装备状态）、/api/console/skills、/api/console/automation。
+   展示结构：自有能力按语义分类，内建方块、MOD 方块、技能包与自动化流程合并展示（重复只保留方块）；
+   仅 Kirara 自带的方块留在 MOD 能力段。启用/停用等包管理仍在「部署」选项卡。
    装备状态按实例存在服务端（agents.json 的 equipped 字段），不使用 localStorage 作为权威。
    MCP / CoT / Orbiter 运行时未接入，仅如实展示空状态，不提供占位开关。 */
 (() => {
@@ -122,8 +124,56 @@
     );
   }
 
-  function blockCategoryOf(item) {
-    return item.category || MOD_DEFAULT_CATEGORY;
+  /* 技能包按能力语义并入自有分类；识别不到语义时退回「其他」 */
+  const SKILL_CATEGORY_RULES = [
+    [/digest|摘要|定时|调度/i, "自动化"],
+    [/netrunner|code|coding|代码/i, "代码"],
+    [/readfile|read_file|文件|文档|pdf|word|excel/i, "办公"],
+    [/screenshot|截图|ocr|识别/i, "检索"],
+    [/search|检索|搜索|抓取|调研|galax/i, "检索"],
+    [/chat|消息|通讯|邮件/i, "通讯"],
+    [/image|图|设计|创意/i, "创意"],
+  ];
+
+  function normKey(value) {
+    return String(value == null ? "" : value).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]/g, "");
+  }
+
+  /* 技能包已由某个方块提供时不再重复展示该包（同一个格子只出现一份） */
+  function skillCoveredByBlock(skill, blocks) {
+    const haystack = normKey(skill.id + " " + skill.name);
+    return blocks.some((block) => {
+      const key = normKey(block.id);
+      return key.length >= 4 && haystack.indexOf(key) !== -1;
+    });
+  }
+
+  function skillCategoryOf(item) {
+    if (item.category && item.category !== MOD_DEFAULT_CATEGORY) return item.category;
+    const haystack = [item.id, item.name, item.desc].join(" ");
+    for (const [re, label] of SKILL_CATEGORY_RULES) {
+      if (re.test(haystack)) return label;
+    }
+    return MOD_DEFAULT_CATEGORY;
+  }
+
+  function skillItems() {
+    const blocks = mergedBlockItems();
+    return catItems("skills")
+      .filter((item) => !skillCoveredByBlock(item, blocks))
+      .map((item) => Object.assign({}, item, { category: skillCategoryOf(item) }));
+  }
+
+  /* 自动化流程统一归入「自动化」分类，不并入其他类别 */
+  function automationItems() {
+    return catItems("automation").map((item) =>
+      Object.assign({}, item, { category: "自动化" })
+    );
+  }
+
+  /* 自有能力：内建方块 + 按语义归类的 MOD 方块 + 技能包 + 自动化流程 */
+  function capabilityItems() {
+    return mergedBlockItems().concat(skillItems(), automationItems());
   }
 
   function brickFor(item) {
@@ -259,16 +309,17 @@
     renderFooter();
   }
 
-  /* 左侧分类栏：自有能力（内建 + 按语义归类的 MOD 方块）与 MOD 能力（Kirara 自带方块 + 技能 + 自动化流程） */
+  /* 左侧分类栏：自有能力（内建方块 + 按语义归类的 MOD 方块与技能 + 自动化）与 MOD 能力（仅 Kirara 自带方块） */
   function railSections() {
-    const builtin = groupByCategory(mergedBlockItems()).map((group) => ({
+    const builtin = groupByCategory(capabilityItems()).map((group) => ({
       key: "builtin:" + group.label,
       label: group.label,
       icon: BLOCK_CATEGORY_ICONS[group.label] || "🧱",
-      desc: "自有能力 · " + group.label + " 类方块；内建方块与按能力归类的 MOD 方块一起装备。",
+      desc: "自有能力 · " + group.label + " 类；内建方块、按能力归类的 MOD 方块与技能包一起展示。",
       catId: "blocks",
+      sources: ["blocks", "skills", "automation"],
       count: group.items.length,
-      filter: (item) => !isKiraraBlock(item) && blockCategoryOf(item) === group.label,
+      items: group.items,
     }));
 
     const mod = groupByCategory(blockItems("mod").filter(isKiraraBlock)).map((group) => ({
@@ -277,35 +328,10 @@
       icon: "🧩",
       desc: "Kirara 行为包自带的「" + group.label + "」能力；随 MOD 加载进运行时。",
       catId: "blocks",
+      sources: ["blocks"],
       count: group.items.length,
-      filter: (item) => isKiraraBlock(item) && blockCategoryOf(item) === group.label,
+      items: group.items,
     }));
-
-    const skills = catItems("skills");
-    if (skills.length) {
-      mod.push({
-        key: "skills",
-        label: "技能",
-        icon: "✦",
-        desc: "loader 扫描到的 skill 包；可调用的能力以方块形式暴露。",
-        catId: "skills",
-        count: skills.length,
-        filter: null,
-      });
-    }
-
-    const flows = catItems("automation");
-    if (flows.length) {
-      mod.push({
-        key: "automation",
-        label: "自动化流程",
-        icon: "⏱",
-        desc: "automation 引擎的 flow 清单，按触发器运行。",
-        catId: "automation",
-        count: flows.length,
-        filter: null,
-      });
-    }
 
     return [
       { id: "builtin", title: "自有能力", entries: builtin },
@@ -369,12 +395,10 @@
       return;
     }
     const parts = [];
-    const builtin = blockItems("builtin").length;
-    const mod = blockItems("mod").length;
-    if (builtin) parts.push("自有方块 " + builtin);
-    if (mod) parts.push("MOD 方块 " + mod);
-    if (catItems("skills").length) parts.push("技能 " + catItems("skills").length);
-    if (catItems("automation").length) parts.push("自动化流程 " + catItems("automation").length);
+    const capability = capabilityItems().length;
+    const kirara = blockItems("mod").filter(isKiraraBlock).length;
+    if (capability) parts.push("自有能力 " + capability);
+    if (kirara) parts.push("Kirara 方块 " + kirara);
     refs.headSub.textContent = parts.length ? parts.join(" · ") : "暂无能力数据";
   }
 
@@ -591,8 +615,12 @@
       return;
     }
 
-    const cat = catById(entry.catId);
-    const endpoint = cat ? cat.endpoint : "";
+    const sources = entry.sources || [entry.catId];
+    const endpoints = sources
+      .map((id) => catById(id))
+      .filter(Boolean)
+      .map((cat) => cat.endpoint);
+    const endpoint = endpoints.join("、");
     if (refs.toolbarTitle) refs.toolbarTitle.textContent = entry.label;
     if (refs.toolbarDesc) refs.toolbarDesc.textContent = entry.desc;
 
@@ -607,7 +635,7 @@
       return;
     }
 
-    const items = entry.filter ? bucket.items.filter(entry.filter) : bucket.items;
+    const items = entry.items || [];
     if (!items.length) {
       showState("🗃", "这一类暂时是空的",
         "接口 " + endpoint + " 正常工作，只是本次扫描没有发现条目。");
@@ -638,16 +666,14 @@
         '<div class="inv-state">' +
         '<div class="inv-state-icon">🧭</div>' +
         '<div class="inv-state-title">跨分类搜索</div>' +
-        '<div class="inv-state-desc">输入名称、ID、描述或 hook 关键词，会在自有能力、MOD 能力、技能与自动化流程里一起查找。</div>' +
+        '<div class="inv-state-desc">输入名称、ID、描述或 hook 关键词，会在自有能力与 Kirara 方块里一起查找。</div>' +
         "</div>";
       return;
     }
 
     let total = 0;
     const groups = allRailEntries().map((entry) => {
-      const bucket = state.data[entry.catId];
-      if (!bucket) return "";
-      const items = entry.filter ? bucket.items.filter(entry.filter) : bucket.items;
+      const items = entry.items || [];
       const hits = items.filter((item) => searchableText(item).includes(keyword));
       if (!hits.length) return "";
       total += hits.length;
@@ -674,10 +700,8 @@
       '<div class="inv-group-head" style="margin-bottom:8px"><span>共 ' + total +
       ' 项匹配</span><span class="inv-group-line"></span></div>' +
       groups +
-      '<div class="inv-search-note">搜索范围：自有方块 ' + blockItems("builtin").length +
-      " 项 · MOD 方块 " + blockItems("mod").length +
-      " 项 · 技能 " + catItems("skills").length +
-      " 项 · 自动化流程 " + catItems("automation").length + " 项。</div>";
+      '<div class="inv-search-note">搜索范围：自有能力 ' + capabilityItems().length +
+      " 项 · Kirara 方块 " + blockItems("mod").filter(isKiraraBlock).length + " 项。</div>";
   }
 
   /* ---------------- 渲染：部署（启用入口） ---------------- */

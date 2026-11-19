@@ -1,18 +1,15 @@
 """Kirara 地图（AI 实例）生成器。
 
-项目术语中「地图」= AI 实例。本模块用确定性的 MOD 侧算法，从人设文件派生
-头像与系统提示，并声明装备清单；不联网、不依赖不存在的服务。
+项目术语中「地图」= AI 实例。本模块用确定性的 MOD 侧规则，从人设文件生成
+系统提示并声明装备清单；不联网、不依赖不存在的服务。
 生成结果由宿主落盘为只读实例（不可编辑、不可删除）。
 """
 
-import hashlib
 import os
 
 MAP_ID = "kirara"
 
-_AVATAR_CANDIDATES = tuple(
-    "/static/sprites/logos/kirara-%d.png" % index for index in range(1, 6)
-)
+_MAP_AVATAR = "/static/sprites/logos/kirara.png"
 
 _PERSONA_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "prompts", "maid.txt"
@@ -41,14 +38,12 @@ def _read_persona():
 def build_map():
     """返回一张 Kirara 地图（AI 实例）的预设描述。"""
     persona = _read_persona()
-    digest = hashlib.sha256(("kirara-map/1\0" + persona).encode("utf-8")).hexdigest()
-    avatar = _AVATAR_CANDIDATES[int(digest[:2], 16) % len(_AVATAR_CANDIDATES)]
     system_prompt = persona + ("\n\n" + _ORBITER_GUIDE if persona else _ORBITER_GUIDE)
     return {
         "id": MAP_ID,
         "name": "绮罗罗",
         "description": "Kirara 行为包生成的只读地图：本地 JRVS 分诊，复杂任务经 orbiter 派发云端。",
-        "avatar": avatar,
+        "avatar": _MAP_AVATAR,
         "avatar_type": "image",
         "system_prompt": system_prompt,
         "agent_capable": True,
