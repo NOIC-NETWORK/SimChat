@@ -13,10 +13,11 @@ from . import (
     provider_config,
     settings as settings_mod,
     profile as profile_mod,
+    vendors,
     workspace as workspace_mod,
     usage as usage_mod,
 )
-from .providers import AnthropicProvider, OllamaProvider, OpenAICompatProvider, ProviderError
+from .providers import ProviderError, create_provider
 from .store import SessionStore
 
 DEFAULT_CONFIG = {
@@ -73,16 +74,16 @@ class SimChatCore:
         return cfg
 
     def _provider(self, name):
-        if name == "openai_compat":
-            return OpenAICompatProvider(self.config.get("openai_compat"))
-        if name == "anthropic":
-            return AnthropicProvider(self.config.get("anthropic"))
-        return OllamaProvider(self.config.get("ollama"))
+        """把协议 id / 厂牌 id 解析成一次调用所需的账户视图，再交给传输层工厂。"""
+        target = vendors.resolve_target(self.config, name)
+        if not target:
+            raise ProviderError(vendors.error_for(name))
+        return create_provider(target["transport"], target["conf"])
 
     def resolve_provider(self, preferred=None):
         """解析本次实际使用的服务商；返回 (provider_id, error_message)。
 
-        `preferred` 为 None 时读配置里的首选（可能是 auto）。
+        `preferred` 为 None 时读配置里的首选（可能是 auto），也接受厂牌 id。
         没有任何可用服务商、或显式指定的服务商不可用时返回 (None, 原因)。
         """
         status = provider_config.summarize(self.config)
@@ -95,11 +96,18 @@ class SimChatCore:
         if not available:
             return None, "尚未配置可用的服务商，请先完成服务商配置。"
 
-        chosen = preferred or self.config.get("provider") or provider_config.AUTO_ID
+        chosen = str(preferred or self.config.get("provider") or provider_config.AUTO_ID).strip()
+        if chosen != provider_config.AUTO_ID:
+            # 厂牌 id 归一化为协议 id，可用性判断与历史调用方都按协议 id 工作
+            transport = vendors.transport_of(chosen)
+            if transport:
+                chosen = transport
         if chosen == provider_config.AUTO_ID or chosen not in [item["id"] for item in available]:
             # Auto Model 或首选不可用：交给 summarize 给出的「当前最优」服务商
             resolved = status.get("resolved") or available[0]["id"]
-            if preferred and preferred != provider_config.AUTO_ID and preferred != resolved:
+            preferred_id = str(preferred or "").strip()
+            preferred_id = vendors.transport_of(preferred_id) or preferred_id
+            if preferred_id and preferred_id != provider_config.AUTO_ID and preferred_id != resolved:
                 return None, "服务商不可用: %s" % preferred
             chosen = resolved
         return chosen, None

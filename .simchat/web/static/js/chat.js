@@ -1256,7 +1256,8 @@
 
       const title = document.createElement("span");
       title.className = "provider-accordion-title";
-      title.textContent = block.label || provider.label;
+      // 厂牌化后后端 label 就是厂牌名；方块材质只作为缺省值，图标/提示仍可由 MOD 覆盖
+      title.textContent = provider.label || block.label;
       header.appendChild(title);
 
       // 状态徽章

@@ -70,16 +70,20 @@
 
 ## 3. 服务商（模型后端）
 
-支持的 provider id：`ollama`、`openai_compat`，另有虚拟的 `auto`（自动选最优）。
+支持的 provider id 分两类，二者等价：
+- 协议 id（直选，保留为高级入口）：`ollama`、`openai_compat`、`anthropic`；
+- 厂牌 id：`dashscope`（百炼）、`volcengine`（火山方舟）、`qianfan`（千帆）、`azure_openai`、`openai`、`siliconflow`、`deepseek`、`custom_openai`、`anthropic`、`ollama`。
+
+厂牌 id 会被 `runtime/vendors.py` 归一到对应协议块并套用默认端点 / 鉴权 / 方言；`aws_bedrock` 仅登记，调用会明确报「尚未实现」。另有虚拟的 `auto`（自动选最优）。
 
 | 方法 | 路径 | 用途 | 关键参数 / 返回 |
 |---|---|---|---|
-| GET | `/api/providers` | 服务商总览 + UI 方块材质 + MOD 预设 | `{available, preferred, resolved, configured, auto, providers[], blocks, presets}` |
+| GET | `/api/providers` | 服务商总览 + UI 方块材质 + MOD 预设 + 厂牌列表 | `{available, preferred, resolved, configured, vendor, vendors[], auto, providers[], blocks, presets}` |
 | POST | `/api/providers` | 保存某服务商配置并可激活 | `{provider, config:{...}, activate?}`；返回同上 |
 | POST | `/api/providers/test` | 实测服务商可用性（会记住"已验证"） | `{provider, config}` → `{ok, message, models?}` |
 | POST | `/api/providers/discover` | 拉取模型列表（探测 `/models` 或 Ollama tags） | `{provider, config}` → `{ok, models[], message}` |
 
-`config` 字段：Ollama 为 `{base_url, model, keep_alive?}`；OpenAI 兼容为 `{base_url, api_key, model}`。
+`config` 字段：Ollama 为 `{base_url, model, keep_alive?}`；OpenAI 兼容为 `{api_base, api_key, model_name, api_version?, params?}`；Anthropic 为 `{api_base, api_key, model_name}`。`api_version` 用于 Azure；`params` 为按传输白名单过滤的额外参数（未知键丢弃）。
 
 ---
 
@@ -144,7 +148,7 @@
 {
   "message": "你好",
   "session_id": "可选，缺省自动创建",
-  "provider": "可选：ollama | openai_compat",
+  "provider": "可选：ollama | openai_compat | anthropic，或厂牌 id（dashscope 等）",
   "model": "可选，覆盖默认模型",
   "system": "可选，覆盖系统提示词",
   "agent_id": "可选，实例 ID；其 engine_preset / system_prompt 生效",

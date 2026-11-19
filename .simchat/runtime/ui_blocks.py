@@ -16,6 +16,8 @@ Web API：GET/POST /api/providers、POST /api/providers/test。
 
 import threading
 
+from . import vendors
+
 _SKIN_KEYS = frozenset(["label", "icon", "hint", "description", "order"])
 
 _DEFAULT_BLOCKS = [
@@ -25,6 +27,7 @@ _DEFAULT_BLOCKS = [
     {"id": "provider.auto", "label": "Auto Model", "icon": "", "hint": "自动选择当前最优的可用服务商（本地 Ollama 优先）", "description": "", "order": 29},
     {"id": "provider.ollama", "label": "Ollama（本地）", "icon": "", "hint": "需要本地 Ollama 服务，模型需已安装", "description": "", "order": 30},
     {"id": "provider.openai_compat", "label": "OpenAI 兼容", "icon": "", "hint": "任何兼容 /chat/completions 的端点", "description": "", "order": 31},
+    {"id": "provider.anthropic", "label": "Anthropic 协议", "icon": "", "hint": "任何兼容 /v1/messages 的端点", "description": "", "order": 32},
     {"id": "setup.test", "label": "测试连接", "icon": "", "hint": "", "description": "", "order": 40},
     {"id": "setup.save", "label": "保存并检测", "icon": "", "hint": "", "description": "", "order": 41},
     {"id": "setup.back", "label": "返回对话", "icon": "", "hint": "", "description": "", "order": 42},
@@ -73,6 +76,34 @@ _blocks = {item["id"]: dict(item) for item in _DEFAULT_BLOCKS}
 _presets = {}
 
 
+def _default_presets():
+    """由厂牌注册表生成预设芯片（只预填默认端点，凭据仍需用户填写）。"""
+    items = []
+    order = 10
+    for entry in vendors.list_vendors(include_unimplemented=False):
+        if entry["id"] in ("ollama", "custom_openai"):
+            continue
+        block = vendors.block_of(entry["id"])
+        if not block:
+            continue
+        values = {}
+        if entry.get("default_base"):
+            values["api_base"] = entry["default_base"]
+        items.append({
+            "id": "vendor." + entry["id"],
+            "provider": block,
+            "label": entry["label"],
+            "values": values,
+            "description": "厂牌预设：%s（%s）" % (entry["label"], "OpenAI 兼容" if block == "openai_compat" else "Anthropic 消息"),
+            "order": order,
+        })
+        order += 10
+    return items
+
+
+_presets.update({item["id"]: item for item in _default_presets()})
+
+
 def list_blocks():
     with _lock:
         items = [dict(item) for item in _blocks.values()]
@@ -93,14 +124,18 @@ def register_block_skin(block_id, **skin):
 
 
 def register_preset(preset_id, provider, label, values=None, description="", order=100):
-    """注册一个服务商预设（只负责预填字段，点击后仍需本体校验与保存）。"""
-    if provider not in ("ollama", "openai_compat"):
-        raise ValueError("预设的 provider 必须是 ollama 或 openai_compat")
+    """注册一个服务商预设（只负责预填字段，点击后仍需本体校验与保存）。
+
+    provider 接受协议 id 或厂牌 id，最终归一到协议块（预设指向的是配置块）。
+    """
+    block = vendors.block_of(provider)
+    if not block:
+        raise ValueError("预设的 provider 必须是 ollama、openai_compat、anthropic 或其厂牌 id")
     if not preset_id or not label:
         raise ValueError("预设需要 preset_id 与 label")
     entry = {
         "id": preset_id,
-        "provider": provider,
+        "provider": block,
         "label": label,
         "values": dict(values or {}),
         "description": description,

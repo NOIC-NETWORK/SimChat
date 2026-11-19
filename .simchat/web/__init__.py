@@ -437,10 +437,15 @@ def create_app(core=None):
 
     @app.post("/api/providers/discover")
     def discover_provider():
-        """手动触发模型列表发现。payload 为表单字段。返回 {ok, models, message}。"""
+        """手动触发模型列表发现。payload 为表单字段。返回 {ok, models, message}。
+
+        provider 接受协议 id 或厂牌 id（厂牌由 runtime/vendors.py 归一化）。
+        """
+        from simchat.runtime import vendors
+
         data = request.get_json(silent=True) or {}
         provider = (data.get("provider") or "").strip()
-        if provider not in ("ollama", "openai_compat", "anthropic"):
+        if vendors.transport_of(provider) is None:
             return jsonify({"ok": False, "models": [], "message": "未知服务商: " + provider}), 400
         try:
             return jsonify(_get_core(app).discover_provider(provider, data.get("config") or {}))

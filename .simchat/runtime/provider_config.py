@@ -25,15 +25,18 @@ import time
 
 import requests
 
+from . import vendors
 from .providers import OLLAMA_AVAILABLE
 
 OLLAMA_DEFAULT_BASE = "http://127.0.0.1:11434"
+ANTHROPIC_DEFAULT_BASE = "https://api.anthropic.com"
+ANTHROPIC_VERSION = "2023-06-01"
 
 # Auto Model：不绑定具体服务商，按优先级自动选择当前最优的一个。
 AUTO_ID = "auto"
-REAL_PROVIDER_IDS = ("ollama", "openai_compat")
+REAL_PROVIDER_IDS = ("ollama", "openai_compat", "anthropic")
 PROVIDER_IDS = (AUTO_ID,) + REAL_PROVIDER_IDS
-PROVIDER_RANK = {"ollama": 0, "openai_compat": 1}
+PROVIDER_RANK = {"ollama": 0, "openai_compat": 1, "anthropic": 2}
 
 _save_lock = threading.Lock()
 _status_lock = threading.Lock()
@@ -221,6 +224,41 @@ def mask_key(key):
     return key[:4] + "…" + key[-4:]
 
 
+def _vendor_meta(block, conf, requested=None):
+    """解析配置块当前厂牌。requested 为请求里显式给出的厂牌 id。
+
+    返回 (vendor_id, entry)；无法匹配时回落到按 base_url 推断。
+    """
+    if requested:
+        entry = vendors.get_vendor(requested)
+        if entry and entry.get("transport") == block:
+            return entry["id"], entry
+    vendor_id = vendors.vendor_for_conf(block, conf)
+    return vendor_id, vendors.get_vendor(vendor_id) or {}
+
+
+def _openai_headers(entry, conf, api_key):
+    auth = str(conf.get("auth") or (entry or {}).get("auth") or "bearer").strip().lower()
+    if auth == "api-key":
+        return {"api-key": api_key, "Content-Type": "application/json"}
+    return {"Authorization": "Bearer " + api_key, "Content-Type": "application/json"}
+
+
+def _openai_query(conf):
+    version = str(conf.get("api_version") or "").strip()
+    return {"api-version": version} if version else None
+
+
+def resolve_provider_name(provider):
+    """把厂牌 id / 协议 id 归一化为协议名；未知或未实现抛 ValueError。"""
+    transport = vendors.transport_of(provider)
+    if transport is None:
+        raise ValueError(vendors.error_for(provider))
+    if transport == "bedrock":
+        raise ValueError(vendors.error_for(provider))
+    return transport
+
+
 def _ollama_fields(conf, models):
     model = str(conf.get("model") or "").strip()
     keep_alive = str(conf.get("keep_alive") or "").strip()
@@ -253,6 +291,11 @@ def detect_ollama(cfg):
     status = {
         "id": "ollama",
         "label": "Ollama（本地）",
+        "vendor": "ollama",
+        "vendor_label": "Ollama（本地）",
+        "transport": "ollama",
+        "transport_label": "Ollama 原生",
+        "implemented": True,
         "configured": bool(model),
         "available": False,
         "detail": "",
@@ -295,7 +338,7 @@ def detect_ollama(cfg):
     return status
 
 
-def _openai_probe(api_base, api_key, timeout=2.0):
+def _openai_probe(api_base, api_key, timeout=2.0, headers=None):
     """轻量连通性预检：GET /models。
 
     返回 (ok, kind, message)，kind ∈ ok / auth / unsupported / unreachable / http。
@@ -310,7 +353,7 @@ def _openai_probe(api_base, api_key, timeout=2.0):
     try:
         resp = requests.get(
             api_base.rstrip("/") + "/models",
-            headers={"Authorization": "Bearer " + api_key},
+            headers=headers or {"Authorization": "Bearer " + api_key},
             timeout=timeout,
         )
     except Exception as error:
@@ -331,11 +374,12 @@ def _openai_probe(api_base, api_key, timeout=2.0):
     return False, "http", "API 端点返回 HTTP %s" % resp.status_code
 
 
-def _openai_models(api_base, api_key, timeout=3.0, skip_cache=False):
+def _openai_models(api_base, api_key, timeout=3.0, skip_cache=False, headers=None, query=None):
     """调 GET /models 解析可用模型 ID 列表。
 
     返回 (names, error_msg)。names 为空数组表示探测失败；error_msg 为空字符串表示成功。
     兼容阿里云百炼、SiliconFlow、OneAPI、vLLM 等 OpenAI 协议端点。
+    Azure 等厂牌通过 headers / query 传入 api-key 与 api-version。
     """
     # 用 api_base + api_key 的 hash 做缓存键（key 不直接拼进 URL 但能保证安全）
     cache_key = "openai:" + hashlib.sha256(
@@ -351,7 +395,8 @@ def _openai_models(api_base, api_key, timeout=3.0, skip_cache=False):
     try:
         resp = requests.get(
             api_base.rstrip("/") + "/models",
-            headers={"Authorization": "Bearer " + api_key},
+            headers=headers or {"Authorization": "Bearer " + api_key},
+            params=query,
             timeout=timeout,
         )
         if resp.status_code >= 300:
@@ -394,15 +439,111 @@ def _openai_models(api_base, api_key, timeout=3.0, skip_cache=False):
     return result
 
 
+def _anthropic_base(api_base):
+    base = str(api_base or ANTHROPIC_DEFAULT_BASE).strip().rstrip("/")
+    if not base.startswith(("http://", "https://")):
+        base = "https://" + base
+    return base
+
+
+def _anthropic_url(api_base, path):
+    base = _anthropic_base(api_base)
+    if base.endswith("/v1"):
+        return base + "/" + path
+    return base + "/v1/" + path
+
+
+def _anthropic_headers(api_key):
+    return {
+        "x-api-key": api_key,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "Content-Type": "application/json",
+    }
+
+
+def _anthropic_probe(api_base, api_key, timeout=2.0):
+    """轻量连通性预检：GET /v1/models。返回值语义同 _openai_probe。"""
+    try:
+        resp = requests.get(
+            _anthropic_url(api_base, "models"),
+            headers=_anthropic_headers(api_key),
+            timeout=timeout,
+        )
+    except Exception as error:
+        return False, "unreachable", "无法连接 Anthropic 端点（%s）" % _short(error)
+    if resp.status_code < 300:
+        return True, "ok", "Anthropic 端点可访问"
+    if resp.status_code in (401, 403):
+        return False, "auth", "API Key 无效或权限不足（HTTP %s）" % resp.status_code
+    if resp.status_code in (404, 405):
+        ct = (resp.headers.get("Content-Type") or "").lower()
+        if ct.startswith("application/json"):
+            return True, "unsupported", "端点不支持 /v1/models 预检，但 API Base 格式正确"
+        return False, "http", (
+            "Anthropic 端点返回 HTTP %s（Content-Type: %s）——"
+            "请检查 API Base 是否为合法的 /v1/messages 兼容端点"
+        ) % (resp.status_code, ct or "unknown")
+    return False, "http", "Anthropic 端点返回 HTTP %s" % resp.status_code
+
+
+def _anthropic_models(api_base, api_key, timeout=3.0, skip_cache=False):
+    """调 GET /v1/models 解析可用模型 ID。返回 (names, error_msg)。"""
+    base = _anthropic_base(api_base)
+    cache_key = "anthropic:" + hashlib.sha256(
+        (base + "|" + api_key).encode("utf-8")
+    ).hexdigest()[:16]
+
+    if not skip_cache:
+        cached, hit = _cache_get(cache_key)
+        if hit:
+            return cached
+
+    names = []
+    try:
+        resp = requests.get(
+            _anthropic_url(base, "models"),
+            headers=_anthropic_headers(api_key),
+            timeout=timeout,
+        )
+        if resp.status_code >= 300:
+            return [], "HTTP %s: %s" % (resp.status_code, _short(resp.text))
+        data = resp.json()
+    except Exception as error:
+        return [], "探测模型列表失败（%s）" % _short(error)
+
+    items = data.get("data") if isinstance(data, dict) else data
+    seen = set()
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id") or item.get("model") or item.get("name")
+        if not model_id:
+            continue
+        model_id = str(model_id).strip()
+        if model_id and model_id not in seen:
+            seen.add(model_id)
+            names.append(model_id)
+
+    result = (names, "")
+    _cache_set(cache_key, result)
+    return result
+
+
 def discover_models(provider, payload, current=None):
     """前端手动触发的模型发现接口。返回 {ok, models, message}。
 
     强制 skip_cache=True——用户点了"探测"就要最新的。
+    provider 接受协议 id 或厂牌 id（厂牌 id 会归一到所属协议，并套用默认端点/鉴权）。
     """
     payload = dict(payload or {})
     current = dict(current or {})
+    requested = str(provider or "").strip().lower()
+    try:
+        transport = resolve_provider_name(requested)
+    except ValueError as error:
+        return {"ok": False, "models": [], "message": str(error)}
 
-    if provider == "ollama":
+    if transport == "ollama":
         api_base = str(payload.get("base_url") or "").strip()
         if api_base:
             probe = {"ollama": dict(current.get("ollama") or {})}
@@ -421,22 +562,50 @@ def discover_models(provider, payload, current=None):
             return {"ok": True, "models": [], "message": "已连接 Ollama，但未安装任何模型。用 `ollama pull <name>` 安装后重试。"}
         return {"ok": True, "models": models, "message": "发现 %d 个已安装模型" % len(models)}
 
-    if provider == "openai_compat":
+    if transport == "openai_compat":
+        conf = dict(current.get("openai_compat") or {})
         api_base = str(payload.get("api_base") or "").strip().rstrip("/")
         api_key = str(payload.get("api_key") or "").strip()
+        vendor_id, vendor = _vendor_meta(
+            "openai_compat",
+            {"vendor": conf.get("vendor"), "api_base": api_base or conf.get("api_base")},
+            requested=requested if vendors.get_vendor(requested) else None,
+        )
+        if not api_base:
+            api_base = vendor.get("default_base") or ""
         if not api_base:
             return {"ok": False, "models": [], "message": "请先填写 API Base"}
         if not api_key:
-            prev_key = str((current.get("openai_compat") or {}).get("api_key") or "").strip()
+            prev_key = str(conf.get("api_key") or "").strip()
             if prev_key:
                 api_key = prev_key
             else:
                 return {"ok": False, "models": [], "message": "请先填写 API Key"}
-        models, error = _openai_models(api_base, api_key, skip_cache=True)
+        headers = _openai_headers(vendor, conf, api_key)
+        query = {"api-version": conf.get("api_version")} if conf.get("api_version") else None
+        models, error = _openai_models(
+            api_base, api_key, skip_cache=True, headers=headers, query=query
+        )
         if error:
             return {"ok": False, "models": [], "message": "探测模型列表失败: %s" % error}
         if not models:
             return {"ok": True, "models": [], "message": "端点可访问，但未返回任何模型 ID（可能该端点不支持 /models）"}
+        return {"ok": True, "models": models, "message": "发现 %d 个可用模型" % len(models)}
+
+    if transport == "anthropic":
+        api_base = str(payload.get("api_base") or "").strip()
+        api_key = str(payload.get("api_key") or "").strip()
+        if not api_key:
+            prev_key = str((current.get("anthropic") or {}).get("api_key") or "").strip()
+            if prev_key:
+                api_key = prev_key
+            else:
+                return {"ok": False, "models": [], "message": "请先填写 API Key"}
+        models, error = _anthropic_models(api_base, api_key, skip_cache=True)
+        if error:
+            return {"ok": False, "models": [], "message": "探测模型列表失败: %s" % error}
+        if not models:
+            return {"ok": True, "models": [], "message": "端点可访问，但未返回任何模型 ID"}
         return {"ok": True, "models": models, "message": "发现 %d 个可用模型" % len(models)}
 
     return {"ok": False, "models": [], "message": "未知服务商: %s" % provider}
@@ -455,6 +624,11 @@ def detect_openai_compat(cfg):
     api_base = str(conf.get("api_base") or "").strip()
     api_key = str(conf.get("api_key") or "").strip()
     model_name = str(conf.get("model_name") or "").strip()
+    vendor_id, vendor = _vendor_meta("openai_compat", conf)
+    headers = _openai_headers(vendor, conf, api_key) if api_key else None
+    query = _openai_query(conf)
+    default_base = vendor.get("default_base") or ""
+    dialect = vendor.get("dialect") or {}
 
     missing = []
     if not api_base:
@@ -463,6 +637,8 @@ def detect_openai_compat(cfg):
         missing.append("api_key")
     if not model_name:
         missing.append("model_name")
+    if dialect.get("requires_api_version") and not conf.get("api_version"):
+        missing.append("api_version")
 
     available = not missing
     detail = "配置完整" if available else "缺少 " + "、".join(missing)
@@ -471,10 +647,12 @@ def detect_openai_compat(cfg):
     discovered_models = []
     discover_error = ""
     if api_base and api_key:
-        discovered_models, discover_error = _openai_models(api_base, api_key)
+        discovered_models, discover_error = _openai_models(
+            api_base, api_key, headers=headers, query=query
+        )
 
     if available:
-        available, kind, detail = _openai_probe(api_base, api_key)
+        available, kind, detail = _openai_probe(api_base, api_key, headers=headers)
         if not available and kind == "unreachable" and _verified_recently(conf):
             # 连接测试刚通过过：预检抖动不当作「配置丢失」
             available = True
@@ -492,11 +670,121 @@ def detect_openai_compat(cfg):
         model_hint = "探测到 %d 个可用模型，下拉选择或直接输入覆盖" % len(discovered_models)
     elif discover_error:
         model_hint = "暂未能自动探测模型（%s），请手动输入模型 ID" % discover_error
+    if dialect.get("model_id_pattern"):
+        model_hint = "模型 ID 需匹配 %s，例如推理接入点 ID" % dialect["model_id_pattern"]
+    if dialect.get("notes"):
+        model_hint += "；" + "；".join(dialect["notes"])
+
+    fields = [
+        {
+            "name": "api_base",
+            "label": "API Base",
+            "type": "text",
+            "required": True,
+            "value": api_base,
+            "placeholder": default_base or "https://api.openai.com/v1",
+            "hint": "兼容 /chat/completions 的端点地址",
+        },
+        {
+            "name": "api_key",
+            "label": "API Key",
+            "type": "password",
+            "required": not bool(api_key),
+            "value": "",
+            "placeholder": "已保存，留空保持不变" if api_key else "sk-...",
+            "hint": "仅保存在本地 config.json",
+        },
+    ]
+    if dialect.get("requires_api_version"):
+        fields.append({
+            "name": "api_version",
+            "label": "api-version",
+            "type": "text",
+            "required": True,
+            "value": str(conf.get("api_version") or ""),
+            "placeholder": "2024-06-01",
+            "hint": "Azure OpenAI 必填，作为 query 追加",
+        })
+    fields.append({
+        "name": "model_name",
+        "label": "模型名称",
+        "type": "text",
+        "required": True,
+        "value": model_name,
+        "placeholder": "gpt-4o-mini",
+        "options": model_options,  # 自动探测到的模型列表
+        "hint": model_hint,
+    })
 
     return {
         "id": "openai_compat",
-        "label": "OpenAI 兼容",
+        "label": vendor.get("label") or "自定义 OpenAI 兼容",
+        "vendor": vendor_id,
+        "vendor_label": vendor.get("label") or "自定义 OpenAI 兼容",
+        "transport": "openai_compat",
+        "transport_label": "OpenAI 兼容",
+        "implemented": True,
         "configured": bool(api_base or api_key or model_name),
+        "available": available,
+        "detail": detail,
+        "models": discovered_models,
+        "has_api_key": bool(api_key),
+        "fields": fields,
+        "values": {
+            "api_base": api_base,
+            "model_name": model_name,
+            "api_key": mask_key(api_key),
+            "api_version": str(conf.get("api_version") or ""),
+        },
+    }
+
+
+def detect_anthropic(cfg):
+    conf = dict(cfg.get("anthropic") or {})
+    api_base = str(conf.get("api_base") or "").strip()
+    api_key = str(conf.get("api_key") or "").strip()
+    model_name = str(conf.get("model_name") or "").strip()
+
+    missing = []
+    if not api_key:
+        missing.append("api_key")
+    if not model_name:
+        missing.append("model_name")
+
+    available = not missing
+    detail = "配置完整" if available else "缺少 " + "、".join(missing)
+
+    discovered_models = []
+    discover_error = ""
+    if api_key:
+        discovered_models, discover_error = _anthropic_models(api_base, api_key)
+
+    if available:
+        available, kind, detail = _anthropic_probe(api_base, api_key)
+        if not available and kind == "unreachable" and _verified_recently(conf):
+            # 连接测试刚通过过：预检抖动不当作「配置丢失」
+            available = True
+            detail = "已通过连接测试，预检暂时超时（稍后自动重试）"
+
+    model_options = list(discovered_models) if discovered_models else None
+    if model_name and model_options and model_name not in model_options:
+        model_options.insert(0, model_name)
+
+    model_hint = "以服务商实际提供的模型 ID 为准"
+    if discovered_models:
+        model_hint = "探测到 %d 个可用模型，下拉选择或直接输入覆盖" % len(discovered_models)
+    elif discover_error:
+        model_hint = "暂未能自动探测模型（%s），请手动输入模型 ID" % discover_error
+
+    return {
+        "id": "anthropic",
+        "label": "Anthropic",
+        "vendor": "anthropic",
+        "vendor_label": "Anthropic",
+        "transport": "anthropic",
+        "transport_label": "Anthropic 消息",
+        "implemented": True,
+        "configured": bool(api_key or model_name),
         "available": available,
         "detail": detail,
         "models": discovered_models,
@@ -506,10 +794,10 @@ def detect_openai_compat(cfg):
                 "name": "api_base",
                 "label": "API Base",
                 "type": "text",
-                "required": True,
+                "required": False,
                 "value": api_base,
-                "placeholder": "https://api.openai.com/v1",
-                "hint": "兼容 /chat/completions 的端点地址",
+                "placeholder": ANTHROPIC_DEFAULT_BASE,
+                "hint": "兼容 /v1/messages 的端点地址，留空使用官方地址",
             },
             {
                 "name": "api_key",
@@ -517,7 +805,7 @@ def detect_openai_compat(cfg):
                 "type": "password",
                 "required": not bool(api_key),
                 "value": "",
-                "placeholder": "已保存，留空保持不变" if api_key else "sk-...",
+                "placeholder": "已保存，留空保持不变" if api_key else "sk-ant-...",
                 "hint": "仅保存在本地 config.json",
             },
             {
@@ -526,8 +814,8 @@ def detect_openai_compat(cfg):
                 "type": "text",
                 "required": True,
                 "value": model_name,
-                "placeholder": "gpt-4o-mini",
-                "options": model_options,  # 自动探测到的模型列表
+                "placeholder": "claude-sonnet-4-5",
+                "options": model_options,
                 "hint": model_hint,
             },
         ],
@@ -588,6 +876,7 @@ def summarize(cfg):
                 "provider": cfg.get("provider"),
                 "ollama": cfg.get("ollama"),
                 "openai_compat": cfg.get("openai_compat"),
+                "anthropic": cfg.get("anthropic"),
             },
             sort_keys=True,
             default=str,
@@ -599,7 +888,7 @@ def summarize(cfg):
         if cached and now - cached[0] < _STATUS_TTL:
             return copy.deepcopy(cached[1])
 
-    real = [detect_ollama(cfg), detect_openai_compat(cfg)]
+    real = [detect_ollama(cfg), detect_openai_compat(cfg), detect_anthropic(cfg)]
     auto = detect_auto(cfg, real)
     available_ids = [item["id"] for item in real if item["available"]]
 
@@ -613,11 +902,49 @@ def summarize(cfg):
         else:
             preferred = auto["resolved"]
 
+    current_vendor = None
+    focus_id = auto["resolved"] if preferred in (None, AUTO_ID) else preferred
+    for item in real:
+        if item["id"] == focus_id:
+            current_vendor = item.get("vendor")
+            break
+    if not current_vendor:
+        # 首选暂时不可用（断网/探测超时）也要能显示配置里记录的厂牌
+        configured_id = str(cfg.get("provider") or "").strip()
+        for item in real:
+            if item["id"] == configured_id:
+                current_vendor = item.get("vendor")
+                break
+    if not current_vendor:
+        for item in real:
+            if item["available"]:
+                current_vendor = item.get("vendor")
+                break
+
+    vendor_items = []
+    for entry in vendors.list_vendors(include_unimplemented=True):
+        vendor_items.append({
+            "id": entry["id"],
+            "label": entry["label"],
+            "transport": entry["transport"],
+            "transport_label": {
+                "ollama": "Ollama 原生",
+                "openai_compat": "OpenAI 兼容",
+                "anthropic": "Anthropic 消息",
+                "bedrock": "AWS Bedrock（规划）",
+            }.get(entry["transport"], entry["transport"]),
+            "implemented": bool(entry.get("implemented")),
+            "provider_id": vendors.block_of(entry["id"]),
+            "selected": entry["id"] == current_vendor,
+        })
+
     result = {
         "available": bool(available_ids),
         "preferred": preferred,
         "resolved": auto["resolved"],
         "configured": cfg.get("provider"),
+        "vendor": current_vendor,
+        "vendors": vendor_items,
         "auto": {"id": AUTO_ID, "resolved": auto["resolved"]},
         "providers": [auto] + real,
     }
@@ -642,52 +969,111 @@ def _write(data_dir, cfg):
 def save(data_dir, provider, payload, current=None, activate=True):
     """校验并原子写入配置；返回新配置。失败抛 ValueError。
 
+    provider 既接受协议 id（ollama/openai_compat/anthropic），也接受厂牌 id
+    （dashscope/volcengine/azure_openai……）；落盘统一写回协议块，块内记录 vendor。
+
     activate=False 时只保存该服务商的字段，不改变「首选服务商」——
     用于「测试连接通过后自动落盘」，避免把用户的 Auto Model 选择挤掉。
     """
-    if provider not in PROVIDER_IDS:
-        raise ValueError("未知服务商: %s" % provider)
+    requested = str(provider or "").strip().lower()
 
     cfg = dict(current or {})
     cfg["ollama"] = dict(cfg.get("ollama") or {})
     cfg["openai_compat"] = dict(cfg.get("openai_compat") or {})
+    cfg["anthropic"] = dict(cfg.get("anthropic") or {})
     payload = dict(payload or {})
 
-    if provider == AUTO_ID:
+    if requested == AUTO_ID:
         if activate:
             cfg["provider"] = AUTO_ID
         _write(data_dir, cfg)
         return cfg
 
-    if provider == "ollama":
+    transport = resolve_provider_name(requested)
+
+    if transport == "ollama":
         model = str(payload.get("model") or "").strip()
         if not model:
             raise ValueError("请填写模型名称")
         cfg["ollama"]["model"] = model
         cfg["ollama"]["keep_alive"] = str(payload.get("keep_alive") or "").strip() or "30m"
-    else:
+    elif transport == "openai_compat":
         previous = dict(cfg["openai_compat"])
         api_base = str(payload.get("api_base") or "").strip().rstrip("/")
         api_key = str(payload.get("api_key") or "").strip()
         model_name = str(payload.get("model_name") or "").strip()
+
+        explicit_vendor = vendors.get_vendor(requested)
+        if explicit_vendor and explicit_vendor.get("transport") == "openai_compat":
+            vendor_id = explicit_vendor["id"]
+        else:
+            vendor_id = vendors.infer_vendor("openai_compat", api_base)
+            # 自建/中转端点无法从域名识别时，沿用上一次的厂牌（端点没变的情况下）
+            if (
+                vendor_id == "custom_openai"
+                and previous.get("vendor")
+                and api_base == previous.get("api_base")
+            ):
+                vendor_id = previous["vendor"]
+        vendor = vendors.get_vendor(vendor_id) or {}
+
+        if not api_base and vendor.get("default_base"):
+            api_base = vendor["default_base"]
         if not api_base.startswith(("http://", "https://")):
             raise ValueError("API Base 必须以 http:// 或 https:// 开头")
         if not api_key and not previous.get("api_key"):
             raise ValueError("请填写 API Key")
         if not model_name:
             raise ValueError("请填写模型名称")
+
+        api_version = str(payload.get("api_version") or "").strip()
+        dialect = vendor.get("dialect") or {}
+        if not api_version and dialect.get("requires_api_version"):
+            api_version = str(previous.get("api_version") or "").strip()
+        if dialect.get("requires_api_version") and not api_version:
+            raise ValueError("该厂牌需要填写 api-version")
+
         cfg["openai_compat"]["api_base"] = api_base
         cfg["openai_compat"]["model_name"] = model_name
+        cfg["openai_compat"]["vendor"] = vendor_id
+        cfg["openai_compat"]["auth"] = str(payload.get("auth") or vendor.get("auth") or "bearer")
         if api_key:
             cfg["openai_compat"]["api_key"] = api_key
+        if api_version:
+            cfg["openai_compat"]["api_version"] = api_version
+        else:
+            cfg["openai_compat"].pop("api_version", None)
+        params = payload.get("params")
+        if isinstance(params, dict) and params:
+            cfg["openai_compat"]["params"] = dict(params)
         # 端点和 Key 变了，旧的「已验证」记忆作废
         if api_base != previous.get("api_base") or (
             api_key and api_key != previous.get("api_key")
         ):
             cfg["openai_compat"].pop("verified_at", None)
+    elif transport == "anthropic":
+        previous = dict(cfg["anthropic"])
+        raw_base = str(payload.get("api_base") or "").strip().rstrip("/")
+        api_base = _anthropic_base(raw_base)
+        api_key = str(payload.get("api_key") or "").strip()
+        model_name = str(payload.get("model_name") or "").strip()
+        if not api_key and not previous.get("api_key"):
+            raise ValueError("请填写 API Key")
+        if not model_name:
+            raise ValueError("请填写模型名称")
+        cfg["anthropic"]["api_base"] = api_base
+        cfg["anthropic"]["model_name"] = model_name
+        cfg["anthropic"]["vendor"] = "anthropic"
+        if api_key:
+            cfg["anthropic"]["api_key"] = api_key
+        # 端点和 Key 变了，旧的「已验证」记忆作废
+        if api_base != previous.get("api_base") or (
+            api_key and api_key != previous.get("api_key")
+        ):
+            cfg["anthropic"].pop("verified_at", None)
 
     if activate:
-        cfg["provider"] = provider
+        cfg["provider"] = transport
 
     _write(data_dir, cfg)
     return cfg
@@ -695,25 +1081,27 @@ def save(data_dir, provider, payload, current=None, activate=True):
 
 def mark_verified(data_dir, provider, current=None):
     """记录「连接测试通过」，让预检抖动时不至于把已配好的服务商判死。"""
-    if provider != "openai_compat":
+    transport = vendors.transport_of(provider)
+    if transport not in ("openai_compat", "anthropic"):
         return dict(current or {})
     cfg = dict(current or {})
-    conf = dict(cfg.get("openai_compat") or {})
+    conf = dict(cfg.get(transport) or {})
     if not conf.get("api_key"):
         return cfg
     conf["verified_at"] = time.time()
-    cfg["openai_compat"] = conf
+    cfg[transport] = conf
     _write(data_dir, cfg)
     return cfg
 
 
 def test(provider, payload, current=None):
-    """连接测试：不落盘。返回 {ok, message}。"""
+    """连接测试：不落盘。返回 {ok, message}。provider 接受协议 id 或厂牌 id。"""
     payload = dict(payload or {})
     current = dict(current or {})
+    requested = str(provider or "").strip().lower()
 
-    if provider == AUTO_ID:
-        providers = [detect_ollama(current), detect_openai_compat(current)]
+    if requested == AUTO_ID:
+        providers = [detect_ollama(current), detect_openai_compat(current), detect_anthropic(current)]
         best = _best_available(providers)
         if best:
             return {
@@ -724,9 +1112,14 @@ def test(provider, payload, current=None):
         reasons = ["%s：%s" % (item["label"], item["detail"]) for item in providers]
         return {"ok": False, "message": "暂无可用的服务商（%s）" % "；".join(reasons)}
 
-    conf = dict(current.get(provider) or {})
+    try:
+        transport = resolve_provider_name(requested)
+    except ValueError as error:
+        return {"ok": False, "message": str(error)}
 
-    if provider == "ollama":
+    conf = dict(current.get(transport) or {})
+
+    if transport == "ollama":
         model = str(payload.get("model") or conf.get("model") or "").strip()
         if not model:
             return {"ok": False, "message": "请先填写模型名称"}
@@ -750,19 +1143,52 @@ def test(provider, payload, current=None):
             message += "（%s）" % auto_message
         return {"ok": True, "message": message, "models": models}
 
-    if provider == "openai_compat":
+    if transport == "openai_compat":
         api_base = str(payload.get("api_base") or conf.get("api_base") or "").strip().rstrip("/")
         api_key = str(payload.get("api_key") or conf.get("api_key") or "").strip()
         model_name = str(payload.get("model_name") or conf.get("model_name") or "").strip()
+        vendor_id, vendor = _vendor_meta(
+            "openai_compat",
+            {"vendor": conf.get("vendor"), "api_base": api_base, "auth": conf.get("auth")},
+            requested=requested if vendors.get_vendor(requested) else None,
+        )
+        if not api_base and vendor.get("default_base"):
+            api_base = vendor["default_base"]
         if not (api_base and api_key and model_name):
             return {"ok": False, "message": "请填写 API Base、API Key 和模型名称"}
+        url = api_base if api_base.endswith("/chat/completions") else api_base + "/chat/completions"
+        api_version = str(payload.get("api_version") or conf.get("api_version") or "").strip()
+        if (vendor.get("dialect") or {}).get("requires_api_version") and not api_version:
+            return {"ok": False, "message": "该厂牌需要填写 api-version"}
         try:
             resp = requests.post(
-                api_base + "/chat/completions",
-                headers={
-                    "Authorization": "Bearer " + api_key,
-                    "Content-Type": "application/json",
+                url,
+                headers=_openai_headers(vendor, conf, api_key),
+                params={"api-version": api_version} if api_version else None,
+                json={
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": 1,
+                    "stream": False,
                 },
+                timeout=15,
+            )
+            if resp.status_code >= 400:
+                return {"ok": False, "message": "服务返回 HTTP %s: %s" % (resp.status_code, _short(resp.text))}
+            return {"ok": True, "message": "连接成功，模型 %s 可以响应" % model_name}
+        except Exception as error:
+            return {"ok": False, "message": "连接失败: %s" % _short(error)}
+
+    if transport == "anthropic":
+        api_base = _anthropic_base(payload.get("api_base") or conf.get("api_base"))
+        api_key = str(payload.get("api_key") or conf.get("api_key") or "").strip()
+        model_name = str(payload.get("model_name") or conf.get("model_name") or "").strip()
+        if not (api_key and model_name):
+            return {"ok": False, "message": "请填写 API Key 和模型名称"}
+        try:
+            resp = requests.post(
+                _anthropic_url(api_base, "messages"),
+                headers=_anthropic_headers(api_key),
                 json={
                     "model": model_name,
                     "messages": [{"role": "user", "content": "ping"}],

@@ -1369,8 +1369,11 @@ class OrbiterTool(BaseTool):
         from .. import provider_config
 
         conf = (core.config or {}).get('openai_compat') or {}
+        _vendor_id, _vendor = provider_config._vendor_meta('openai_compat', conf)
         models, discover_error = provider_config._openai_models(
-            conf.get('api_base'), conf.get('api_key'), timeout=5
+            conf.get('api_base'), conf.get('api_key'), timeout=5,
+            headers=provider_config._openai_headers(_vendor, conf, conf.get('api_key') or ''),
+            query=provider_config._openai_query(conf),
         )
         if discover_error:
             raise ToolError(

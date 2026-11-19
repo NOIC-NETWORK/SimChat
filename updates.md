@@ -1,5 +1,13 @@
 # 最近更新
 
+**2026-11-19** — 服务商厂牌化一期
+
+- **新增 `runtime/vendors.py` 厂牌注册表**：按 Vendor / Transport / Account / Model 四层组织，协议 id（`ollama`、`openai_compat`、`anthropic`）与厂牌 id（百炼、火山方舟、千帆、Azure OpenAI、OpenAI、SiliconFlow、DeepSeek、Anthropic、Ollama 等）等价解析；每个厂牌声明默认端点、鉴权方式、模型建议与参数白名单。`aws_bedrock` 只登记为规划，调用会明确报「尚未实现」。
+- **provider 调用链归一**：`core` 通过 `vendors.resolve_target()` 把协议 id / 厂牌 id 解析成账户视图，再交给 `create_provider()` 工厂；`provider_config` 负责厂牌归一、鉴权头、查询参数与 `params` 白名单过滤，测试、发现、保存均支持厂牌 id。
+- **UI 与接口**：`ui_blocks` 由厂牌表生成预设芯片；`/api/providers` 输出 `vendor`/`vendors`，`/api/providers/discover` 接受厂牌 id；控制台服务商标题优先显示厂牌名，方块材质只作图标与缺省值。
+- **文档**：新增 `docs/vendor-provider-refactor.md`，`docs/api-endpoints.md` 同步厂牌 id、配置字段与请求参数说明。
+- 文件：`.simchat/runtime/vendors.py`、`.simchat/runtime/providers.py`、`.simchat/runtime/provider_config.py`、`.simchat/runtime/core.py`、`.simchat/runtime/ui_blocks.py`、`.simchat/runtime/agent/tools.py`、`.simchat/web/__init__.py`、`.simchat/web/static/js/chat.js`、`.simchat/docs/vendor-provider-refactor.md`、`.simchat/docs/api-endpoints.md`、`updates.md`
+
 **2026-11-19** — MOD 前端入口规范、config 校验收紧与桌面宠物入库
 
 - **MOD 前端入口规范**：manifest 新增顶层 `frontend_entry`，只允许 `web/` 下的 `.html` 相对路径，禁止 `..`、反斜杠与空格；schema 与加载器双重校验，指向不存在或越界的文件直接拒绝加载。`mods_index` 输出 `frontend_entry`/`frontend_url`，新增 `/mods/<id>` 与 `/mods/<id>/` 路由返回声明的入口页，控制台 MOD 详情增加「前端入口」链接。Kirara 声明 `web/index.html`。
