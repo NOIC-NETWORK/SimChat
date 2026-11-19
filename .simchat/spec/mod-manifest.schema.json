@@ -146,6 +146,11 @@
         "cover": { "type": "string" }
       }
     },
+    "frontend_entry": {
+      "type": "string",
+      "pattern": "^web/(?!.*\\.\\.)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*\\.html?$",
+      "description": "MOD 前端入口页面，必须位于包内 web/ 目录（如 web/index.html）。由宿主静态路由 /mods/<id>/ 提供访问；未声明则维持原有行为。"
+    },
     "license": {
       "type": "string",
       "minLength": 1,
@@ -166,18 +171,74 @@
     "config": {
       "type": "object",
       "additionalProperties": false,
-      "description": "仅 agent-config 使用：人设、提示词、参数与主题。",
+      "description": "MOD 自描述数据（人设、提示词、参数、主题、模型声明）。键名白名单见 properties，未知键直接校验失败；宿主不得把它合并进本体配置、环境变量或路由。",
       "properties": {
-        "persona": { "type": "string", "description": "人设标识，对应本体的 persona 注册名。" },
-        "system_prompt_file": { "type": "string", "description": "相对包内的提示词文件。" },
+        "persona": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "人设标识，对应本体的 persona 注册名。"
+        },
+        "system_prompt_file": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9._/-]+$",
+          "description": "相对包内的提示词文件，禁止绝对路径、反斜杠与 ..。"
+        },
         "params": {
           "type": "object",
           "additionalProperties": {
             "type": ["string", "number", "boolean"]
           },
-          "description": "模型/会话参数，如 think_mode、agent_max_turns。不得包含可执行内容。"
+          "description": "模型/会话参数，如 think_mode、agent_max_turns。仅允许标量值，不得包含对象、数组或可执行内容。"
         },
-        "theme": { "type": "string", "description": "相对包内的主题 CSS 或资源清单。" }
+        "theme": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9._/-]+$",
+          "description": "相对包内的主题 CSS 或资源清单。"
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "模型定位与推理运行时声明。宿主只可读取，不得直接套用到本体配置。",
+          "required": ["primary", "runtime"],
+          "properties": {
+            "primary": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "role": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "label": { "type": "string", "maxLength": 200 },
+            "why": {
+              "type": "array",
+              "items": { "type": "string", "maxLength": 500 }
+            },
+            "persona_system": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "runtime": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["backend", "model"],
+              "properties": {
+                "backend": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,31}$" },
+                "model": { "type": "string", "minLength": 1, "maxLength": 200 },
+                "context_window": { "type": "integer", "minimum": 128, "maximum": 1048576 },
+                "gpu_layers": { "type": "integer", "minimum": 0, "maximum": 999 },
+                "kv_cache": { "type": "string", "maxLength": 32 },
+                "keep_alive": { "type": "string", "maxLength": 32 }
+              }
+            },
+            "roles": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "chat": { "type": "string", "enum": ["active", "planned", "disabled"] },
+                "polish": { "type": "string", "enum": ["active", "planned", "disabled"] },
+                "orchestrate": { "type": "string", "enum": ["active", "planned", "disabled"] }
+              }
+            },
+            "status": { "type": "string", "maxLength": 64 },
+            "not_implemented": {
+              "type": "array",
+              "items": { "type": "string", "maxLength": 500 }
+            }
+          }
+        }
       }
     },
     "automation": {

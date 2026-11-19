@@ -187,6 +187,8 @@ def _ensure_mod_loader(app=None):
                 logger=lambda message: _request_log.info("[mods] %s", message),
                 extra_dirs=[_SKILLS_DIR],
             )
+            # 引擎必须先于 discover 就绪：automation 类型 MOD 在加载期注册 flow
+            _ensure_automation_engine(app=app, loader=loader)
             loader.discover()
             set_global_loader(loader)
             sync_loader_blocks(loader)
@@ -268,6 +270,35 @@ def create_app(core=None):
     )
 
     # Phase 3 — MOD 前端静态资源自动路由：/mods/<mod_id>/<path> → MOD 的 web/ 目录
+    @app.route("/mods/<mod_id>")
+    @app.route("/mods/<mod_id>/")
+    def _serve_mod_index(mod_id):
+        """MOD 声明 frontend_entry 时，目录形式直接返回声明的入口页。"""
+        from flask import abort, send_from_directory
+
+        from simchat.loader.lifecycle import get_loader
+
+        loader = app.extensions.get("simchat_mod_loader") or get_loader()
+        if loader is None:
+            abort(404)
+        mod_record = loader.mods.get(mod_id)
+        if not mod_record or mod_record.get("status") != "loaded":
+            abort(404)
+        entry = mod_record.get("frontend_entry")
+        if not entry:
+            abort(404)
+        web_dir = os.path.realpath(os.path.join(mod_record["path"], "web"))
+        if not os.path.isdir(web_dir):
+            abort(404)
+        rel = entry[len("web/"):] if entry.startswith("web/") else entry
+        safe_path = os.path.realpath(os.path.join(web_dir, rel))
+        try:
+            if os.path.commonpath([safe_path, web_dir]) != web_dir:
+                abort(403)
+        except ValueError:
+            abort(403)
+        return send_from_directory(web_dir, rel)
+
     @app.route("/mods/<mod_id>/<path:filename>")
     def _serve_mod_asset(mod_id, filename):
         from flask import abort, send_from_directory

@@ -8,6 +8,7 @@
   "version": "0.4.0",
   "abi": "simchat-mod/2",
   "entry": "kirara_entry:register",
+  "frontend_entry": "web/index.html",
   "hooks": [
     "agent.block",
     "agent.map",

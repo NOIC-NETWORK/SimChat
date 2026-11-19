@@ -213,6 +213,7 @@ class ModLoader(object):
             return self._fail(record, "manifest 读取失败: %s" % error)
 
         record["manifest"] = manifest
+        record["frontend_entry"] = manifest.get("frontend_entry") or None
         mod_id = manifest.get("id")
         if mod_id:
             record["id"] = mod_id
@@ -238,6 +239,18 @@ class ModLoader(object):
         ok, message = verify_package(package_dir, manifest)
         if not ok:
             return self._fail(record, message)
+
+        # frontend_entry 必须真实存在于包内 web/ 目录，且不得越界
+        frontend_entry = record.get("frontend_entry")
+        if frontend_entry:
+            web_dir = os.path.realpath(os.path.join(package_dir, "web"))
+            target = os.path.realpath(os.path.join(package_dir, frontend_entry))
+            try:
+                inside = os.path.commonpath([target, web_dir]) == web_dir
+            except ValueError:
+                inside = False
+            if not inside or not os.path.isfile(target):
+                return self._fail(record, "frontend_entry 不可用: %s" % frontend_entry)
 
         if mod_id in self._disabled:
             record["manifest"] = manifest

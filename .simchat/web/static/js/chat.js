@@ -6120,6 +6120,11 @@
       '<div class="mod-detail-section"><div class="mod-detail-label">Capabilities</div>' + caps + "</div>" +
       '<div class="mod-detail-section"><div class="mod-detail-label">安装路径</div><div class="mod-detail-path">' +
       escapeHtml(item.path) + "</div></div>" +
+      (item.frontend_url
+        ? '<div class="mod-detail-section"><div class="mod-detail-label">前端入口</div><div class="mod-detail-path">' +
+          '<a href="' + escapeHtml(item.frontend_url) + '" target="_blank" rel="noopener">' +
+          escapeHtml(item.frontend_entry) + "</a></div></div>"
+        : "") +
       errors + warnings + flowHtml +
       '<div class="mod-detail-actions"><button type="button" class="primary-button" data-detail-toggle="' +
       escapeHtml(item.id) + '">' + (item.enabled ? "停用该 MOD" : "启用该 MOD") + "</button>" +

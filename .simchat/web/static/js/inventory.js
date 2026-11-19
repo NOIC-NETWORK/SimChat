@@ -36,6 +36,11 @@
   const MOD_DEFAULT_CATEGORY = "其他";
   // Kirara 行为包自带的方块保留在 MOD 段，其余 MOD 方块按能力语义并入自有分类
   const KIRARA_MOD_ID = "kirara";
+  // 重复入口：键为隐藏的别名，值为保留的主入口（主入口缺失时别名照常展示）
+  const DUPLICATE_BLOCKS = {
+    web_search: "webSearch", // 内建兼容别名，实际调用 webSearch 方块
+    file_read: "readFile", // 工作区文本读取，文件读取统一由 readFile 展示
+  };
   const BLOCK_CATEGORY_ICONS = {
     CoT: "🧠",
     办公: "📄",
@@ -52,10 +57,21 @@
   const BRICK_BASE = "/static/sprites/bricks/";
   const BRICK_RULES = [
     [/readfile|read-file|read_file/i, "readFile.png"],
+    [/file_write|file-write|writefile|write_file/i, "fileWrite.png"],
+    [/file_edit|file-edit|editfile|edit_file/i, "editFile.png"],
+    [/list_dir|list-dir|listdir/i, "listDir.png"],
+    [/grep|grep_text|grep-text/i, "grepText.png"],
+    [/glob|wildcard/i, "glob.png"],
     [/screenshot|recognition/i, "screenshotRecognition.png"],
     [/websearch|web-search|web_search|search/i, "webSearch.png"],
-    [/digest|automation|flow|cron/i, "plan.png"],
+    [/galax/i, "galax.png"],
     [/netrunner|code|coding|codegen/i, "netrunner.png"],
+    [/shell|commandprompt|command|终端|命令/i, "shell.png"],
+    [/orbiter/i, "orbiter.png"],
+    [/realitycheck|reality-check|reality_check/i, "realityCheck.png"],
+    [/areyouundertrouble|undertrouble/i, "crisisSupport.png"],
+    [/kirara|trivia/i, "kiraraTrivia.png"],
+    [/digest|automation|flow|cron/i, "plan.png"],
   ];
 
   const state = {
@@ -119,9 +135,15 @@
   }
 
   function mergedBlockItems() {
-    return blockItems("builtin").concat(
+    const items = blockItems("builtin").concat(
       blockItems("mod").filter((item) => !isKiraraBlock(item))
     );
+    // 同名/同语义的重复入口只保留主入口；能力本身仍在运行时可用，部署页仍可分别管理
+    const ids = new Set(items.map((item) => item.id));
+    return items.filter((item) => {
+      const primary = DUPLICATE_BLOCKS[item.id];
+      return !(primary && ids.has(primary));
+    });
   }
 
   /* 技能包按能力语义并入自有分类；识别不到语义时退回「其他」 */
@@ -155,6 +177,13 @@
       if (re.test(haystack)) return label;
     }
     return MOD_DEFAULT_CATEGORY;
+  }
+
+  function aliasNamesOf(item) {
+    const ids = new Set(blockItems("builtin").concat(blockItems("mod")).map((block) => block.id));
+    return Object.keys(DUPLICATE_BLOCKS).filter(
+      (alias) => DUPLICATE_BLOCKS[alias] === item.id && ids.has(alias)
+    );
   }
 
   function skillItems() {
@@ -504,6 +533,10 @@
       (item.cat === "blocks"
         ? '<div class="inv-tooltip-row"><span>分类</span><span>' +
           escapeHtml((item.source === "mod" ? "MOD · " : "自有 · ") + item.category) + "</span></div>"
+        : "") +
+      (aliasNamesOf(item).length
+        ? '<div class="inv-tooltip-row"><span>同能力入口</span><code>' +
+          escapeHtml(aliasNamesOf(item).join(", ")) + "</code></div>"
         : "") +
       (item.modId
         ? '<div class="inv-tooltip-row"><span>来源</span><code>' + escapeHtml(item.modId) + "</code></div>"

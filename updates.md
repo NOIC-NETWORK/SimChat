@@ -1,5 +1,15 @@
 # 最近更新
 
+**2026-11-19** — MOD 前端入口规范、config 校验收紧与桌面宠物入库
+
+- **MOD 前端入口规范**：manifest 新增顶层 `frontend_entry`，只允许 `web/` 下的 `.html` 相对路径，禁止 `..`、反斜杠与空格；schema 与加载器双重校验，指向不存在或越界的文件直接拒绝加载。`mods_index` 输出 `frontend_entry`/`frontend_url`，新增 `/mods/<id>` 与 `/mods/<id>/` 路由返回声明的入口页，控制台 MOD 详情增加「前端入口」链接。Kirara 声明 `web/index.html`。
+- **config 校验收紧**：`config` 仅允许 `persona`/`system_prompt_file`/`params`/`theme`/`models`，未知键直接失败；提示词与主题必须是包内相对路径；`params` 只接受字符串/数字/布尔标量；`models` 改为严格的 `primary`/`runtime` 子 schema，`roles`、`status` 等字段也受约束。加载器执行同一套规则，不合法即拒绝加载。
+- **启动顺序修复**：`AutomationEngine` 改为在 `discover()` 之前创建并启动，automation 类型 MOD 在加载期即可注册 flow；`automation_daily_digest` 恢复 `loaded`，`daily.workspace.digest` 正常注册。
+- **桌宠固化进包**：Kirara 的桌宠页面迁入 `mods/kirara/web/index.html`，立绘与圆球 logo 放入 `mods/kirara/web/sprites/`（9 套立绘 + logo，约 10.8MB）；原 `preview/` 已删除，不再依赖包外资源。
+- **物品栏去重与图标**：隐藏 `web_search`、`file_read` 两个重复入口，并在保留入口的提示中列出同能力别名；已由方块覆盖的技能包入口继续去重。新增 `glob`、`grepText`、`fileWrite`、`realityCheck`、`crisisSupport`、`kiraraTrivia` 六个方块图标，`inventory.js` 版本号更新为 `20261119d`。
+- **验证**：`bricks` 图标与 `mods/kirara/web/` 资源均未被 `.gitignore` 忽略；Kirara 桌宠页面只引用包内相对路径 `sprites/...`；`automation_daily_digest` 已跟踪且未被停用。
+- 文件：`.simchat/spec/mod-manifest.schema.json`、`.simchat/loader/manifest.py`、`.simchat/loader/lifecycle.py`、`.simchat/runtime/mods_index.py`、`.simchat/web/__init__.py`、`.simchat/web/static/js/chat.js`、`.simchat/web/static/js/inventory.js`、`.simchat/web/templates/index.html`、`.simchat/mods/kirara/manifest.json`、`.simchat/mods/kirara/web/`、`.simchat/web/static/sprites/bricks/`（6 个新图标）、`updates.md`
+
 **2026-11-19** — Orbiter 方块、Kirara 只读地图、JRVS 双路径评测与前端收尾
 
 - **宿主新增 `orbiter` 方块**：按 README 契约解析 `/@<模型名> -prompt "..."`、`/@<模型名> -mode=image` + 下一行 spec、`/$ <命令> -dir "..."`。本地 JRVS 先分诊，简单问题直接答；复杂任务才派发云端。润色只走本地 JRVS，原始提示词不上云；本地不可用时 fail closed，没有云端润色兜底。方块 `risk=write`，每次云端外发都走审批，拒绝时返回 `denied=approval` 且不调用任何模型。

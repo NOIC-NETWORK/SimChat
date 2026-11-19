@@ -36,7 +36,7 @@ KNOWN_LAYERS = frozenset(["block", "mod"])
 
 TOP_LEVEL_KEYS = frozenset([
     "$schema", "id", "type", "layer", "name", "description", "version", "abi", "entry",
-    "hooks", "capabilities", "requires", "assets", "license", "homepage",
+    "hooks", "capabilities", "requires", "assets", "frontend_entry", "license", "homepage",
     "repository", "signature", "integrity", "config", "automation",
 ])
 
@@ -58,6 +58,20 @@ VERSION_RE = re.compile(
     r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
 )
 ENTRY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
+FRONTEND_ENTRY_RE = re.compile(r"^web/(?!.*\.\.)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*\.html?$")
+
+# config 键白名单：MOD 自描述数据，宿主不得合并进本体配置
+CONFIG_KEYS = frozenset(["persona", "system_prompt_file", "params", "theme", "models"])
+MODELS_KEYS = frozenset([
+    "primary", "role", "label", "why", "persona_system",
+    "runtime", "roles", "status", "not_implemented",
+])
+MODELS_RUNTIME_KEYS = frozenset([
+    "backend", "model", "context_window", "gpu_layers", "kv_cache", "keep_alive",
+])
+MODELS_ROLES = frozenset(["chat", "polish", "orchestrate"])
+MODEL_ROLE_VALUES = frozenset(["active", "planned", "disabled"])
+REL_PATH_RE = re.compile(r"^(?!/)(?!.*\.\.)[A-Za-z0-9._/-]+$")
 DOMAIN_RE = re.compile(r"^[a-z0-9*]([a-z0-9.-]*[a-z0-9])?$")
 INTEGRITY_RE = re.compile(r"^sha256:[a-f0-9]{64}$")
 
@@ -128,6 +142,10 @@ def validate_manifest(data):
     if capabilities is not None:
         errors.extend(_validate_capabilities(capabilities))
 
+    config = data.get("config")
+    if config is not None:
+        errors.extend(_validate_config(config))
+
     requires = data.get("requires")
     if requires is not None and not isinstance(requires, dict):
         errors.append("requires 必须是对象")
@@ -145,6 +163,10 @@ def validate_manifest(data):
             pass
         elif not _is_str(entry) or not ENTRY_RE.match(entry):
             errors.append("entry 必须形如 module:attr")
+    frontend_entry = data.get("frontend_entry")
+    if frontend_entry is not None:
+        if not _is_str(frontend_entry) or not FRONTEND_ENTRY_RE.match(frontend_entry):
+            errors.append("frontend_entry 必须是 web/ 目录下的 .html 相对路径（如 web/index.html）")
     if mod_type in ("skill", "automation", "binary"):
         if not entry:
             errors.append("%s 类型必须声明 entry" % mod_type)
@@ -177,6 +199,114 @@ def validate_manifest(data):
         errors.append("integrity 格式必须为 sha256:<64 hex>")
 
     return errors, warnings
+
+
+def _validate_config(config):
+    """config 为 MOD 自描述数据：键白名单 + 严格类型，未知键直接失败。"""
+    errors = []
+    if not isinstance(config, dict):
+        return ["config 必须是对象"]
+
+    unknown = sorted(set(config) - CONFIG_KEYS)
+    if unknown:
+        errors.append("config 含未知字段: %s" % ", ".join(unknown))
+
+    persona = config.get("persona")
+    if persona is not None and (not _is_str(persona) or len(persona) > 64):
+        errors.append("config.persona 必须是 1-64 字符的字符串")
+
+    for key in ("system_prompt_file", "theme"):
+        value = config.get(key)
+        if value is not None and (not _is_str(value) or not REL_PATH_RE.match(value)):
+            errors.append("config.%s 必须是包内相对路径（禁止 ..、绝对路径与反斜杠）" % key)
+
+    params = config.get("params")
+    if params is not None:
+        if not isinstance(params, dict):
+            errors.append("config.params 必须是对象")
+        else:
+            for name, value in params.items():
+                if isinstance(value, bool) or isinstance(value, (str, int, float)):
+                    continue
+                errors.append("config.params.%s 只允许字符串/数字/布尔值" % name)
+
+    models = config.get("models")
+    if models is not None:
+        errors.extend(_validate_models(models))
+
+    return errors
+
+
+def _validate_models(models):
+    errors = []
+    if not isinstance(models, dict):
+        return ["config.models 必须是对象"]
+
+    unknown = sorted(set(models) - MODELS_KEYS)
+    if unknown:
+        errors.append("config.models 含未知字段: %s" % ", ".join(unknown))
+
+    for key in ("primary", "runtime"):
+        if key not in models:
+            errors.append("config.models 缺少必填字段: %s" % key)
+
+    primary = models.get("primary")
+    if primary is not None and (not _is_str(primary) or len(primary) > 64):
+        errors.append("config.models.primary 必须是 1-64 字符的字符串")
+
+    for key, limit in (("role", 64), ("label", 200), ("persona_system", 128), ("status", 64)):
+        value = models.get(key)
+        if value is not None and (not _is_str(value) or len(value) > limit):
+            errors.append("config.models.%s 必须是非空字符串且不超过 %d 字符" % (key, limit))
+
+    for key in ("why", "not_implemented"):
+        value = models.get(key)
+        if value is not None and not _is_str_list(value):
+            errors.append("config.models.%s 必须是字符串数组" % key)
+        elif value is not None and any(len(item) > 500 for item in value):
+            errors.append("config.models.%s 单条内容不得超过 500 字符" % key)
+
+    runtime = models.get("runtime")
+    if runtime is not None:
+        if not isinstance(runtime, dict):
+            errors.append("config.models.runtime 必须是对象")
+        else:
+            unknown = sorted(set(runtime) - MODELS_RUNTIME_KEYS)
+            if unknown:
+                errors.append("config.models.runtime 含未知字段: %s" % ", ".join(unknown))
+            for key in ("backend", "model"):
+                if key not in runtime:
+                    errors.append("config.models.runtime 缺少必填字段: %s" % key)
+            backend = runtime.get("backend")
+            if backend is not None and (not _is_str(backend) or not re.match(r"^[a-z0-9][a-z0-9_.-]{0,31}$", backend)):
+                errors.append("config.models.runtime.backend 只允许小写字母、数字与 _.-（不超过 32 字符）")
+            model = runtime.get("model")
+            if model is not None and (not _is_str(model) or len(model) > 200):
+                errors.append("config.models.runtime.model 必须是 1-200 字符的字符串")
+            window = runtime.get("context_window")
+            if window is not None and (type(window) is not int or not 128 <= window <= 1048576):
+                errors.append("config.models.runtime.context_window 必须是 128-1048576 的整数")
+            layers = runtime.get("gpu_layers")
+            if layers is not None and (type(layers) is not int or not 0 <= layers <= 999):
+                errors.append("config.models.runtime.gpu_layers 必须是 0-999 的整数")
+            for key in ("kv_cache", "keep_alive"):
+                value = runtime.get(key)
+                if value is not None and (not _is_str(value) or len(value) > 32):
+                    errors.append("config.models.runtime.%s 必须是 1-32 字符的字符串" % key)
+
+    roles = models.get("roles")
+    if roles is not None:
+        if not isinstance(roles, dict):
+            errors.append("config.models.roles 必须是对象")
+        else:
+            unknown = sorted(set(roles) - MODELS_ROLES)
+            if unknown:
+                errors.append("config.models.roles 含未知字段: %s" % ", ".join(unknown))
+            for name, value in roles.items():
+                if name in MODELS_ROLES and (not isinstance(value, str) or value not in MODEL_ROLE_VALUES):
+                    errors.append("config.models.roles.%s 必须是 active/planned/disabled" % name)
+
+    return errors
 
 
 def _validate_capabilities(capabilities):

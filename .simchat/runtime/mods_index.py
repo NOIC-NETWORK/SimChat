@@ -122,6 +122,8 @@ def _scan_one(folder_name, package_dir, manifest_path, disabled):
         "warnings": [],
         "enabled": True,
         "has_web": False,
+        "frontend_entry": None,
+        "frontend_url": "",
         "automation": None,
     }
     try:
@@ -160,6 +162,24 @@ def _scan_one(folder_name, package_dir, manifest_path, disabled):
 
     # 前端资源目录（存在 web/ 视为该 MOD 提供前端扩展）
     base["has_web"] = os.path.isdir(os.path.join(package_dir, "web"))
+
+    # 前端入口：只认 manifest.frontend_entry，且必须真实落在包内 web/ 目录
+    frontend_entry = manifest.get("frontend_entry")
+    if isinstance(frontend_entry, str) and frontend_entry:
+        base["frontend_entry"] = frontend_entry
+        web_dir = os.path.realpath(os.path.join(package_dir, "web"))
+        target = os.path.realpath(os.path.join(package_dir, frontend_entry))
+        try:
+            inside = os.path.commonpath([target, web_dir]) == web_dir
+        except ValueError:
+            inside = False
+        if not inside or not os.path.isfile(target):
+            base["errors"].append("frontend_entry 指向的文件不存在: %s" % frontend_entry)
+            base["status"] = "err"
+            base["error"] = "; ".join(base["errors"])
+        else:
+            rel = frontend_entry[len("web/"):]
+            base["frontend_url"] = "/mods/%s/%s" % (mod_id, rel)
 
     # automation MOD：顺手读取 flow.json 供控制台展示（纯数据，不执行）
     automation = manifest.get("automation")
