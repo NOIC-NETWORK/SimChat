@@ -217,7 +217,7 @@ def _validate_desktop(desktop):
         return errors
     if not isinstance(pet, dict):
         return errors + ["desktop.pet 必须是对象"]
-    unknown = sorted(set(pet) - {"sprite", "page", "height"})
+    unknown = sorted(set(pet) - {"sprite", "page", "height", "entry"})
     if unknown:
         errors.append("desktop.pet 含未知字段: %s" % ", ".join(unknown))
     sprite = pet.get("sprite")
@@ -230,6 +230,10 @@ def _validate_desktop(desktop):
     if height is not None and (isinstance(height, bool) or not isinstance(height, int)
                                or not 96 <= height <= 1200):
         errors.append("desktop.pet.height 必须是 96-1200 的整数")
+    entry = pet.get("entry")
+    if entry is not None and (not _is_str(entry) or not REL_PATH_RE.match(entry)
+                              or not entry.lower().endswith(".py")):
+        errors.append("desktop.pet.entry 必须是包内相对 .py 路径")
     return errors
 
 

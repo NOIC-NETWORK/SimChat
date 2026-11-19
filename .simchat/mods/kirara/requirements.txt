@@ -1,0 +1,15 @@
+# 核心依赖
+chromadb
+sentence-transformers
+importlib-metadata
+supervisor
+gunicorn
+requests
+beautifulsoup4
+# 其他依赖
+pyautogui
+# 本地音声合成（SAPI5 / nsss / espeak）
+pyttsx3
+# 桌宠窗口脚本 python/pet_window.py（仅 Windows，手动运行）
+pywin32
+pillow

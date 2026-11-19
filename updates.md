@@ -1,9 +1,28 @@
 # 最近更新
 
+**2026-11-20** — 桌宠由 MOD 声明自动拉起，子进程编码统一 UTF-8
+
+- **声明**：`desktop.pet` 新增可选 `entry`，必须是包内相对 `.py` 路径（与 `sprite` 同一套防越界规则）；Kirara 声明 `python/pet_window.py`。
+- **触发**：Web 服务端口真正监听成功后，宿主在跑服务的进程里扫描已启用 MOD（`mods_index.scan`），对每个声明拉起独立子进程；`--no-browser` 不影响，debug reloader 不重复拉起。
+- **边界**：不做托盘、不写偏好、不做开关、不守护重启、不做单实例窗口复用；桌宠进程挂了不会被再次拉起。
+- **收尾**：`app.run` 的 `finally` 与 `atexit` 都会调用 `stop_all()`，服务退出时终止桌宠，避免孤儿进程。
+- **修复**：`pet_window.py` 主线程由 `threading.Event().wait()` 改为等待窗口线程结束，窗口销毁后进程能自行退出。
+- **编码**：`loader/sandbox.py` 给隔离子进程注入 `PYTHONIOENCODING=utf-8`；`mods/kirara/services/jrvs.py` 的 ollama 子进程输出统一按 UTF-8 解码。
+- 文件：`.simchat/loader/sandbox.py`、`.simchat/mods/kirara/services/jrvs.py`、`.simchat/loader/manifest.py`、`.simchat/spec/mod-manifest.schema.json`、`.simchat/runtime/pet_launcher.py`、`.simchat/web/__main__.py`、`.simchat/mods/kirara/python/pet_window.py`、`.simchat/mods/kirara/manifest.json`、`.simchat/mods/kirara/README.md`、`.simchat/mods/kirara/requirements.txt`、`updates.md`
+
+**2026-11-19** — 撤回桌面壳，启动方式回到命令行 + 浏览器
+
+- **启动链路回退**：`entry.py` 默认子命令回到 `web`，`web/__main__.py` 恢复端口就绪后自动打开浏览器，`runtime/lifecycle.py` 恢复 `_spawn_web` / `open_browser`，`run.ps1`、`run.bat`、README 与教程回到浏览器启动文案。
+- **删除桌面壳**：移除 `.simchat/shell/`（`desktop_app.py`、`pywebview_shell.py`、`layered_pet.py`）与 `data/desktop_shell.json`；托盘、关闭行为、偏好持久化、单实例窗口复用与 `--tui` 占位一并删除。
+- **桌宠归 MOD**：桌宠窗口改为 Kirara 行为包自己的可选脚本 `.simchat/mods/kirara/python/pet_window.py`（读立绘、开透明置顶可拖窗口、右键退出），依赖 `pywin32`、`pillow` 写入该包的 `requirements.txt`。宿主不新增 CLI 子命令；自动拉起方式见 2026-11-20 条目。
+- **`.simchatLc` 陪回退**：`CMakeLists.txt`、`_includes/app.h`、`_includes/window.h`、`launcher.cpp`、`src/window_win32.cpp` 回到「找 Python → 起服务 → 等健康检查 → 打开浏览器」的启动器；WebView2 / 托盘 / 桌宠的 13 个新增源文件与 `third_party/webview2/` 已删除，构建结构未改。
+- **检查范围**：只做静态检查（Python 编译与导入、残留标识 grep、两条入口路径核对），未实跑浏览器、未重新编译 C++。
+- 文件：`.simchat/scripts/entry.py`、`.simchat/web/__main__.py`、`.simchat/runtime/lifecycle.py`、`.simchat/scripts/run.ps1`、`.simchat/scripts/run.bat`、`README.md`、`.simchat/docs/tutorials/`（6 篇）、`.simchat/mods/kirara/python/pet_window.py`、`.simchat/mods/kirara/requirements.txt`、`.simchat/mods/kirara/README.md`、`.simchatLc/`（5 个恢复 + 13 个删除）、`updates.md`
+
 **2026-11-19** — MOD 桌面集成声明与图标资产
 
 - **`desktop.pet` 声明**：manifest 新增顶层 `desktop.pet`，schema 与加载器同时校验——`sprite` 必须是包内相对 `.png`，`page` 必须是 `web/` 下 `.html`，`height` 限定 96~1200 整数，未知字段直接拒绝加载。Kirara 声明桌宠立绘、交互页与 480 高度。
-- **索引透出**：`mods_index` 为每个 MOD 输出 `desktop` 字段，供桌面壳按已启用 MOD 决定是否创建桌宠。
+- **索引透出**：`mods_index` 为每个 MOD 输出 `desktop` 字段，供 MOD 自身或下游客户端读取；宿主不据此创建任何窗口。
 - **图标资产**：`web/static/sprites/logos/simChat-1.png` 已在版本控制中；新增 `web/static/sprites/logos/simChat.ico`，更新 `.simchatLc/resources/simchat.ico`。
 - 文件：`.simchat/spec/mod-manifest.schema.json`、`.simchat/loader/manifest.py`、`.simchat/mods/kirara/manifest.json`、`.simchat/runtime/mods_index.py`、`.simchat/web/static/sprites/logos/simChat.ico`、`.simchatLc/resources/simchat.ico`、`updates.md`
 

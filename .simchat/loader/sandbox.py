@@ -64,6 +64,10 @@ def run_isolated(package_dir, entry_spec, manifest, timeout=_DEFAULT_TIMEOUT,
     }
 
     # 启动 runner
+    # 管道编码固定 UTF-8：Windows 下子进程默认按 locale（cp936）编码 stdin/stdout，
+    # 宿主按 UTF-8 读取时会把 MOD/Skill 的中文 meta 与工具输出全解成替换字符。
+    child_env = os.environ.copy()
+    child_env["PYTHONIOENCODING"] = "utf-8"
     try:
         args = [
             sys.executable, _SCRIPT,
@@ -83,6 +87,7 @@ def run_isolated(package_dir, entry_spec, manifest, timeout=_DEFAULT_TIMEOUT,
             stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace",
             bufsize=1,
+            env=child_env,
         )
         handle["proc"] = proc
     except Exception as e:

@@ -13,7 +13,8 @@
     "pet": {
       "sprite": "sprites/characters/kirara/common/kirara-common-default.png",
       "page": "web/index.html",
-      "height": 480
+      "height": 480,
+      "entry": "python/pet_window.py"
     }
   },
   "hooks": [

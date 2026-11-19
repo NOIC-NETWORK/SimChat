@@ -39,19 +39,36 @@ def launch_browser(url):
     return False
 
 
-def open_browser_when_ready(url, port, timeout=_OPEN_TIMEOUT):
-    """等服务真正监听后再打开浏览器，避免打开空白页或「无法连接」页。"""
+def _wait_until_listening(port, timeout=_OPEN_TIMEOUT):
+    """轮询本机端口，直到服务真正监听；超时返回 False。"""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                pass
+                return True
         except OSError:
             time.sleep(0.25)
-            continue
-        launch_browser(url)
-        return True
     return False
+
+
+def open_browser_when_ready(url, port, timeout=_OPEN_TIMEOUT):
+    """等服务真正监听后再打开浏览器，避免打开空白页或「无法连接」页。"""
+    if not _wait_until_listening(port, timeout):
+        return False
+    launch_browser(url)
+    return True
+
+
+def _pet_autostart(port):
+    """Flask 监听成功后再为已启用 MOD 拉起桌宠；失败只记日志。"""
+    if not _wait_until_listening(port):
+        return
+    try:
+        from simchat.runtime import pet_launcher
+
+        pet_launcher.launch_enabled()
+    except Exception as error:
+        print("[SimChat] 桌宠启动失败：%s" % error)
 
 
 def _install_lifecycle_hooks(host, port):
@@ -122,16 +139,27 @@ def main(argv=None):
     app = create_app()
     _install_lifecycle_hooks(args.host, args.port)
     print("[SimChat] Web 界面已启动: %s" % (url or "http://%s:%s" % (args.host, args.port)))
-    # 只在真正跑服务的进程里自动上线，避免 debug reloader 重复拉起机器人
-    if not args.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+    is_server_proc = not args.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+    if is_server_proc:
+        # 只在真正跑服务的进程里自动上线/拉起桌宠，避免 debug reloader 重复拉起
         threading.Thread(target=_bot_autostart, args=(app,), daemon=True).start()
+        threading.Thread(target=_pet_autostart, args=(args.port,), daemon=True).start()
     if should_open:
         threading.Thread(
             target=open_browser_when_ready,
             args=(url, args.port),
             daemon=True,
         ).start()
-    app.run(host=args.host, port=args.port, debug=args.debug, threaded=True)
+    try:
+        app.run(host=args.host, port=args.port, debug=args.debug, threaded=True)
+    finally:
+        # 服务退出时收掉本轮拉起的桌宠，避免留下孤儿进程
+        try:
+            from simchat.runtime import pet_launcher
+
+            pet_launcher.stop_all()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

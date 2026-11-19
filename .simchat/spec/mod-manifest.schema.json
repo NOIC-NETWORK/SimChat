@@ -176,6 +176,11 @@
               "minimum": 96,
               "maximum": 1200,
               "description": "桌宠显示高度（96 DPI 逻辑像素）。"
+            },
+            "entry": {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9._/-]+\\.py$",
+              "description": "可选：桌宠启动脚本（包内相对 .py 路径）。宿主在 Web 服务就绪且该 MOD 已启用时以独立子进程拉起；未声明则不启动。"
             }
           }
         }
