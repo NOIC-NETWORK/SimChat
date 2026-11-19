@@ -444,6 +444,7 @@ def register(api):
         label="screenshotRecognition",
         description=_instance.skill_description,
         risk="read",
+        category="检索",
         usage="screenshotRecognition PARAMS: ...",
         input_schema=_instance.input_schema,
         triggers=_instance.trigger_keywords,

@@ -507,6 +507,7 @@ def register(api):
         label="webSearch",
         description=_instance.skill_description,
         risk="read",
+        category="检索",
         usage="webSearch PARAMS: ...",
         input_schema=_instance.input_schema,
         triggers=_instance.trigger_keywords,

@@ -510,6 +510,7 @@ def register(api):
         label="readFile",
         description=_instance.skill_description,
         risk="read",
+        category="办公",
         usage="readFile PARAMS: ...",
         input_schema=_instance.input_schema,
         triggers=_instance.trigger_keywords,
