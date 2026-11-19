@@ -9,6 +9,13 @@
   "abi": "simchat-mod/2",
   "entry": "kirara_entry:register",
   "frontend_entry": "web/index.html",
+  "desktop": {
+    "pet": {
+      "sprite": "sprites/characters/kirara/common/kirara-common-default.png",
+      "page": "web/index.html",
+      "height": 480
+    }
+  },
   "hooks": [
     "agent.block",
     "agent.map",

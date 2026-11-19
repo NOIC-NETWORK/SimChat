@@ -124,6 +124,7 @@ def _scan_one(folder_name, package_dir, manifest_path, disabled):
         "has_web": False,
         "frontend_entry": None,
         "frontend_url": "",
+        "desktop": None,
         "automation": None,
     }
     try:
@@ -149,6 +150,7 @@ def _scan_one(folder_name, package_dir, manifest_path, disabled):
         "capabilities": manifest.get("capabilities") or {},
         "license": manifest.get("license") or "",
         "enabled": mod_id not in disabled,
+        "desktop": manifest.get("desktop"),
         "errors": errors,
         "warnings": warnings,
     })

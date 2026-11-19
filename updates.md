@@ -1,5 +1,12 @@
 # 最近更新
 
+**2026-11-19** — MOD 桌面集成声明与图标资产
+
+- **`desktop.pet` 声明**：manifest 新增顶层 `desktop.pet`，schema 与加载器同时校验——`sprite` 必须是包内相对 `.png`，`page` 必须是 `web/` 下 `.html`，`height` 限定 96~1200 整数，未知字段直接拒绝加载。Kirara 声明桌宠立绘、交互页与 480 高度。
+- **索引透出**：`mods_index` 为每个 MOD 输出 `desktop` 字段，供桌面壳按已启用 MOD 决定是否创建桌宠。
+- **图标资产**：`web/static/sprites/logos/simChat-1.png` 已在版本控制中；新增 `web/static/sprites/logos/simChat.ico`，更新 `.simchatLc/resources/simchat.ico`。
+- 文件：`.simchat/spec/mod-manifest.schema.json`、`.simchat/loader/manifest.py`、`.simchat/mods/kirara/manifest.json`、`.simchat/runtime/mods_index.py`、`.simchat/web/static/sprites/logos/simChat.ico`、`.simchatLc/resources/simchat.ico`、`updates.md`
+
 **2026-11-19** — 服务商厂牌化一期
 
 - **新增 `runtime/vendors.py` 厂牌注册表**：按 Vendor / Transport / Account / Model 四层组织，协议 id（`ollama`、`openai_compat`、`anthropic`）与厂牌 id（百炼、火山方舟、千帆、Azure OpenAI、OpenAI、SiliconFlow、DeepSeek、Anthropic、Ollama 等）等价解析；每个厂牌声明默认端点、鉴权方式、模型建议与参数白名单。`aws_bedrock` 只登记为规划，调用会明确报「尚未实现」。

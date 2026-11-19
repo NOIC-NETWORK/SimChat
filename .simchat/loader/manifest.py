@@ -36,7 +36,7 @@ KNOWN_LAYERS = frozenset(["block", "mod"])
 
 TOP_LEVEL_KEYS = frozenset([
     "$schema", "id", "type", "layer", "name", "description", "version", "abi", "entry",
-    "hooks", "capabilities", "requires", "assets", "frontend_entry", "license", "homepage",
+    "hooks", "capabilities", "requires", "assets", "frontend_entry", "desktop", "license", "homepage",
     "repository", "signature", "integrity", "config", "automation",
 ])
 
@@ -167,6 +167,9 @@ def validate_manifest(data):
     if frontend_entry is not None:
         if not _is_str(frontend_entry) or not FRONTEND_ENTRY_RE.match(frontend_entry):
             errors.append("frontend_entry 必须是 web/ 目录下的 .html 相对路径（如 web/index.html）")
+    desktop = data.get("desktop")
+    if desktop is not None:
+        errors.extend(_validate_desktop(desktop))
     if mod_type in ("skill", "automation", "binary"):
         if not entry:
             errors.append("%s 类型必须声明 entry" % mod_type)
@@ -199,6 +202,35 @@ def validate_manifest(data):
         errors.append("integrity 格式必须为 sha256:<64 hex>")
 
     return errors, warnings
+
+
+def _validate_desktop(desktop):
+    """desktop 为桌面集成声明：键白名单，桌宠立绘必须是包内相对 png。"""
+    errors = []
+    if not isinstance(desktop, dict):
+        return ["desktop 必须是对象"]
+    unknown = sorted(set(desktop) - {"pet"})
+    if unknown:
+        errors.append("desktop 含未知字段: %s" % ", ".join(unknown))
+    pet = desktop.get("pet")
+    if pet is None:
+        return errors
+    if not isinstance(pet, dict):
+        return errors + ["desktop.pet 必须是对象"]
+    unknown = sorted(set(pet) - {"sprite", "page", "height"})
+    if unknown:
+        errors.append("desktop.pet 含未知字段: %s" % ", ".join(unknown))
+    sprite = pet.get("sprite")
+    if not _is_str(sprite) or not REL_PATH_RE.match(sprite) or not sprite.lower().endswith(".png"):
+        errors.append("desktop.pet.sprite 必须是包内相对 .png 路径")
+    page = pet.get("page")
+    if page is not None and (not _is_str(page) or not FRONTEND_ENTRY_RE.match(page)):
+        errors.append("desktop.pet.page 必须是 web/ 目录下的 .html 相对路径")
+    height = pet.get("height")
+    if height is not None and (isinstance(height, bool) or not isinstance(height, int)
+                               or not 96 <= height <= 1200):
+        errors.append("desktop.pet.height 必须是 96-1200 的整数")
+    return errors
 
 
 def _validate_config(config):

@@ -151,6 +151,36 @@
       "pattern": "^web/(?!.*\\.\\.)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*\\.html?$",
       "description": "MOD 前端入口页面，必须位于包内 web/ 目录（如 web/index.html）。由宿主静态路由 /mods/<id>/ 提供访问；未声明则维持原有行为。"
     },
+    "desktop": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "桌面集成声明。宿主只在 MOD 已启用且声明有效时才创建对应桌面组件；未声明则桌面上不出现任何额外窗口。",
+      "properties": {
+        "pet": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sprite"],
+          "properties": {
+            "sprite": {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9._/-]+\\.png$",
+              "description": "桌宠立绘 PNG（包内相对路径，需带透明通道）。"
+            },
+            "page": {
+              "type": "string",
+              "pattern": "^web/(?!.*\\.\\.)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*\\.html?$",
+              "description": "可选：桌宠交互页，位于包内 web/ 目录。"
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 96,
+              "maximum": 1200,
+              "description": "桌宠显示高度（96 DPI 逻辑像素）。"
+            }
+          }
+        }
+      }
+    },
     "license": {
       "type": "string",
       "minLength": 1,
