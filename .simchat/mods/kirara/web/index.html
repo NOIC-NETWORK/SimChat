@@ -9,6 +9,22 @@
     --ink:#1c1f2b;
     --glass:rgba(255,255,255,.72);
     --ease:cubic-bezier(.2,.9,.3,1.25);
+
+    /* Kirara 按钮视觉语言（对齐 kirara.html 侧边栏 .nav-btn）
+       页面内独立定义，不与 kirara-wap.css 互相影响 */
+    --k-btn-bg:linear-gradient(135deg,#ffffff,#f0f0f0);
+    --k-btn-bg-active:linear-gradient(135deg,#ffd700,#ffb347);
+    --k-btn-border:#ff69b4;
+    --k-btn-border-hover:#ffd700;
+    --k-btn-radius:25px;
+    --k-btn-radius-round:50%;
+    --k-btn-color:#8a2be2;
+    --k-btn-font-size:12px;
+    --k-btn-font-weight:600;
+    --k-btn-icon-size:22px;
+    --k-btn-shadow-hover:0 5px 20px rgba(255,105,180,.4);
+    --k-btn-shadow-active:0 5px 20px rgba(255,215,0,.5);
+    --k-btn-transition:all .3s ease;
   }
   *{box-sizing:border-box;}
   html,body{height:100%;margin:0;overflow:hidden;}
@@ -128,28 +144,21 @@
   .bubble-text{animation:lineIn .28s ease;}
   @keyframes lineIn{from{opacity:0;transform:translateY(5px);}to{opacity:1;transform:none;}}
 
-  /* ---------- iMac 风格圆形按钮 ---------- */
+  /* ---------- Kirara 风格圆形按钮（对齐 .nav-btn） ---------- */
   .ring{position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;z-index:25;}
   .orb-btn{
     --tx:0px;--ty:0px;--d:0s;
     position:absolute;left:50%;top:50%;
-    width:56px;height:56px;border-radius:50%;
+    width:56px;height:56px;border-radius:var(--k-btn-radius-round);
     display:grid;place-items:center;
-    padding:0;border:1px solid rgba(255,255,255,.55);
-    background:
-      radial-gradient(circle at 32% 24%,rgba(255,255,255,.95),rgba(255,255,255,.38) 44%,rgba(255,255,255,.08) 72%),
-      var(--tint);
-    color:#fff;
-    box-shadow:
-      0 12px 22px rgba(0,0,0,.28),
-      0 0 0 .5px rgba(255,255,255,.2) inset,
-      0 -8px 16px rgba(255,255,255,.16) inset,
-      0 0 20px var(--glow);
-    backdrop-filter:blur(18px) saturate(150%);
-    -webkit-backdrop-filter:blur(18px) saturate(150%);
+    padding:0;border:2px solid var(--k-btn-border);
+    background:var(--k-btn-bg);
+    color:var(--k-btn-color);
+    box-shadow:0 12px 22px rgba(0,0,0,.28);
     opacity:0;pointer-events:none;
     transform:translate(-50%,-50%) translate(var(--tx),var(--ty)) scale(.9);
-    transition:opacity .18s ease,transform .2s ease,filter .2s ease;
+    translate:0 0;
+    transition:opacity .18s ease,transform .2s ease,translate .3s ease,box-shadow .3s ease,border-color .3s ease;
     cursor:pointer;
   }
   .ring.open .orb-btn{
@@ -162,17 +171,18 @@
     to{opacity:1;transform:translate(-50%,-50%) translate(var(--tx),var(--ty)) scale(1);}
   }
   .ring.open .orb-btn:hover{
-    filter:brightness(1.07) saturate(1.1);
-    transform:translate(-50%,-50%) translate(var(--tx),var(--ty)) scale(1.08);
-    box-shadow:
-      0 16px 26px rgba(0,0,0,.3),
-      0 0 0 .5px rgba(255,255,255,.3) inset,
-      0 -8px 16px rgba(255,255,255,.2) inset,
-      0 0 32px var(--glow);
+    translate:0 -3px;
+    border-color:var(--k-btn-border-hover);
+    box-shadow:var(--k-btn-shadow-hover);
   }
-  .ring.open .orb-btn:active{transform:translate(-50%,-50%) translate(var(--tx),var(--ty)) scale(.94);}
-  .orb-btn:focus-visible{outline:2px solid rgba(255,255,255,.9);outline-offset:3px;}
-  .orb-btn svg{width:23px;height:23px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.3));}
+  .ring.open .orb-btn:active{
+    translate:0 0;
+    background:var(--k-btn-bg-active);
+    border-color:var(--k-btn-border-hover);
+    box-shadow:var(--k-btn-shadow-active);
+  }
+  .orb-btn:focus-visible{outline:2px solid var(--k-btn-color);outline-offset:3px;}
+  .orb-btn svg{width:var(--k-btn-icon-size);height:var(--k-btn-icon-size);display:block;filter:drop-shadow(0 1px 2px rgba(138,43,226,.35));}
   .orb-btn::after{
     content:attr(data-label);
     position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%) translateY(-2px);
@@ -201,18 +211,30 @@
     margin-bottom:10px;text-transform:uppercase;
   }
   .dock-title span{letter-spacing:.4px;color:rgba(255,255,255,.32);font-size:10px;}
-  .chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;}
   .chip{
-    padding:5px 10px;border-radius:999px;
-    font-size:11.5px;line-height:1.2;color:rgba(255,255,255,.78);
-    background:rgba(255,255,255,.08);
-    border:1px solid rgba(255,255,255,.12);
-    cursor:pointer;transition:all .16s ease;
+    padding:7px 14px;border-radius:var(--k-btn-radius);
+    font-size:var(--k-btn-font-size);line-height:1.2;letter-spacing:.2px;
+    font-weight:var(--k-btn-font-weight);color:var(--k-btn-color);
+    background:var(--k-btn-bg);
+    border:2px solid var(--k-btn-border);
+    cursor:pointer;transition:var(--k-btn-transition);
   }
-  .chip:hover{background:rgba(255,255,255,.16);color:#fff;}
+  .chip:hover{
+    transform:translateY(-3px);
+    border-color:var(--k-btn-border-hover);
+    box-shadow:var(--k-btn-shadow-hover);
+  }
+  .chip:active{
+    transform:translateY(-1px) scale(.98);
+    background:var(--k-btn-bg-active);
+    border-color:var(--k-btn-border-hover);
+    box-shadow:var(--k-btn-shadow-active);
+  }
   .chip.active{
-    background:#fbfbfe;color:#151824;border-color:#fff;
-    box-shadow:0 4px 14px rgba(0,0,0,.25);
+    background:var(--k-btn-bg-active);color:var(--k-btn-color);
+    border-color:var(--k-btn-border-hover);
+    box-shadow:var(--k-btn-shadow-active);
   }
   .dock-foot{
     display:flex;align-items:center;justify-content:space-between;
@@ -221,11 +243,23 @@
     font-size:11px;color:rgba(255,255,255,.45);letter-spacing:.4px;
   }
   .dock-foot button{
-    font:inherit;color:rgba(255,255,255,.8);
-    background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);
-    border-radius:9px;padding:4px 10px;cursor:pointer;transition:all .16s ease;
+    font:inherit;font-size:var(--k-btn-font-size);font-weight:var(--k-btn-font-weight);
+    color:var(--k-btn-color);
+    background:var(--k-btn-bg);border:2px solid var(--k-btn-border);
+    border-radius:var(--k-btn-radius);padding:8px 16px;cursor:pointer;
+    transition:var(--k-btn-transition);
   }
-  .dock-foot button:hover{background:rgba(255,255,255,.2);color:#fff;}
+  .dock-foot button:hover{
+    transform:translateY(-3px);
+    border-color:var(--k-btn-border-hover);
+    box-shadow:var(--k-btn-shadow-hover);
+  }
+  .dock-foot button:active{
+    transform:translateY(-1px) scale(.96);
+    background:var(--k-btn-bg-active);
+    border-color:var(--k-btn-border-hover);
+    box-shadow:var(--k-btn-shadow-active);
+  }
 
   /* ---------- Toast ---------- */
   .toast{
