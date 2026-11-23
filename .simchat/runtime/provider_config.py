@@ -51,7 +51,7 @@ _MODELS_TTL = 15.0
 
 # 自动拉起 ollama 的状态：同一进程只尝试一次，失败后进入冷却，避免反复引爆进程。
 _serve_lock = threading.Lock()
-_serve_state = {"process": None, "attempt_at": 0.0, "error": ""}
+_serve_state = {"app": None, "attempt_at": 0.0, "error": ""}
 _SERVE_COOLDOWN = 20.0
 _SERVE_WAIT = 8.0
 
@@ -150,22 +150,44 @@ def _ollama_executable():
     return None
 
 
-def _spawn_ollama_serve(exe):
+def _ollama_app_executable():
+    """定位 Ollama 桌面端 app：与 CLI 同目录的 `ollama app.exe`；找不到返回 None。"""
+    exe = _ollama_executable()
+    if not exe:
+        return None
+    app = os.path.join(os.path.dirname(exe), "ollama app.exe")
+    return app if os.path.isfile(app) else None
+
+
+def _launch_ollama_app(app):
+    """隐藏控制台地启动 Ollama app：服务统一由 app 负责拉起。"""
     kwargs = {
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
     }
     if os.name == "nt":
-        # DETACHED_PROCESS | CREATE_NO_WINDOW：不弹黑窗，SimChat 退出后继续服务
-        kwargs["creationflags"] = 0x00000008 | 0x08000000
+        kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW：不弹控制台
     else:
         kwargs["start_new_session"] = True
-    return subprocess.Popen([exe, "serve"], **kwargs)
+    return subprocess.Popen([app], **kwargs)
+
+
+def _ollama_app_running():
+    """检测 Ollama 桌面端 app（ollama app.exe）是否在运行；检测失败按未运行处理。"""
+    try:
+        import psutil
+        for proc in psutil.process_iter(["name"]):
+            name = (proc.info.get("name") or "").lower()
+            if name == "ollama app.exe":
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def ensure_ollama_serving(cfg, wait=None):
-    """有 ollama 就自动拉起。返回 (ok, message)。"""
+    """端口可达即返回可用；不可达时由 Ollama app 负责拉起服务。返回 (ok, message)。"""
     models, _ = _ollama_tags(cfg, timeout=1.0)
     if models is not None:
         return True, "Ollama 服务已在运行"
@@ -183,16 +205,22 @@ def ensure_ollama_serving(cfg, wait=None):
         if models is not None:
             return True, "Ollama 服务已在运行"
 
-        process = _serve_state.get("process")
-        if process is None or process.poll() is not None:
+        # 架构口径：Ollama app 是模型服务提供方，SimChat 只做客户端，
+        # 不再自行 spawn `ollama serve`；app 未运行时启动 app（隐藏控制台）。
+        launched = False
+        if not _ollama_app_running():
             now = time.monotonic()
             if now - _serve_state.get("attempt_at", 0.0) >= _SERVE_COOLDOWN:
+                app = _ollama_app_executable()
+                if not app:
+                    return False, "未找到 Ollama app（请先安装 Ollama 桌面端）"
                 try:
-                    _serve_state["process"] = _spawn_ollama_serve(exe)
+                    _serve_state["app"] = _launch_ollama_app(app)
                     _serve_state["attempt_at"] = now
                     _serve_state["error"] = ""
+                    launched = True
                 except Exception as error:
-                    _serve_state["error"] = "拉起 Ollama 失败（%s）" % _short(error)
+                    _serve_state["error"] = "启动 Ollama app 失败（%s）" % _short(error)
                     return False, _serve_state["error"]
             elif _serve_state.get("error"):
                 return False, _serve_state["error"]
@@ -201,9 +229,11 @@ def ensure_ollama_serving(cfg, wait=None):
         while time.monotonic() < deadline:
             models, _ = _ollama_tags(cfg, timeout=1.0)
             if models is not None:
-                return True, "已自动拉起 Ollama 服务"
+                if launched:
+                    return True, "已启动 Ollama app 并等待到服务"
+                return True, "Ollama 服务已在运行"
             time.sleep(0.35)
-    return False, "Ollama 启动超时（可手动运行 ollama serve）"
+    return False, "Ollama 启动超时（Ollama app 未能提供服务）"
 
 
 def _model_installed(configured, installed):

@@ -1,5 +1,14 @@
 # 最近更新
 
+**2026-11-23** — Ollama 服务改由桌面端 app 托管，子进程不再闪控制台
+
+- **架构口径**：Ollama app 是模型服务的提供方，SimChat 只做客户端，不再自行 spawn `ollama serve`；`_serve_state` 里保存的从服务进程句柄改为 app 句柄。
+- **定位与启动**：新增 `_ollama_app_executable()`，在 Ollama CLI 同目录查找 `ollama app.exe`；新增 `_launch_ollama_app()`，以 `CREATE_NO_WINDOW`（0x08000000）启动 app，不再叠加 `DETACHED_PROCESS`；新增 `_ollama_app_running()`，用 `psutil` 按进程名判断 app 是否已在运行。
+- **健康等待与文案**：`ensure_ollama_serving()` 先探测端口，可达即返回；不可达且 app 未运行时启动 app，再轮询 `/api/tags`。找不到 app 时明确返回「未找到 Ollama app（请先安装 Ollama 桌面端）」；超时文案改为「Ollama app 未能提供服务」；原有启动冷却期保留。
+- **子进程隐藏控制台**：`loader/sandbox.py` 给隔离子进程加 `creationflags=subprocess.CREATE_NO_WINDOW`（仅 Windows），stdio 仍走管道；`mods/kirara/services/jrvs.py` 新增 `_run_ollama_cli()` 与 `_no_window_kwargs()`，把 `ollama list / --version / pull / create` 从 `shell=True` 字符串改为参数列表调用并带上 `CREATE_NO_WINDOW`。
+- **验证**：Python 3.9 编译检查通过（`provider_config.py`、`sandbox.py`、`jrvs.py`）；未在本机实跑 Ollama 桌面端。
+- 文件：`.simchat/runtime/provider_config.py`、`.simchat/loader/sandbox.py`、`.simchat/mods/kirara/services/jrvs.py`、`updates.md`
+
 **2026-11-20** — 桌宠由 MOD 声明自动拉起，子进程编码统一 UTF-8
 
 - **声明**：`desktop.pet` 新增可选 `entry`，必须是包内相对 `.py` 路径（与 `sprite` 同一套防越界规则）；Kirara 声明 `python/pet_window.py`。

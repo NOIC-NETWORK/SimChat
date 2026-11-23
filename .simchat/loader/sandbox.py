@@ -80,6 +80,8 @@ def run_isolated(package_dir, entry_spec, manifest, timeout=_DEFAULT_TIMEOUT,
             args += ["--data-dir", data_dir]
         if workspace_dir:
             args += ["--workspace-dir", workspace_dir]
+        # Windows 下隐藏子进程控制台窗口；stdio 仍走管道，行为不变
+        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         proc = subprocess.Popen(
             args,
             stdin=subprocess.PIPE,
@@ -88,6 +90,7 @@ def run_isolated(package_dir, entry_spec, manifest, timeout=_DEFAULT_TIMEOUT,
             text=True, encoding="utf-8", errors="replace",
             bufsize=1,
             env=child_env,
+            creationflags=creationflags,
         )
         handle["proc"] = proc
     except Exception as e:

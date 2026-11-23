@@ -112,11 +112,30 @@ except Exception as _kb_import_error:
     KnowledgeBase = None
     print(f"[警告] knowledge_base 模块加载失败: {_kb_import_error}")
 
+def _run_ollama_cli(args, timeout):
+    """执行 ollama CLI：不走 shell，Windows 下加 CREATE_NO_WINDOW 避免闪出控制台窗口。"""
+    kwargs = {}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    return subprocess.run(
+        ["ollama"] + list(args),
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=timeout, **kwargs
+    )
+
+
+def _no_window_kwargs():
+    """Windows 下让子进程不创建控制台窗口；其他平台返回空参数。"""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
+
 def check_environ():
     # 检查 ollama 服务是否运行
     try:
         # 尝试执行一个简单的 ollama 命令来检查服务状态
-        result = subprocess.run("ollama list", shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5)
+        result = _run_ollama_cli(["list"], timeout=5)
         if result.returncode == 0:
             print("[System] ollama 服务已运行")
         else:
@@ -134,7 +153,7 @@ class ModelDeploymentChecker:
 
     def check_ollama_installation(self):
         try:
-            result = subprocess.run("ollama --version", shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5)
+            result = _run_ollama_cli(["--version"], timeout=5)
             if result.returncode == 0:
                 self.ollama_available = True
                 version_info = result.stdout.strip()
@@ -161,7 +180,7 @@ class ModelDeploymentChecker:
             return False, "Ollama 不可用"
         
         try:
-            result = subprocess.run("ollama list", shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
+            result = _run_ollama_cli(["list"], timeout=10)
             if result.returncode == 0:
                 self.ollama_service_running = True
                 print("[Deploy] Ollama 服务已运行")
@@ -241,7 +260,7 @@ class ModelDeploymentChecker:
         ollama_model_name = model_config["ollama_model"]
         
         try:
-            result = subprocess.run("ollama list", shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5)
+            result = _run_ollama_cli(["list"], timeout=5)
             if result.returncode == 0:
                 model_list = result.stdout
                 if ollama_model_name in model_list:
@@ -277,11 +296,11 @@ class ModelDeploymentChecker:
         if model_config.get("source") == "hub":
             print(f"[Deploy] 正在从 Ollama Hub 拉取模型: {ollama_model_name}")
             result = subprocess.run(
-                f"ollama pull {ollama_model_name}",
-                shell=True,
+                ["ollama", "pull", ollama_model_name],
                 capture_output=True,
                 text=True,
-                timeout=600
+                timeout=600,
+                **_no_window_kwargs()
             )
             if result.returncode == 0:
                 self.model_status[model_key]["ollama_registered"] = True
@@ -324,11 +343,11 @@ class ModelDeploymentChecker:
             
             print(f"[Deploy] 正在创建 Ollama 模型: {ollama_model_name}")
             result = subprocess.run(
-                f"ollama create {ollama_model_name} -f \"{temp_modelfile}\"",
-                shell=True,
+                ["ollama", "create", ollama_model_name, "-f", temp_modelfile],
                 capture_output=True,
                 text=True,
-                timeout=120
+                timeout=120,
+                **_no_window_kwargs()
             )
             
             if result.returncode == 0:
