@@ -15,6 +15,9 @@ dev-keys/
 # 技能 / MOD 的启停状态（skills/ 与 mods/ 各落一份，按文件名统一忽略）
 **/.simchat_state.json
 
+# Kirara 行为包已剥离到独立仓库 SimChatMOD-KiraraBehaviorPack，本地保留不入库
+.simchat/mods/kirara/
+
 # 运行时上传目录（skills 与沙箱 uploads scope 共用）
 **/uploads/
 
