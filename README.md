@@ -1,12 +1,75 @@
-# SimChat — LMBrewer 开源底层框架
-
-# Everything, Harnessed.
+# SimChat
 
 ![logo](.simchat/web/static/sprites/logos/simChat-2.png)
 
-SimChat的吉祥物：Televi（电视君）。Televi的造型来自UHF时代的CRT电视，也是TeleVideo Enterprise的吉祥物，象征着媒介革命。
+> **SimChat 是支持深度定制的开源对话式人工智能智能体框架。**
+
+不是又一个套着聊天框的模型客户端。在这里，模型、工具、人格、界面、桌面形态和自动化流程都是可替换的零件——而替换的方式只有一种：写一个 MOD。不用 fork 本体，不用改宿主源码，也不用等作者发版。
+
+*Everything, Harnessed.* —— 把一切收进一个你能拆开的壳里。
+
+## 30 秒自检：这个仓库是不是为你写的
+
+如果你动过下面任何一个念头，SimChat 就是冲着你写的：
+
+- 换过三四个 AI 客户端，最后都停在「这个按钮为什么不能改」；
+- 想让 Agent 读本地文件、搜网页、看截图，但不想为它搭一套后端；
+- 想让 AI 有自己的脸、自己的声音、自己的脾气，而不只是网页里的一段灰字；
+- 认为扩展就该像 Minecraft MOD 那样装上去，而不是 clone 一份源码回来自己维护。
+
+四条全中？先点右上角 ⭐，再用下面几条命令跑起来。这个项目还在「接口已经冻结、功能还在长」的阶段——早来的人，有机会影响这套 ABI 长成什么样。
+
+## 几条命令，先跑起来
+
+```bash
+git clone https://github.com/NOIC-NETWORK/SimChat.git
+cd SimChat
+pip install -r .simchat/scripts/requirements-simchat.txt
+python .simchat/scripts/entry.py web
+```
+
+前置只要 Python ≥ 3.9（Windows / macOS / Linux）。模型二选一：本机 Ollama，或任意 OpenAI 兼容服务，在设置页填 Base URL / Key / 模型名即可。
+
+浏览器打开后是一个本地 IDE 式界面：左边文件树，中间编辑器，右边对话与 Agent 时间线。没选工作目录时输入框是锁死的——这不是 bug，因为「工作目录」在 SimChat 里是对话、文件、Agent 工具共用的同一个根。
+
+## 「深度定制」到底能改什么
+
+大多数客户端把「定制」做成了换主题色。SimChat 把平台拆成三层，每一层的接缝都留在明面上：
+
+| 你想改的 | 改法 | 要动本体吗 |
+|---|---|---|
+| 人格、系统提示词、模型参数 | 写一个 `agent-config` 类 MOD | 不需要 |
+| 新工具（读文件、搜索、控制设备） | 写一个 `skill` 类 MOD，`@hook` + `register_tool()` | 不需要 |
+| 界面片段、主题、专属页面 | MOD 自带 `web/` 与 CSS | 不需要 |
+| 接入第三方程序 | `binary` 类 MOD（ed25519 签名 + 完整性校验） | 不需要 |
+| 定时任务、多步流程 | `automation` 类 MOD，声明 `flow.json` | 不需要 |
+| 桌面形态 | 声明 `desktop.pet.entry`，宿主替你拉起桌宠进程 | 不需要 |
+
+装进来的东西不是「受信任的插件」，而是「被隔离的子进程」：manifest 先过 schema，再查依赖版本，`binary` 包还要验签名，最后在沙箱进程里跑 `entry(api)`。任何一步失败，这个 MOD 标记为 failed，宿主照常运行。这是 fail-closed，不是 try/except 糊一层。
+
+## 现在仓库里有什么
+
+- **对话与 Agent**：流式 SSE、工具调用时间线、审批卡、中断、会话落盘与滑动窗口记忆。
+- **模型**：Ollama 流式 + OpenAI 兼容 SSE，多服务商聚合、模型下拉分组。
+- **现成能力**：文件读写、网页搜索、截图识别、Galax 证据加权检索管线、每日摘要自动化 DAG。
+- **IM 接入**：OneBot v11（NapCat / Lagrange / nonebot2）与 QQ 官方机器人，两种通道独立配置。
+- **桌面**：Windows 启动器 + 原生 Win32 分层窗口桌宠（逐像素透明、点击穿透、立绘换装），宿主退出时桌宠一起退出。
+- **契约**：`spec/` 里 5 份冻结规范（manifest schema、权限模型、hooks、SSE 事件、ABI 变更规则），MOD 只依赖 `simchat_mod` 这一个稳定接口。
+- **可核验**：每个阶段都有 commit 范围和冒烟记录（见 [updates.md](updates.md)），十几份设计与评估文档都在 `.simchat/docs/`。
+
+人设、音色、JRVS 内核这些私有实现不在仓库里，正文末尾有完整清单——这份 README 不打算假装什么都开源了。
+
+## 认同我？Star 我，然后下载
+
+如果上面的任何一句话说中了你，这个仓库就是为你写的。点右上角那个 ⭐ **Star**——它花不了你一秒，但能让一个双非本科生的 Harness 多被一个人看到。然后跑起来，写你的第一个 MOD，把世界造出来。
+
+## 吉祥物
+
+SimChat 的吉祥物：Televi（电视君）。造型来自 UHF 时代的 CRT 电视，也是 TeleVideo Enterprise 的吉祥物，象征着媒介革命。
 
 # 君子坦代码，小人藏资源
+
+LMBrewer 出品的开源底层框架：宿主、加载器、SDK、契约都在这里，藏不住，也没打算藏。
 
 ## 巴里君GitHub号
 
@@ -26,27 +89,15 @@ SimChat的吉祥物：Televi（电视君）。Televi的造型来自UHF时代的C
 
 # 新手教程
 
-请看[tutorials.md](.simchat/docs/tutorials/README.md)
+请看 [教程目录与大纲](.simchat/docs/tutorials/README.md)
 
 # 开发花絮
 
 请看[tidbit.md](tidbit.md)
 
-## 认同我？Star 我，然后下载
-
-如果上面的任何一句话说中了你，这个仓库就是为你写的：
-
-```bash
-git clone https://github.com/NOIC-NETWORK/SimChat.git
-cd SimChat
-python .simchat/scripts/entry.py web   # 打开浏览器，接入你的第一个模型
-```
-
-点右上角那个 ⭐ **Star**——它花不了你一秒，但能让一个双非本科生的 Harness 多被一个人看到。然后跑起来，写你的第一个 MOD，把世界造出来。
-
 ## 更新日志
 
-请查看 [updates.md](updates.md)。
+请查看 [updates.md](updates.md)：阶段进度、冒烟测试与历次改造结果都在那里。
 
 ## 目录
 
@@ -175,56 +226,6 @@ from simchat_mod import ModApi, ModeSpec, ToolSpec, BaseSkill, hook
 ```
 
 `manifest.json` 的 `abi: "simchat-mod/2"` 是当前实现版本——未来破坏性变更升级主版本，非破坏性升次版本；`spec/mod-manifest.schema.json` 已与该版本对齐（`lmbrew-mod/1` 仅作过渡期兼容）。
-
-## 阶段进度
-
-| 阶段 | 状态 | Commit 范围 | 关键交付 |
-|---|---|---|---|
-| Phase 0 契约冻结 | ✅ | — | spec/ 5 份 + fixture 5 条 |
-| Phase 1 第一个 MOD（Galax） | ✅ | `c58ec00` | GalaxPipeline 抽成 `skills/barry.galax/` |
-| Phase 2 本体独立对话 + Loader 底座 | ✅ | `494c5e9`–`e03e310` | runtime/ 3 模块 + loader/ 9 模块 + P2.4 skill MOD 全链路 |
-| Phase 3 蓝图化 | ✅ | `7f29360`–`b4ec484` | lmbrew.py 降至 **303 行**，4 蓝图接管全部路由 |
-| Phase 4 CLI + 索引 | ✅ | — | `simchat mod init/pack/verify/publish/gen-key` + `registry/index.json` 静态索引 |
-| Phase 5 Automation DAG | ✅ | — | `automation/` DAG 引擎（scheduler/executor/approval/quota/audit）+ `skills/automation_daily_digest` |
-| MOD 可用性修复 + 分层重构 | ✅ | — | 宿主接线、IPC 前缀、`skills/` 分层、安全能力内置、Galax 重签 |
-| P1 资产/服务语义 | ✅ | — | 包内 cwd、`scripts/` 入路径、`assets_dir`、全 layer `data_dir`、SDK ModApi + 宿主服务 RPC |
-| Phase 6 仓库/品牌/社区 | 规划中 | — | 官方仓库/商店前端/付费框架 |
-
-## 冒烟测试
-
-### 2026-11-15 复核
-
-```
-✓ 加载 6/6：mods/ 1 + skills/ 5
-✓ BLOCK_REGISTRY：13 个（10 内建 + 3 技能工具）
-✓ realityCheck / areYouUnderTrouble 为内建方块
-✓ /api/console/mods：1；/api/console/skills：5；automation：daily-digest
-✓ barry_galax：verify_package=True，status=loaded，modes=['galax']
-```
-
-### 2026-11-15 P1 复核
-
-```
-✓ 合成 MOD：cwd=包目录、相对资产可读、scripts/ 可导入、data_dir 存在（7/7 PASS）
-✓ 宿主服务 RPC：api.service("inference") / skill_manager 可用，未声明服务返回 None
-✓ barry_galax 实调用：ok=True，四阶段输出完整，召回使用 webSearch 实时结果
-✓ 全 layer data_dir：data/mods/<id>（mod）、data/blocks/<id>（block）
-```
-
-### P2.4 交付时（历史记录）
-
-P2.4 skill MOD 迁移的完整链路验证，11/11 PASS：
-
-```
-✓ 5 个 manifest 通过 validate_manifest()
-✓ 5 个 skill MOD 全部 run_isolated() 成功，register 带 tools[]
-✓ invoke_tool realityCheck 正常文本 → violation=False
-✓ invoke_tool realityCheck 伤害文本 → violation=True, 4 关键词命中
-✓ invoke_tool areYouUnderTrouble 危机文本 → is_threat_detected=True
-✓ 不存在的 tool 名 → ok=False
-✓ Python 语法检查：simchat/ 全部模块 + 5 MOD
-✓ Git clean：2 commit 可回放
-```
 
 ## 本目录不包含（故意的）
 

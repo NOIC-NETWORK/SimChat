@@ -187,7 +187,8 @@ python .simchat/scripts/entry.py cli verify path/to/binary-mod \
 - [ ] 能解释 integrity 为什么排除 `manifest.json`
 - [ ] 能给 binary 包签名，并知道签名负载由哪三部分组成
 - [ ] 能生成一条 registry 条目，并替换掉占位的 `repo-url`
-- [ ] 知道 `cli --version` 与 `HOST_VERSION` 目前不同步
+
+已知限制：`cli --version` 与 `HOST_VERSION` 目前不同步，见 [known-limitations.md](../known-limitations.md)。
 
 ## 7. 延伸阅读
 

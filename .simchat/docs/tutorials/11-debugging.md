@@ -173,9 +173,10 @@ python .simchat/scripts/entry.py cli init --type skill --id com_example_probe --
 - [ ] 能从 `simchat.log` 找到本次启动的「扫描完成」行
 - [ ] 能区分控制台静态 `status` 与运行时加载结果
 - [ ] 能说出失败原因字段在哪、启停状态文件在哪
-- [ ] 能解释为什么 MOD 的 traceback 不在日志里
 - [ ] 能用 `lifecycle --status` 看进程状态，并知道 `--stop` 不停 Web
 - [ ] 能造一个「manifest 正确但 entry 写错」的故障并定位
+
+已知限制：MOD 子进程的 traceback 不写入 `simchat.log`，见 [known-limitations.md](../known-limitations.md)。
 
 ## 7. 延伸阅读
 

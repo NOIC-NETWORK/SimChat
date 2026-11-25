@@ -24,7 +24,7 @@
 
 ### 02 接入第一个模型
 - **目标**：模型下拉里出现可用模型，并成功回一句话。
-- **要点**：Ollama 本地接入（安装、拉模型、默认地址）；OpenAI 兼容服务商（Base URL / Key / 模型名）；「预检」在验什么、为什么会误判；多 provider 聚合与模型下拉分组；Key 的存储位置（明文写入 `data/config.json`）。
+- **要点**：Ollama 本地接入（安装、拉模型、默认地址）；OpenAI 兼容服务商（Base URL / Key / 模型名）；「预检」在验什么、为什么会误判；多 provider 聚合与模型下拉分组；Key 的存储位置（加密写入 `data/config.json`，主密钥受系统保护）。
 - **验收**：发一条消息收到流式回复；刷新页面后模型仍在（本地缓存）。
 
 ### 03 配置工作目录与第一次对话
@@ -90,7 +90,7 @@
 3. **跟着做**（编号步骤，每步一条命令或一次点击，标注预期输出）
 4. **为什么会这样**（解释机制，链接到 `spec/` 或源码）
 5. **常见坑**（3 条以内，指向 11 章的排查表）
-6. **验收清单**（3–5 个可勾选项）
+6. **验收清单**（3–5 个可勾选项 + 一行「已知限制」，指到 [known-limitations.md](../known-limitations.md)）
 7. **延伸阅读**（本仓库内相对路径）
 
 约定：命令统一用 `python .simchat/scripts/entry.py ...`；路径以仓库根为基准；示例 MOD id 用 `noic_skill_hello` 一类只含小写字母/数字/下划线的可读名，显示名称另放 `name`；截图放 `docs/tutorials/images/<章节>/`。
@@ -129,6 +129,7 @@
 | 沙箱 IPC 与闸门 | [sandbox_contract.md](../../loader/sandbox_contract.md) |
 | 清单 schema | [mod-manifest.schema.json](../../spec/mod-manifest.schema.json) |
 | MOD 可用性诊断与修复记录 | [mod-availability-diagnosis.md](../mod-availability-diagnosis.md) |
+| 已知限制清单 | [known-limitations.md](../known-limitations.md) |
 | 架构回顾 | [architecture-recap.md](../architecture-recap.md) |
 
 ## 7. 写作进度

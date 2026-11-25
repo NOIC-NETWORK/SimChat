@@ -152,8 +152,9 @@ discover()            扫 mods/ 与 skills/，跳过 . 开头与 disabled
 - [ ] 能从 manifest 一眼判断一个包属于哪层、需不需要验签
 - [ ] 能画出加载流水线的五个步骤（扫描 → manifest → 依赖 → 验签 → 子进程注册）
 - [ ] 能说清 `read` / `write` / `dangerous` 在执行上的差别
-- [ ] 能指出 `chat.mode` 与 `agent.completed` 目前未完整接线
 - [ ] 知道本体版本只有一个来源
+
+已知限制：`chat.mode` / `agent.completed` 未完整接线，见 [known-limitations.md](../known-limitations.md)。
 
 ## 7. 延伸阅读
 

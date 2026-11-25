@@ -1,5 +1,79 @@
 # 最近更新
 
+**2026-11-25** — 本地凭据加密与 Web 访问闸门（关闭两条已知限制）
+
+- **API Key 加密存储**：新增 `runtime/secrets.py`，用 Fernet 加密 `config.json` 里的 `openai_compat.api_key` / `anthropic.api_key`，密文前缀 `enc:v1:`；主密钥放 `data/.secret.key`，Windows 用 DPAPI 包裹、其他平台 0600。旧明文配置在 `SimChatCore` 初始化时自动迁移（先自检可解密再原子覆盖，幂等）。
+- **Web 访问闸门**：`create_app` 增加请求前校验——Host 必须是本机或本机网卡地址（挡 DNS rebinding），带 `Origin` / `Referer` 的跨站请求直接 403，浏览器首次访问发 HttpOnly + SameSite=Strict 的 `simchat_token` cookie。`/api/health` 保持免鉴权，供启动器探活。
+- **不破坏既有链路**：桌宠与脚本（无 Origin、回环地址）直接放行；启动器探活走 `/api/health`；浏览器正常打开首页即拿到 cookie；MOD 预览页同源请求带 cookie。
+- **文档同步**：`known-limitations.md` 删除「API Key 明文」「Web 无鉴权」两条，余下 8 条重新编号；02、09 章正文与「已知限制」行、教程大纲要点同步为加密与闸门的实际行为。
+- 验证：`py_compile` 通过；临时目录加密迁移 / 解密还原 / 重复迁移幂等 / 真实 HTTP 下 health、cookie、桌宠式无 Origin、跨站拒绝共 18 项断言全部 PASS。
+- 文件：`runtime/secrets.py`（新增）、`runtime/core.py`、`runtime/provider_config.py`、`web/__init__.py`、`.simchat/docs/known-limitations.md`、`.simchat/docs/tutorials/02-first-model.md`、`.simchat/docs/tutorials/09-capabilities.md`、`.simchat/docs/tutorials/README.md`
+
+**2026-11-25** — README 测试记录下沉，教程入口/口径修正与验收清单拆分
+
+- **README 下沉**：原「阶段进度」「冒烟测试」两节整体迁入本文件（见下方「自 README 迁入」），README 只保留一句指向 `updates.md`，避免两处各维护一套数字。
+- **教程入口**：README「新手教程」的链接文字由 `tutorials.md` 改为实际文件 `docs/tutorials/README.md`——该文件本名就是 `README.md`，不存在 `tutorials.md`。
+- **02 接入第一个模型**：服务商面板描述由「Ollama 与 OpenAI 兼容两栏」更新为「厂牌预设芯片 + 三栏（Ollama / OpenAI 兼容 / Anthropic）」；补充 Anthropic Messages 路线；Auto Model 优先级补上 Anthropic；模型下拉分组口径由「服务商」改为「厂牌」；Ollama 自动拉起改为「定位并拉起桌面端 `ollama app.exe`」，与 2026-11-23 的实现一致。
+- **07 安装、启用与排查技能**：技能包口径由 5 个改为 6 个，补 `noic.netrunner`（`noic_skill_netrunner`，占位注册，暂未声明工具）；`daily-digest` 旧称统一为现行 id `automation_daily_digest`。
+- **验收清单拆分**：12 章 §6 中「确认已知缺陷」类勾选项（审批策略不生效、搜索/调试占位、`Ctrl+K` 文案、`chat.mode`/`agent.completed` 未接线、Web 无鉴权、Key 明文、event 不触发、`file:write` 无入口、MOD traceback 不入日志、版本号不同步）移出，汇总为 [`.simchat/docs/known-limitations.md`](.simchat/docs/known-limitations.md)；能力自检项全部保留，每章只留一行「已知限制」指回汇总页。所有章节回到 3–5 项，02 章由 6 项精简为 5 项。
+- 文件：`README.md`、`updates.md`、`.simchat/docs/known-limitations.md`、`.simchat/docs/tutorials/*.md`
+- **本次未处理**：教程截图（`docs/tutorials/images/` 仍不存在）、README 顶部的 MOD/技能清单与目录行数仍是旧快照。
+- 文件：`README.md`、`updates.md`、`.simchat/docs/tutorials/02-first-model.md`、`.simchat/docs/tutorials/07-manage-skills.md`
+
+#### 自 README 迁入：阶段进度（2026-11-15 快照）
+
+> 以下为迁移原文，数字反映当时状态，不再随代码更新。
+
+| 阶段 | 状态 | Commit 范围 | 关键交付 |
+|---|---|---|---|
+| Phase 0 契约冻结 | ✅ | — | spec/ 5 份 + fixture 5 条 |
+| Phase 1 第一个 MOD（Galax） | ✅ | `c58ec00` | GalaxPipeline 抽成 `skills/barry.galax/` |
+| Phase 2 本体独立对话 + Loader 底座 | ✅ | `494c5e9`–`e03e310` | runtime/ 3 模块 + loader/ 9 模块 + P2.4 skill MOD 全链路 |
+| Phase 3 蓝图化 | ✅ | `7f29360`–`b4ec484` | lmbrew.py 降至 **303 行**，4 蓝图接管全部路由 |
+| Phase 4 CLI + 索引 | ✅ | — | `simchat mod init/pack/verify/publish/gen-key` + `registry/index.json` 静态索引 |
+| Phase 5 Automation DAG | ✅ | — | `automation/` DAG 引擎（scheduler/executor/approval/quota/audit）+ `skills/automation_daily_digest` |
+| MOD 可用性修复 + 分层重构 | ✅ | — | 宿主接线、IPC 前缀、`skills/` 分层、安全能力内置、Galax 重签 |
+| P1 资产/服务语义 | ✅ | — | 包内 cwd、`scripts/` 入路径、`assets_dir`、全 layer `data_dir`、SDK ModApi + 宿主服务 RPC |
+| Phase 6 仓库/品牌/社区 | 规划中 | — | 官方仓库/商店前端/付费框架 |
+
+#### 自 README 迁入：冒烟测试（2026-11-15 快照）
+
+> 迁移原文；当时 skills 为 5 个，现已增至 6 个（见 07 章）。
+
+##### 2026-11-15 复核
+
+```
+✓ 加载 6/6：mods/ 1 + skills/ 5
+✓ BLOCK_REGISTRY：13 个（10 内建 + 3 技能工具）
+✓ realityCheck / areYouUnderTrouble 为内建方块
+✓ /api/console/mods：1；/api/console/skills：5；automation：daily-digest
+✓ barry_galax：verify_package=True，status=loaded，modes=['galax']
+```
+
+##### 2026-11-15 P1 复核
+
+```
+✓ 合成 MOD：cwd=包目录、相对资产可读、scripts/ 可导入、data_dir 存在（7/7 PASS）
+✓ 宿主服务 RPC：api.service("inference") / skill_manager 可用，未声明服务返回 None
+✓ barry_galax 实调用：ok=True，四阶段输出完整，召回使用 webSearch 实时结果
+✓ 全 layer data_dir：data/mods/<id>（mod）、data/blocks/<id>（block）
+```
+
+##### P2.4 交付时（历史记录）
+
+P2.4 skill MOD 迁移的完整链路验证，11/11 PASS：
+
+```
+✓ 5 个 manifest 通过 validate_manifest()
+✓ 5 个 skill MOD 全部 run_isolated() 成功，register 带 tools[]
+✓ invoke_tool realityCheck 正常文本 → violation=False
+✓ invoke_tool realityCheck 伤害文本 → violation=True, 4 关键词命中
+✓ invoke_tool areYouUnderTrouble 危机文本 → is_threat_detected=True
+✓ 不存在的 tool 名 → ok=False
+✓ Python 语法检查：simchat/ 全部模块 + 5 MOD
+✓ Git clean：2 commit 可回放
+```
+
 **2026-11-23** — Ollama 服务改由桌面端 app 托管，子进程不再闪控制台
 
 - **架构口径**：Ollama app 是模型服务的提供方，SimChat 只做客户端，不再自行 spawn `ollama serve`；`_serve_state` 里保存的从服务进程句柄改为 app 句柄。

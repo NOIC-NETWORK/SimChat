@@ -57,6 +57,8 @@ SimChat：我目前没有读取目录的能力……（对话模式；Agent 模�
 - [ ] 刷新页面后这段对话还在
 - [ ] 换一次工作目录，确认门禁与提示随之变化
 
+已知限制：本章验收项不涉及；完整清单见 [known-limitations.md](../known-limitations.md)。
+
 ## 7. 延伸阅读
 
 - [workspace.py](../../runtime/workspace.py)：目录选择、校验与持久化

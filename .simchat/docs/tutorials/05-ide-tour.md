@@ -102,9 +102,9 @@ macOS 上把 `Ctrl` 换成 `Cmd` 同样有效。
 - [ ] 能从主界面进入 IDE，并用「返回对话界面」回去
 - [ ] 能用 `Ctrl+1`…`Ctrl+6` 切换六个活动视图
 - [ ] 能打开一个文件并说出编辑器的只读限制
-- [ ] 能指出搜索、调试是未实现占位
 - [ ] 能在事件流里看到一次 Agent 运行的 tool_call / tool_result
-- [ ] 知道命令面板是 `Ctrl+K`
+
+已知限制：搜索与调试面板是占位、命令面板实际为 `Ctrl+K`，见 [known-limitations.md](../known-limitations.md)。
 
 ## 7. 延伸阅读
 

@@ -160,6 +160,8 @@ params_schema={
 - [ ] 能读懂加载失败时 `error` 字段的含义
 - [ ] 知道改代码后必须重启
 
+已知限制：本章验收项不涉及；完整清单见 [known-limitations.md](../known-limitations.md)。
+
 ## 7. 延伸阅读
 
 - [simchat_mod SDK](../../sdk/python/simchat_mod/__init__.py)：`ModApi`、`ToolSpec`、`hook`

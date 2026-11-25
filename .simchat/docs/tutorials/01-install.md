@@ -100,6 +100,8 @@
 - [ ] 知道 `Ctrl+C` 是正常停止方式
 - [ ] 能说清仓库根和 `.simchat/` 的关系
 
+已知限制：本章验收项不涉及；完整清单见 [known-limitations.md](../known-limitations.md)。
+
 ## 7. 延伸阅读
 
 - [仓库 README](../../../README.md)：目录结构与阶段进度

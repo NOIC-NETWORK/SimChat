@@ -9,15 +9,16 @@
 ```text
 模型  ⚡ Auto Model (自动选择最优)  [ollama: qwen3:8b]
       ollama ▸ qwen3:8b
-      openai_compat ▸ gpt-4o-mini
+      DeepSeek ▸ deepseek-chat
+      Anthropic ▸ claude-sonnet-4-5
 ```
 
 ## 2. 前置条件
 
 - 第 01 章的服务正在运行。
 - 下面二选一：
-  - **本地模型**：装好 [Ollama](https://ollama.com/)，`python -m pip install ollama`（本体的 Ollama 后端依赖这个 Python 库），并至少拉过一个模型，例如 `ollama pull qwen3:8b`。不需要手动启动 `ollama serve`，SimChat 检测不到服务时会尝试自动拉起。
-  - **远程模型**：任意兼容 OpenAI `/chat/completions` 的服务（官方 OpenAI、DeepSeek、通义、硅基流动、自建 vLLM 等）的 Base URL 与 API Key。
+  - **本地模型**：装好 [Ollama](https://ollama.com/) 桌面端，`python -m pip install ollama`（本体的 Ollama 后端依赖这个 Python 库），并至少拉过一个模型，例如 `ollama pull qwen3:8b`。不需要手动启动 `ollama serve`：SimChat 只做客户端，检测不到服务时会定位与 CLI 同目录的 `ollama app.exe` 并在后台拉起（无控制台窗口）；找不到桌面端时明确提示「未找到 Ollama app」。
+  - **远程模型**：兼容 OpenAI `/chat/completions` 的服务（官方 OpenAI、DeepSeek、通义、硅基流动、Azure OpenAI、自建 vLLM 等），或 Anthropic Messages 端点（官方或代理）的 Base URL 与 API Key。
 
 ## 3. 跟着做
 
@@ -25,7 +26,7 @@
 
 界面右上角齿轮按钮（悬停提示「选项」）→ 服务商面板；或者直接点输入框上方提示条里的「配置服务商」。
 
-面板里是一个手风琴列表，`Ollama（本地）` 与 `OpenAI 兼容` 两栏，右侧徽章会显示 `未配置` / `可用` / `异常`。`Auto Model` 不在列表里，它是「自动挑一个可用服务商」的虚拟选项。
+面板顶部是一排厂牌预设芯片：阿里云百炼、火山方舟、百度千帆、Azure OpenAI、OpenAI、硅基流动、DeepSeek、Anthropic。点哪个就把对应厂牌与默认端点填进草稿，凭据仍要自己填。下面是一个手风琴列表，共三栏：`Ollama（本地）`、`OpenAI 兼容`、`Anthropic`；前两栏的标题会显示你选的厂牌名（例如「DeepSeek」），没选厂牌时显示「自定义 OpenAI 兼容」。右侧徽章会显示 `未配置` / `可用` / `异常`。`Auto Model` 不在列表里，它是「自动挑一个可用服务商」的虚拟选项。
 
 ### 3.2 路线 A：本地 Ollama
 
@@ -48,24 +49,32 @@
 
 3. 先点「测试连接」。想直接保存也可以点「保存并检测」——两者都会落盘并立刻重新检测，区别只是「测试连接」在失败时不会改坏你已经存好的配置。
 
-### 3.4 确认模型下拉
+### 3.4 路线 C：Anthropic
+
+1. 展开「Anthropic」。
+2. 填三个字段：API Base（默认 `https://api.anthropic.com`，走代理时改这里）、API Key、模型名称（如 `claude-sonnet-4-5`）。
+3. 点「测试连接」：预检是 `GET {api_base}/v1/models`，请求头带 `x-api-key` 与 `anthropic-version: 2023-06-01`。401/403 判为 Key 无效或权限不足；端点返回 JSON 的 404/405 视为「不支持预检但地址正确」。
+4. 对话走 Anthropic Messages 协议，不是 OpenAI `/chat/completions`——两边的 Key 不能互换，填错了会在第一次对话时才报错。
+
+### 3.5 确认模型下拉
 
 配置成功后，输入框上方的模型下拉会自动填充：
 
-- 第一项永远是 `⚡ Auto Model (自动选择最优)`，括号里会显示它当前会挑谁，例如 `[ollama: qwen3:8b]`。默认选它就行：优先级是本地 Ollama 高于 OpenAI 兼容。
-- 下面按 `optgroup` 分组列出每个服务商的模型，格式为 `服务商 ▸ 模型名`。
+- 第一项永远是 `⚡ Auto Model (自动选择最优)`，括号里会显示它当前会挑谁，例如 `[ollama: qwen3:8b]`。默认选它就行：优先级是 Ollama > OpenAI 兼容 > Anthropic。
+- 下面按厂牌分组列出模型，格式为 `厂牌 ▸ 模型名`，例如 `DeepSeek ▸ deepseek-chat`；没选厂牌的自定义端点显示为「自定义 OpenAI 兼容」。
 - 右侧的刷新按钮（悬停「刷新模型列表」）可以强制重新探测，不想等 15 秒缓存时用。
 
-### 3.5 发第一句话
+### 3.6 发第一句话
 
 选好模型，输入「你好，用一句话介绍你自己」并发送。预期：文字逐字出现，结束后气泡下方出现复制/重试等操作。
 
 ## 4. 为什么会这样
 
+- **厂牌和协议是两层**：厂牌（vendor）决定界面上显示的名字、默认端点，以及 `config.json` 里记录的 `vendor` 字段；协议（transport）只有 `ollama` / `openai_compat` / `anthropic` 三种。所以「DeepSeek」和「硅基流动」都走 OpenAI 兼容协议，只是默认端点不同。旧配置没有 `vendor` 字段时，按 `api_base` 的主机名反推。`AWS Bedrock` 已登记但未实现，不会出现在界面上。
 - **服务商检测在验什么**：Ollama 走 `GET /api/tags`，同时判断「配置的模型是否真的装了」（`qwen3:8b` 与 `qwen3:8b:latest` 视为同一模型）；OpenAI 兼容走 `GET {api_base}/models`，超时 2 秒。后者对 404/405 做了兼容：如果返回 `application/json`，说明它是个 API 端点、只是没实现 `/models`，仍判可用；如果返回 HTML，基本可以确定用户把网页地址当成了 API Base，判失败。这一层只有「预检」，真正的对话请求在 `/chat/completions`，所以**预检通过不等于模型一定能回答**。
 - **测试结果会被记 30 分钟**：连接测试通过后，若随后几秒内的预检抖动（例如网络瞬断），SimChat 会在 30 分钟窗口内仍认为该服务商可用，避免「刚测通就变红」。
 - **模型列表有缓存**：`/models` 结果缓存 15 秒，服务商整体状态缓存 5 秒；点刷新按钮会主动清掉模型缓存。
-- **Key 存在哪**：**明文**写在 `.simchat/data/config.json` 的 `providers` 段里，没有加密。该文件已被 `.gitignore` 忽略，但任何能读你磁盘的人都能读到 Key——共用电脑时请注意。界面上重新填写时留空即表示保留原值。
+- **Key 存在哪**：加密后写在 `.simchat/data/config.json` 的 `openai_compat` / `anthropic` 段里（`enc:v1:` 前缀）。主密钥在 `.simchat/data/.secret.key`：Windows 下由 DPAPI 包裹，只有当前系统用户能解开；其他平台是 0600 权限的文件。该文件已被 `.gitignore` 忽略。界面上重新填写时留空即表示保留原值；共用电脑时仍建议使用可随时吊销的 Key。
 - **输入框为什么还锁着**：服务商可用只是解锁条件之一，另一个是工作目录，见下一章。
 
 ## 5. 常见坑
@@ -80,10 +89,13 @@
 - [ ] 模型下拉出现至少一个具体模型，且 `Auto Model` 显示了解析结果
 - [ ] 发一条消息能收到流式回复
 - [ ] 刷新页面后模型仍在（说明配置已落盘）
-- [ ] 知道 API Key 存在哪个文件、以及它是明文
+- [ ] 能说出厂牌（界面名字、默认端点）与协议（请求格式）不是一回事
+
+已知限制：本章验收项不涉及；完整清单见 [known-limitations.md](../known-limitations.md)。
 
 ## 7. 延伸阅读
 
 - [provider_config.py](../../runtime/provider_config.py)：检测、预检、缓存与保存逻辑
+- [vendors.py](../../runtime/vendors.py)：厂牌注册表、厂牌→协议映射、旧配置的主机名反推
 - [api-endpoints.md](../api-endpoints.md)：`/api/providers`、`/api/providers/test`、`/api/providers/discover`
 - [03 配置工作目录与第一次对话](03-workspace-and-chat.md)

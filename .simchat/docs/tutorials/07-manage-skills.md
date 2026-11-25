@@ -7,7 +7,7 @@
 控制台「技能」页里能看到本机已安装的每个技能包，并且能一键启停；停用后重启服务，Agent 的工具清单里对应工具消失，恢复后重新出现。
 
 ```text
-技能                                          1 / 5 个技能已启用        [刷新]
+技能                                          6 / 6 个技能已启用        [刷新]
   ReadFile 文件读取技能  v1.0.0                                    [开]
     读取用户上传的文件内容，支持文本/PDF/Word/Excel/图片元数据…
     hooks: agent.block
@@ -28,13 +28,14 @@
 
 ### 3.2 先看清单
 
-本机自带 5 个包，位于 `.simchat/skills/`。注意区分三类：
+本机自带 6 个包，位于 `.simchat/skills/`。注意区分三类：
 
 | 目录 | manifest `id` | type | 作用 |
 |---|---|---|---|
 | `noic.readFile` | `noic_skill_readfile` | skill | 读取上传文件（文本/PDF/Word/Excel/图片元数据） |
 | `noic.webSearch` | `noic_skill_websearch` | skill | 关键词搜索（必应/搜狗）与网页正文抓取 |
 | `noic.screenshotRecognition` | `noic_skill_screenshotrecognition` | skill | 截图 OCR 与界面分析 |
+| `noic.netrunner` | `noic_skill_netrunner` | skill | 批量调研 + 代码处理技能；当前是占位注册，可加载但暂未声明任何工具 |
 | `barry.galax` | `barry_galax` | binary | 向加载器注册 `galax` 模式（`chat.mode`），带自己的前端资源；**Web 界面目前没有该模式入口**（未接线） |
 | `automation_daily_digest` | `automation_daily_digest` | automation | 工作日 09:00 生成工作区摘要的 flow（cron 触发，写 `digest.md` 需审批） |
 
@@ -82,8 +83,8 @@ curl -X POST http://127.0.0.1:5000/api/console/skills/noic_skill_websearch/toggl
 - **技能和 MOD 是同一套机制**：加载器既扫 `.simchat/mods/`，也把 `.simchat/skills/` 作为额外扫描根，两者共用 manifest 校验、ABI（`simchat-mod/2`）、签名校验与沙箱子进程。区别只在定位：`mods/` 放完整 MOD，`skills/` 放可独立分发的原子能力包，默认 `layer=block`。
 - **为什么要重启**：工具是在加载器启动时一次性注册进方块注册表的（`discover()` → 逐个 `_load_one` → `sync_loader_blocks`）。开关只改状态文件，不热插拔，所以必须重新走一遍启动流程。
 - **状态文件读两遍**：控制台只读扫描用于展示，加载器在 `discover()` 时读取同一份 `disabled` 列表并跳过这些包（状态记为 `disabled`，不注册工具、不创建沙箱）。
-- **`barry_galax` 与 `daily-digest` 不是「工具型技能」**：前者向加载器注册 `galax` 模式（`chat.mode`），但 Web 前端目前没有对应按钮，所以不会出现在 Agent 工具清单、也不会出现在输入框；后者是自动化 flow，靠自己的 cron 或 `automation_trigger` 触发（manifest 里声明的 `agent.completed` 钩子运行时尚未派发）。它们的启停同样走这套开关。
-- **`daily-digest` 的版本门槛**：manifest 要求 `simchat >=2.1,<3`，当前本体版本 2.3.0 满足，正常情况下会加载。
+- **`barry_galax` 与 `automation_daily_digest` 不是「工具型技能」**：前者向加载器注册 `galax` 模式（`chat.mode`），但 Web 前端目前没有对应按钮，所以不会出现在 Agent 工具清单、也不会出现在输入框；后者是自动化 flow，靠自己的 cron 或 `automation_trigger` 触发（manifest 里声明的 `agent.completed` 钩子运行时尚未派发）。它们的启停同样走这套开关。
+- **`automation_daily_digest` 的版本门槛**：manifest 要求 `simchat >=2.1,<3`，当前本体版本 2.3.0 满足，正常情况下会加载。
 - **加载失败先看哪里**：manifest 校验不过的条目会在标题旁标出「manifest 错误」（其他状态码 `warn` 目前不在列表里显示）。具体错误文本在 `GET /api/console/skills` 返回的 `data.items[].error` 里；服务端日志在 `.simchat/data/logs/simchat.log`（2MB × 3 轮转），控制台「日志」页也能直接看。
 
 ## 5. 常见坑
@@ -94,11 +95,13 @@ curl -X POST http://127.0.0.1:5000/api/console/skills/noic_skill_websearch/toggl
 
 ## 6. 验收清单
 
-- [ ] 控制台技能页能看到 5 个包与各自状态
+- [ ] 控制台技能页能看到 6 个包与各自状态
 - [ ] 停用 `webSearch` 并重启后，Agent 工具清单里对应工具消失
 - [ ] 重新启用并重启后，工具恢复
 - [ ] 能指出状态文件的确切路径，并说出为什么需要重启
 - [ ] 能区分「工具型 skill」「chat.mode 型 binary」「automation flow」三类包
+
+已知限制：本章验收项不涉及；控制台说明文案未更新属于文档问题，完整清单见 [known-limitations.md](../known-limitations.md)。
 
 ## 7. 延伸阅读
 

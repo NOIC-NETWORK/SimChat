@@ -164,8 +164,8 @@ Agent 会调用 `automation_trigger`（写级），先弹审批卡。批准后�
 - [ ] 能说出 `policy` 三个必填键及取值范围
 - [ ] 能列出四种 `use` 协议
 - [ ] 能解释 `${scan.output}` 与 `${env:WORKSPACE}` 的区别
-- [ ] 知道 event 触发器目前不会真的触发
-- [ ] 知道 `file:write` 的审批在 Web 里暂无入口
+
+已知限制：`event` 触发器不会真的触发、`file:write` 审批在 Web 端没有入口，见 [known-limitations.md](../known-limitations.md)。
 
 ## 7. 延伸阅读
 
