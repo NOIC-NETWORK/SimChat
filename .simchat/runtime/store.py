@@ -1,8 +1,9 @@
 """SimChat 本体会话存储（朴素落盘实现）。
 
 会话文件：simchat/data/sessions/<sid>.json
-结构：{id, title, mode, created_at, updated_at, messages: [{role, content, ts}]}
+结构：{id, title, mode, created_at, updated_at, messages: [{role, content, ts}], overrides, origin?}
 mode 为会话来源标识：chat（对话模式）/ agent（Agent 模式），用于两类会话区分。
+origin 为可选归属标记（如 "mod:kirara"），空/缺失表示普通用户会话。
 定位：裸壳四件套之"朴素记忆"——会话内滑动窗口 + 简单落盘。
 不替代 Hippo / Rigard SessionManager，宿主接入时各行其是。
 """
@@ -43,17 +44,29 @@ class SessionStore:
         "reasoning": ("inherit", "off", "low", "medium", "high"),
     }
 
-    def _new_session(self, sid, title=DEFAULT_TITLE, mode="chat"):
+    def _new_session(self, sid, title=DEFAULT_TITLE, mode="chat", origin=None,
+                     is_deleteable=True, system=None):
         now = time.time()
-        return {
+        sess = {
             "id": sid, "title": title, "mode": normalize_mode(mode),
             "created_at": now, "updated_at": now, "messages": [],
             "overrides": {},
+            # 会话是否允许删除；MOD 托管会话可声明为 False（服务端拒绝删除）
+            "is_deleteable": is_deleteable is not False,
         }
+        # origin 标记会话归属（如 "mod:kirara"）；普通会话不写该字段，保持旧文件结构
+        if origin:
+            sess["origin"] = str(origin)
+        # system 为该会话使用的 system 触发词（如 JRVS 的 "Kirara"），仅 MOD 会话声明
+        if system:
+            sess["system"] = str(system)
+        return sess
 
-    def create(self, title=DEFAULT_TITLE, mode="chat"):
+    def create(self, title=DEFAULT_TITLE, mode="chat", origin=None, is_deleteable=True,
+               system=None):
         sid = uuid.uuid4().hex[:12]
-        sess = self._new_session(sid, title, mode)
+        sess = self._new_session(sid, title, mode, origin=origin,
+                                 is_deleteable=is_deleteable, system=system)
         self.save(sess)
         return sess
 
@@ -70,9 +83,11 @@ class SessionStore:
         except Exception:
             return None
         sess.setdefault("mode", "chat")  # 兼容旧会话文件
+        sess.setdefault("is_deleteable", True)  # 旧会话默认允许删除
         return sess
 
-    def get_or_create(self, sid=None, mode="chat"):
+    def get_or_create(self, sid=None, mode="chat", origin=None, is_deleteable=True,
+                      system=None):
         """取会话；显式 sid 不存在时按该 sid 建会话（否则后续 append 会落空）。"""
         if sid:
             sess = self.get(sid)
@@ -81,31 +96,41 @@ class SessionStore:
             try:
                 self._path(sid)  # 校验 sid 合法性，非法时退回随机 id
             except (ValueError, TypeError):
-                return self.create(mode=mode)
-            sess = self._new_session(sid, DEFAULT_TITLE, mode)
+                return self.create(mode=mode, origin=origin,
+                                   is_deleteable=is_deleteable, system=system)
+            sess = self._new_session(sid, DEFAULT_TITLE, mode, origin=origin,
+                                     is_deleteable=is_deleteable, system=system)
             self.save(sess)
             return sess
-        return self.create(mode=mode)
+        return self.create(mode=mode, origin=origin, is_deleteable=is_deleteable,
+                           system=system)
 
     def save(self, sess):
-        sess["updated_at"] = time.time()
         with self._lock:
-            tmp = self._path(sess["id"]) + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(sess, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, self._path(sess["id"]))
+            self._write(sess)
+
+    def _write(self, sess):
+        """无锁落盘：调用方必须已持有 self._lock（save / append 共用）。"""
+        sess["updated_at"] = time.time()
+        path = self._path(sess["id"])
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(sess, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
 
     def append(self, sid, role, content):
-        sess = self.get(sid)
-        if not sess:
-            return None
-        sess["messages"].append({"role": role, "content": content, "ts": time.time()})
-        if len(sess["messages"]) > self.max_history:
-            sess["messages"] = sess["messages"][-self.max_history:]
-        if sess.get("title") == DEFAULT_TITLE and role == "user":
-            title = content.strip().split("\n")[0][:30]
-            sess["title"] = title or DEFAULT_TITLE
-        self.save(sess)
+        # 读-改-写整体持锁，避免同一进程内两轮对话并发 append 时互相覆盖
+        with self._lock:
+            sess = self.get(sid)
+            if not sess:
+                return None
+            sess["messages"].append({"role": role, "content": content, "ts": time.time()})
+            if len(sess["messages"]) > self.max_history:
+                sess["messages"] = sess["messages"][-self.max_history:]
+            if sess.get("title") == DEFAULT_TITLE and role == "user":
+                title = content.strip().split("\n")[0][:30]
+                sess["title"] = title or DEFAULT_TITLE
+            self._write(sess)
         return sess
 
     @staticmethod
@@ -154,6 +179,10 @@ class SessionStore:
                     "message_count": len(messages),
                     "tokens_estimated": self._estimate_tokens(messages),
                     "overrides": overrides,
+                    # 会话归属：空串 = 普通用户会话；"mod:kirara" = 由 MOD 托管的会话
+                    "origin": s.get("origin") or "",
+                    # 缺失按 true 处理（兼容旧会话文件）
+                    "is_deleteable": s.get("is_deleteable") is not False,
                 })
             except Exception:
                 continue

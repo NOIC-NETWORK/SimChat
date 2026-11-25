@@ -211,6 +211,75 @@ textarea {
   text-align: center;
 }
 
+/* MOD 专属对话卡片：数据由 /api/mods/chat-cards 提供，空列表时整块隐藏 */
+.mod-cards {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 8px 6px;
+}
+
+.mod-cards:empty {
+  display: none;
+}
+
+/* 侧边栏内限定作用域：settings.css 里 MOD 控制台也用了 .mod-card，
+   同优先级下后加载会覆盖这里的盒模型（更大内边距 / space-between / 实心底色），
+   把卡片撑得比会话列表宽高都大，空态下看起来压到主区。限定 .sidebar 前缀提高优先级。 */
+.sidebar .mod-card {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.sidebar .mod-card:hover {
+  background: var(--hover);
+}
+
+.sidebar .mod-card.active {
+  border-color: var(--accent);
+  background: var(--active);
+}
+
+.sidebar .mod-card-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar .mod-card-chip {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--accent);
+  background: rgba(217, 96, 138, 0.16);
+}
+
+.sidebar .mod-card-desc {
+  flex-basis: 100%;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sidebar-footer {
   padding: 10px;
   border-top: 1px solid var(--border);

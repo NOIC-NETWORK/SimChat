@@ -8,6 +8,8 @@ data/
 *.pem
 *.p12
 secrets*
+# 凭据加解密模块是源码，不是密钥文件
+!.simchat/runtime/secrets.py
 dev-keys/
 
 # 技能 / MOD 的启停状态（skills/ 与 mods/ 各落一份，按文件名统一忽略）

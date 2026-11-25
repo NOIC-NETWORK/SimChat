@@ -209,9 +209,10 @@ def _validate_desktop(desktop):
     errors = []
     if not isinstance(desktop, dict):
         return ["desktop 必须是对象"]
-    unknown = sorted(set(desktop) - {"pet"})
+    unknown = sorted(set(desktop) - {"pet", "chat_card"})
     if unknown:
         errors.append("desktop 含未知字段: %s" % ", ".join(unknown))
+    errors.extend(_validate_chat_card(desktop.get("chat_card")))
     pet = desktop.get("pet")
     if pet is None:
         return errors
@@ -234,6 +235,35 @@ def _validate_desktop(desktop):
     if entry is not None and (not _is_str(entry) or not REL_PATH_RE.match(entry)
                               or not entry.lower().endswith(".py")):
         errors.append("desktop.pet.entry 必须是包内相对 .py 路径")
+    return errors
+
+
+def _validate_chat_card(chat_card):
+    """desktop.chat_card：Web 侧边栏 MOD 对话卡片的展示声明。"""
+    if chat_card is None:
+        return []
+    if not isinstance(chat_card, dict):
+        return ["desktop.chat_card 必须是对象"]
+    errors = []
+    unknown = sorted(set(chat_card) - {"label", "description", "greeting", "is_deleteable", "system"})
+    if unknown:
+        errors.append("desktop.chat_card 含未知字段: %s" % ", ".join(unknown))
+    label = chat_card.get("label")
+    if not _is_str(label) or not label.strip() or len(label) > 32:
+        errors.append("desktop.chat_card.label 必须是 1-32 字符的字符串")
+    description = chat_card.get("description")
+    if description is not None and (not _is_str(description) or len(description) > 120):
+        errors.append("desktop.chat_card.description 必须是不超过 120 字符的字符串")
+    greeting = chat_card.get("greeting")
+    if greeting is not None and (not _is_str(greeting) or not greeting.strip()
+                                 or len(greeting) > 200):
+        errors.append("desktop.chat_card.greeting 必须是 1-200 字符的字符串")
+    deleteable = chat_card.get("is_deleteable")
+    if deleteable is not None and not isinstance(deleteable, bool):
+        errors.append("desktop.chat_card.is_deleteable 必须是布尔值")
+    system = chat_card.get("system")
+    if system is not None and (not _is_str(system) or not system.strip() or len(system) > 64):
+        errors.append("desktop.chat_card.system 必须是 1-64 字符的字符串")
     return errors
 
 

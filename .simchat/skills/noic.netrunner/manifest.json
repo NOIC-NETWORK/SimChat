@@ -1,0 +1,34 @@
+{
+  "$schema": "../../spec/mod-manifest.schema.json",
+  "id": "noic_skill_netrunner",
+  "type": "skill",
+  "layer": "block",
+  "name": "Netrunner 调研与代码技能",
+  "description": "批量信息调研 + 代码处理技能。当前为占位注册：入口可加载，但未声明任何工具，具体能力待实现。",
+  "version": "0.0.1",
+  "abi": "simchat-mod/2",
+  "entry": "netrunner:register",
+  "hooks": [
+    "agent.block"
+  ],
+  "capabilities": {
+    "net": {
+      "domains": [
+        "*"
+      ]
+    },
+    "fs": {
+      "read": [
+        "workspace"
+      ],
+      "write": [
+        "workspace"
+      ]
+    }
+  },
+  "requires": {
+    "simchat": ">=2.0,<3",
+    "python": ">=3.9"
+  },
+  "license": "proprietary"
+}

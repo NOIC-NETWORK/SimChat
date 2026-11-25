@@ -72,9 +72,10 @@ def _pet_autostart(port):
 
 
 def _install_lifecycle_hooks(host, port):
-    """登记服务信息，并把 Ctrl+C / SIGTERM 标记成「用户主动停止」。
+    """登记服务信息，并把 Ctrl+C / SIGTERM / SIGBREAK 标记成「用户主动停止」。
 
     守护进程看到这个标记后只退出、不拉起；异常崩溃（无标记）才会被复原。
+    SIGBREAK 是给启动器（simchatLc）的 CTRL_BREAK_EVENT 用的，命中和 Ctrl+C 一样要收掉桌宠。
     """
     try:
         from simchat.runtime import lifecycle
@@ -90,9 +91,15 @@ def _install_lifecycle_hooks(host, port):
             lifecycle.mark_intentional_stop()
         except Exception:
             pass
+        try:
+            from simchat.runtime import pet_launcher
+
+            pet_launcher.stop_all()
+        except Exception:
+            pass
         raise KeyboardInterrupt
 
-    for name in ("SIGINT", "SIGTERM"):
+    for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
         sig = getattr(signal, name, None)
         if sig is None:
             continue

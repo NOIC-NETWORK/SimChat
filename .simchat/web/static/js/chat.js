@@ -6,6 +6,7 @@
     sidebar: document.getElementById("sidebar"),
     backdrop: document.getElementById("sidebar-backdrop"),
     sessionList: document.getElementById("session-list"),
+    modCards: document.getElementById("mod-cards"),
     newChat: document.getElementById("new-chat"),
     toggleSidebar: document.getElementById("toggle-sidebar"),
     openSetup: document.getElementById("open-setup"),
@@ -189,6 +190,8 @@
 
   const state = {
     sessionId: null,
+    sessionSystem: "",     // 当前会话的 system 触发词（MOD 会话声明，如 Kirara）
+    modCards: [],          // 侧边栏 MOD 专属对话卡片（/api/mods/chat-cards）
     streaming: false,
     stickToBottom: true,
     locked: true,
@@ -418,14 +421,6 @@
       else localStorage.removeItem(LAST_SESSION_KEY);
     } catch (_) {
       /* 无痕模式等情况下 localStorage 可能不可用，静默忽略 */
-    }
-  }
-
-  function loadSessionId() {
-    try {
-      return localStorage.getItem(LAST_SESSION_KEY);
-    } catch (_) {
-      return null;
     }
   }
 
@@ -730,8 +725,10 @@
 
   function renderSessions(sessions) {
     el.sessionList.innerHTML = "";
-    // 过滤掉空会话（只有"+"按钮才能开新对话）
-    const valid = (sessions || []).filter((s) => (s.message_count || 0) > 0);
+    // 过滤掉空会话（只有"+"按钮才能开新对话）；MOD 托管会话只在顶部卡片出现
+    const valid = (sessions || []).filter(
+      (s) => (s.message_count || 0) > 0 && !s.origin
+    );
     if (!valid.length) {
       const empty = document.createElement("div");
       empty.className = "session-empty";
@@ -768,7 +765,8 @@
         event.stopPropagation();
         removeSession(session.id);
       });
-      item.appendChild(remove);
+      // 服务端托管的只读会话（is_deleteable=false）不渲染删除入口
+      if (session.is_deleteable !== false) item.appendChild(remove);
 
       item.addEventListener("click", () => openSession(session.id));
       el.sessionList.appendChild(item);
@@ -776,6 +774,63 @@
       if (session.id === state.sessionId && !state.locked) {
         el.title.textContent = session.title || "新对话";
       }
+    }
+  }
+
+  async function loadModCards() {
+    try {
+      const data = await api("/api/mods/chat-cards");
+      state.modCards = data.cards || [];
+      renderModCards();
+    } catch (err) {
+      console.error("[SimChat] MOD 对话卡片加载失败:", err);
+    }
+  }
+
+  function renderModCards() {
+    if (!el.modCards) return;
+    el.modCards.innerHTML = "";
+    for (const card of state.modCards || []) {
+      const item = document.createElement("div");
+      item.className =
+        "mod-card" + (card.session_id === state.sessionId ? " active" : "");
+      item.dataset.modId = card.mod_id;
+      item.title = card.description || card.label || card.mod_id;
+
+      const label = document.createElement("span");
+      label.className = "mod-card-label";
+      label.textContent = card.label || card.mod_id;
+      item.appendChild(label);
+
+      const chip = document.createElement("span");
+      chip.className = "mod-card-chip";
+      chip.textContent = "MOD";
+      item.appendChild(chip);
+
+      if (card.description) {
+        const desc = document.createElement("span");
+        desc.className = "mod-card-desc";
+        desc.textContent = card.description;
+        item.appendChild(desc);
+      }
+
+      item.addEventListener("click", () => openModCard(card.mod_id));
+      el.modCards.appendChild(item);
+    }
+  }
+
+  async function openModCard(modId) {
+    if (state.streaming) return;
+    try {
+      const data = await api(
+        "/api/mods/chat-cards/" + encodeURIComponent(modId) + "/ensure",
+        { method: "POST" }
+      );
+      const sid = data.session && data.session.id;
+      if (!sid) throw new Error("MOD 会话创建失败");
+      await openSession(sid);
+    } catch (err) {
+      window.alert(err.message);
     }
   }
 
@@ -797,6 +852,7 @@
       const data = await api("/api/sessions/" + encodeURIComponent(sid));
       const session = data.session;
       setSessionId(session.id);
+      state.sessionSystem = session.system || "";
       state.stickToBottom = true;
       el.title.textContent = session.title || "新对话";
       el.messages.innerHTML = "";
@@ -816,6 +872,7 @@
       closeSidebar();
       scrollToBottom(true);
       await loadSessions();
+      renderModCards();
       if (!state.locked) el.input.focus();
     } catch (err) {
       if (options.silent) {
@@ -831,13 +888,14 @@
   function startNewChat() {
     if (state.streaming) return;
     setSessionId(null);
+    state.sessionSystem = "";
     state.stickToBottom = true;
     el.messages.innerHTML = "";
     recalcSessionTokens();
     // 同上：enterMode 可能早退，welcome 显隐在此同步
     showWelcome(true);
     document
-      .querySelectorAll(".session-item.active")
+      .querySelectorAll(".session-item.active, .mod-card.active")
       .forEach((node) => node.classList.remove("active"));
     closeSidebar();
 
@@ -959,7 +1017,8 @@
 
   function setLocked(locked, keepSetup) {
     state.locked = locked;
-    el.setupBack.classList.toggle("hidden", locked);
+    // 设置抽屉任何时候都允许关闭：未配置服务商时的引导由主界面锁定横幅承接。
+    // 旧实现 locked 时会隐藏返回按钮并拦掉 Esc/遮罩，探测未结束时打开设置就退不出来。
 
     if (locked) {
       if (!state.sessionId) el.title.textContent = "连接服务商";
@@ -1515,7 +1574,7 @@
       // 右侧抽屉面板：底下主界面保持可见（有半透明遮罩）
       // 不再硬藏 messages/welcome——PC 风格，边看聊天边改设置
       el.setup.classList.add("is-open");
-      el.setupBack.style.display = state.locked ? "none" : "";
+      el.setupBack.style.display = "";
       document.body.style.overflow = "";
       if (prev !== "setup") {
       renderProviderAccordion();
@@ -1539,7 +1598,6 @@
   // 四个薄 wrapper——内部一律走 enterMode，外部调用不动
   function showSetup() { enterMode("setup"); }
   function hideSetup() {
-    if (state.locked) return;
     enterMode("chat");
   }
   function openConsole(section) {
@@ -2459,6 +2517,7 @@
     const payload = {
       message: text,
       session_id: state.sessionId || undefined,
+      system: state.sessionSystem || undefined,
       provider: state.modelProvider || undefined,
       model: state.model || undefined,
       regenerate: !!options.regenerate,
@@ -2525,7 +2584,7 @@
           }
         } else if (event.event === "error") {
           errorMessage = event.message || "未知错误";
-          // 把错误也显示在气泡里（红色）
+          // session_busy：同一会话另一端正在生成，本轮消息未落盘，稍后重发即可
           contentEl.innerHTML = '<p class="error-text">' + escapeHtml(errorMessage) + "</p>";
           break;
         }
@@ -2559,7 +2618,7 @@
     } catch (_) { /* 静默失败 */ }
 
     scrollToBottom();
-    await loadSessions();
+    await Promise.all([loadSessions(), loadModCards()]);
     el.input.focus();
   }
 
@@ -4904,14 +4963,13 @@
       closeWorkspacePicker();
     } else if (el.settingsConsole?.classList.contains("is-open")) {
       closeConsole();
-    } else if (el.setup?.classList.contains("is-open") && !state.locked) {
+    } else if (el.setup?.classList.contains("is-open")) {
       hideSetup();
     }
   });
 
-  // 点击 setup 遮罩（::before）关闭——locked 时不关（还没配服务商）
+  // 点击 setup 遮罩（::before）关闭——任何时候都允许
   el.setup?.addEventListener("click", (e) => {
-    if (state.locked) return;
     // 只有点到蒙版本身（不是 setup-card 或里面的内容）才关
     if (e.target === el.setup) hideSetup();
   });
@@ -4931,16 +4989,49 @@
   updateQuotaUI(); // 每日用量进度条 + 超限横幅初始化
 
   (async function init() {
-    await Promise.all([loadSessions(), loadProviders(), loadSettings(), loadProfile(), loadWorkspace()]);
+    await Promise.all([loadSessions(), loadModCards(), loadProviders(), loadSettings(), loadProfile(), loadWorkspace()]);
     // 永远不自动进 console——用户点齿轮 → 进 setup，点"高级" → 进 console，返回 → 退出。
     // localStorage["simchat.advanced"] 历史残留，清掉避免每次刷新卡壳。
     try { localStorage.removeItem("simchat.advanced"); } catch (_) {}
 
-    const lastSid = loadSessionId();
-    if (lastSid) {
-      // 恢复上次会话；若后端已删则静默回退到新对话（不弹出错误气泡）
-      await openSession(lastSid, { silent: true });
+    // 外部入口可用 ?session=<id> 直达指定会话（桌宠卡片等）；
+    // 无参数时不再恢复上次会话，统一停在「新对话」欢迎页。
+    const deepLinkSid = (new URLSearchParams(location.search).get("session") || "").trim();
+    if (deepLinkSid && /^[A-Za-z0-9_-]+$/.test(deepLinkSid)) {
+      try {
+        const resp = await fetch("/api/sessions/" + encodeURIComponent(deepLinkSid));
+        if (resp.ok) {
+          await openSession(deepLinkSid, { silent: true });
+          // 直达成功后清掉参数，避免地址栏与当前会话不一致
+          if (state.sessionId === deepLinkSid) {
+            try { history.replaceState(null, "", location.pathname); } catch (_) {}
+          }
+        }
+      } catch (_) {
+        /* 网络异常时按无参数处理 */
+      }
     }
+    // 启动空态：清掉上次会话 id 与残留标题，确保停在欢迎页
+    if (!state.sessionId) {
+      setSessionId(null);
+      state.sessionSystem = "";
+      el.title.textContent = "新对话";
+      showWelcome(true);
+    }
+
+    // 与桌宠端共用同一会话文件：切回页面时静默重读，看到另一端刚写入的消息
+    let lastSyncAt = 0;
+    const syncActiveSession = async () => {
+      if (state.streaming || !state.sessionId) return;
+      const now = Date.now();
+      if (now - lastSyncAt < 1500) return;
+      lastSyncAt = now;
+      await openSession(state.sessionId, { silent: true });
+    };
+    window.addEventListener("focus", syncActiveSession);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) syncActiveSession();
+    });
     // Minecraft 风格随机 splash（subtitle.txt 已随静态资源发布）
     try {
       const resp = await fetch("/static/subtitle.txt", { cache: "no-cache" });

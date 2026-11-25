@@ -11,9 +11,12 @@ import atexit
 import json
 import logging
 import os
+import secrets as _secrets
+import socket
 import threading
 import time
 from collections import deque
+from urllib.parse import urlsplit
 
 # 版本号单一来源在 loader 侧（叶子模块 version.py，无反向依赖）
 from simchat.loader.version import HOST_VERSION
@@ -35,6 +38,36 @@ _bots_lock = threading.Lock()
 
 # 进程启动时间（调试面板展示 uptime 用）
 _WEB_STARTED_AT = time.time()
+
+# ---------------- 本地访问闸门 ----------------
+# 浏览器：首次打开页面发一枚 HttpOnly 会话 cookie，之后同源请求自动携带；
+# 非浏览器本地客户端（桌宠、脚本、启动器探活）不带 Origin，回环地址直接放行。
+# 跨站请求（带 Origin）必须持有 token，Host 必须是本机/本机网卡地址，
+# 以此挡住 CSRF 与 DNS rebinding。
+_WEB_TOKEN = os.environ.get("SIMCHAT_WEB_TOKEN") or _secrets.token_urlsafe(24)
+
+
+def _local_hosts():
+    hosts = {"127.0.0.1", "localhost", "::1"}
+    extra = os.environ.get("SIMCHAT_ALLOWED_HOSTS", "")
+    hosts.update(item.strip().lower() for item in extra.split(",") if item.strip())
+    try:
+        for address in socket.gethostbyname_ex(socket.gethostname())[2]:
+            hosts.add(address.lower())
+    except OSError:
+        pass
+    return hosts
+
+
+def _url_host(value):
+    try:
+        return (urlsplit(value).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def _is_loopback(address):
+    return bool(address) and (address == "::1" or address.startswith("127."))
 
 # 最近 API 事件环形缓冲（调试面板展示用，无持久化）
 _EVENTS = deque(maxlen=300)
@@ -260,6 +293,42 @@ def create_app(core=None):
         configure_orbiter(core)
 
     app.extensions["simchat_mod_loader"] = _ensure_mod_loader(app)
+
+    allowed_hosts = _local_hosts()
+
+    @app.before_request
+    def _local_auth_guard():
+        host = (request.host or "").rsplit(":", 1)[0].strip("[]").lower()
+        if host and host not in allowed_hosts:
+            return jsonify({"ok": False, "error": "host not allowed"}), 421
+        if not request.path.startswith("/api/") or request.path == "/api/health":
+            return None
+        origin = request.headers.get("Origin")
+        for value in (origin, request.headers.get("Referer")):
+            if value and _url_host(value) not in allowed_hosts:
+                return jsonify({"ok": False, "error": "cross-site request blocked"}), 403
+        supplied = request.headers.get("X-SimChat-Token") or request.cookies.get(
+            "simchat_token"
+        )
+        if supplied == _WEB_TOKEN:
+            return None
+        if origin:
+            return jsonify({"ok": False, "error": "unauthorized"}), 401
+        if _is_loopback(request.remote_addr):
+            return None
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    @app.after_request
+    def _issue_local_token(response):
+        if request.cookies.get("simchat_token") != _WEB_TOKEN:
+            response.set_cookie(
+                "simchat_token",
+                _WEB_TOKEN,
+                httponly=True,
+                samesite="Strict",
+                path="/",
+            )
+        return response
 
     # Agent 模式（ReAct 循环）：/api/agent 与冻结 fixture 使用的 /api/simchat/agent
     from .agent import create_agent_blueprint
@@ -621,6 +690,13 @@ def create_app(core=None):
         # 先让响应返回，再退出进程；stop 标记已写入，守护不会复活
         def _exit_process():
             time.sleep(0.9)
+            # os._exit 不执行 finally / atexit，这里显式收掉桌宠子进程
+            try:
+                from simchat.runtime import pet_launcher
+
+                pet_launcher.stop_all()
+            except Exception:
+                pass
             os._exit(0)
 
         threading.Thread(target=_exit_process, daemon=True).start()
@@ -1379,6 +1455,27 @@ def create_app(core=None):
             },
         })
 
+    # ---------------- MOD 专属对话卡片 ----------------
+
+    @app.get("/api/mods/chat-cards")
+    def mod_chat_cards():
+        """侧边栏 MOD 对话卡片清单（数据来自启用中 MOD 的 desktop.chat_card）。"""
+        from simchat.runtime import mod_chat
+
+        core = _get_core(app)
+        return jsonify({"cards": mod_chat.list_cards(core.store)})
+
+    @app.post("/api/mods/chat-cards/<mod_id>/ensure")
+    def mod_chat_card_ensure(mod_id):
+        """取该 MOD 的唯一会话；首次访问时创建（固定 id + origin 标记）。"""
+        from simchat.runtime import mod_chat
+
+        try:
+            session = mod_chat.ensure_session(_get_core(app).store, mod_id)
+        except mod_chat.ChatCardError as error:
+            return jsonify({"error": str(error), "code": error.code}), error.status
+        return jsonify({"session": session})
+
     # ---------------- 会话 CRUD ----------------
 
     @app.get("/api/sessions")
@@ -1398,7 +1495,16 @@ def create_app(core=None):
 
     @app.delete("/api/sessions/<sid>")
     def delete_session(sid):
-        return jsonify({"deleted": _get_core(app).delete_session(sid)})
+        core = _get_core(app)
+        session = core.get_session(sid)
+        # 删除能力由会话字段 is_deleteable 决定（MOD 托管会话声明为 false）
+        if session and session.get("is_deleteable") is False:
+            return jsonify({
+                "deleted": False,
+                "error": "该会话由 MOD 托管，不能删除。",
+                "code": "session_protected",
+            }), 403
+        return jsonify({"deleted": core.delete_session(sid)})
 
     @app.patch("/api/sessions/<sid>")
     def patch_session(sid):

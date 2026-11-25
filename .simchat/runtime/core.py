@@ -16,6 +16,7 @@ from . import (
     vendors,
     workspace as workspace_mod,
     usage as usage_mod,
+    secrets as secrets_mod,
 )
 from .providers import ProviderError, create_provider
 from .store import SessionStore
@@ -46,10 +47,19 @@ class SimChatCore:
         os.makedirs(self.data_root, exist_ok=True)
         self.config_path = os.path.join(self.data_root, "config.json")
         self.config = self._load_config()
+        # 旧配置里的明文 API Key 在首次加载时加密落盘（幂等，失败不影响启动）
+        try:
+            secrets_mod.migrate(self.data_root)
+        except Exception as error:
+            print("[SimChat] 凭据加密迁移失败：%s" % error)
         self.store = SessionStore(
             os.path.join(self.data_root, "sessions"),
             max_history=self.config.get("max_history", 40),
         )
+        # 每个会话的生成轮次锁：同一会话同一时刻只允许一轮生成，
+        # 避免网页端与桌宠端并发写入同一份会话文件造成上下文错乱。
+        self._session_locks = {}
+        self._session_locks_guard = threading.Lock()
         # 每日 token 用量追踪器 + 后端 quota 硬闸
         self.usage = usage_mod.UsageTracker(self.data_root)
 
@@ -71,7 +81,7 @@ class SimChatCore:
                         cfg[k] = v
         except Exception as e:
             print(f"[SimChat] 配置加载失败，使用默认值: {e}")
-        return cfg
+        return secrets_mod.decrypt_config(cfg, self.data_root)
 
     def _provider(self, name):
         """把协议 id / 厂牌 id 解析成一次调用所需的账户视图，再交给传输层工厂。"""
@@ -289,6 +299,15 @@ class SimChatCore:
 
     # ---------------- 对话 ----------------
 
+    def _try_acquire_session_lock(self, sid):
+        """非阻塞获取会话轮次锁；已在生成中则返回 None。"""
+        with self._session_locks_guard:
+            lock = self._session_locks.get(sid)
+            if lock is None:
+                lock = threading.Lock()
+                self._session_locks[sid] = lock
+        return lock if lock.acquire(blocking=False) else None
+
     def chat_stream(self, message, session_id=None, provider=None, model=None,
                     system=None, temperature=0.7, max_tokens=1024,
                     regenerate=False, top_p=None, repetition_penalty=None,
@@ -325,70 +344,88 @@ class SimChatCore:
         if sess.get("mode") != "chat":
             sess = self.store.create(mode="chat")
         sid = sess["id"]
-        if regenerate:
-            self.store.trim_last_assistant(sid)
-        yield {"event": "chat_started", "schema": 1, "session_id": sid}
 
-        if abort_event.is_set():
-            yield {"event": "aborted", "session_id": sid, "content": ""}
+        # 同一会话同时只允许一轮生成：另一端正在生成时立即返回 session_busy，
+        # 不排队、不覆盖，由调用方稍后重试。
+        turn_lock = self._try_acquire_session_lock(sid)
+        if turn_lock is None:
+            yield {
+                "event": "error",
+                "code": "session_busy",
+                "message": "该会话正在生成回复，请稍后再发送。",
+                "session_id": sid,
+            }
             return
 
-        history = [{"role": m["role"], "content": m["content"]}
-                   for m in sess.get("messages", [])]
-        messages = []
-        sys_text = system if system is not None else (self.config.get("system_prompt") or "")
-        if sys_text:
-            messages.append({"role": "system", "content": sys_text})
-        messages.extend(history)
-        messages.append({"role": "user", "content": message})
-
-        prov = self._provider(chosen)
-        pieces = []
         try:
-            upstream = prov.stream_chat(messages, model=model,
-                                        temperature=temperature, max_tokens=max_tokens,
-                                        top_p=top_p, repetition_penalty=repetition_penalty)
+            # 拿到轮次锁后重读一次：上一轮可能在取快照与加锁之间刚写完
+            sess = self.store.get(sid) or sess
+            if regenerate:
+                self.store.trim_last_assistant(sid)
+            yield {"event": "chat_started", "schema": 1, "session_id": sid}
+
+            if abort_event.is_set():
+                yield {"event": "aborted", "session_id": sid, "content": ""}
+                return
+
+            history = [{"role": m["role"], "content": m["content"]}
+                       for m in sess.get("messages", [])]
+            messages = []
+            sys_text = system if system is not None else (self.config.get("system_prompt") or "")
+            if sys_text:
+                messages.append({"role": "system", "content": sys_text})
+            messages.extend(history)
+            messages.append({"role": "user", "content": message})
+
+            prov = self._provider(chosen)
+            pieces = []
             try:
-                for piece in upstream:
-                    if abort_event.is_set():
-                        break
-                    pieces.append(piece)
-                    yield {"event": "token", "content": piece}
-            finally:
-                close = getattr(upstream, "close", None)
-                if callable(close):
-                    try:
-                        close()
-                    except Exception:
-                        pass
-        except ProviderError as e:
-            yield {"event": "error", "message": str(e)}
-            return
-        except Exception as e:
-            yield {"event": "error", "message": f"本体对话异常: {e}"}
-            return
+                upstream = prov.stream_chat(messages, model=model,
+                                            temperature=temperature, max_tokens=max_tokens,
+                                            top_p=top_p, repetition_penalty=repetition_penalty)
+                try:
+                    for piece in upstream:
+                        if abort_event.is_set():
+                            break
+                        pieces.append(piece)
+                        yield {"event": "token", "content": piece}
+                finally:
+                    close = getattr(upstream, "close", None)
+                    if callable(close):
+                        try:
+                            close()
+                        except Exception:
+                            pass
+            except ProviderError as e:
+                yield {"event": "error", "message": str(e)}
+                return
+            except Exception as e:
+                yield {"event": "error", "message": f"本体对话异常: {e}"}
+                return
 
-        if abort_event.is_set():
-            partial = "".join(pieces).strip()
-            if partial:
-                self.store.append(sid, "user", message)
-                self.store.append(sid, "assistant", partial)
-            yield {"event": "aborted", "content": partial, "session_id": sid}
-            return
+            if abort_event.is_set():
+                partial = "".join(pieces).strip()
+                if partial:
+                    self.store.append(sid, "user", message)
+                    self.store.append(sid, "assistant", partial)
+                yield {"event": "aborted", "content": partial, "session_id": sid}
+                return
 
-        full = "".join(pieces).strip()
-        if not full:
-            yield {"event": "error", "message": "模型返回为空"}
-            return
+            full = "".join(pieces).strip()
+            if not full:
+                yield {"event": "error", "message": "模型返回为空"}
+                return
 
-        self.store.append(sid, "user", message)
-        self.store.append(sid, "assistant", full)
-        yield {"event": "final", "content": full, "session_id": sid}
+            self.store.append(sid, "user", message)
+            self.store.append(sid, "assistant", full)
+            yield {"event": "final", "content": full, "session_id": sid}
 
-        # 用量记录：用 store._estimate_tokens 做后端估算（与前端口径一致）
-        try:
-            input_tok = self.store._estimate_tokens(messages)
-            output_tok = self.store._estimate_tokens([{"role": "assistant", "content": full}])
-            self.usage.record(input_tokens=input_tok, output_tokens=output_tok)
-        except Exception:
-            pass
+            # 用量记录：用 store._estimate_tokens 做后端估算（与前端口径一致）
+            try:
+                input_tok = self.store._estimate_tokens(messages)
+                output_tok = self.store._estimate_tokens([{"role": "assistant", "content": full}])
+                self.usage.record(input_tokens=input_tok, output_tokens=output_tok)
+            except Exception:
+                pass
+        finally:
+            turn_lock.release()

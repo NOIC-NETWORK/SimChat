@@ -990,8 +990,11 @@ def _write(data_dir, cfg):
     path = os.path.join(data_dir, "config.json")
     tmp = path + ".tmp"
     with _save_lock:
+        from . import secrets as secrets_mod
+
+        payload = secrets_mod.encrypt_config(cfg, data_dir)
         with open(tmp, "w", encoding="utf-8") as handle:
-            json.dump(cfg, handle, ensure_ascii=False, indent=2)
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
         os.replace(tmp, path)
     return cfg
 

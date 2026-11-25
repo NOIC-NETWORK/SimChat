@@ -3,6 +3,10 @@
 只做三件事：扫描已启用 MOD 的声明、在 Web 服务就绪后拉起、宿主退出时收掉。
 不做托盘、不写偏好、不做开关、不守护重启、不做单实例窗口复用；
 桌宠进程自己退出或崩溃都不会被再次拉起。
+
+生命周期绑定：Windows 下把桌宠挂进一个 KILL_ON_JOB_CLOSE 的 Job Object，
+宿主进程无论正常退出、走 os._exit 还是被 TerminateProcess，句柄一关内核就会
+把桌宠一起收掉，不依赖 Python 的 finally / atexit。
 """
 
 import atexit
@@ -16,6 +20,116 @@ _PROCS = []
 _LOCK = threading.Lock()
 _LAUNCHED = False
 _STOPPED = False
+
+# ---------------- 宿主生命周期绑定 ----------------
+
+_JOB = None              # (kernel32, handle)，进程存活期间一直持有，绝不主动关闭
+_JOB_FAILED = False
+_JOB_WARNED = False
+
+_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+_JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
+
+
+def _job_structs():
+    import ctypes
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_uint64),
+            ("WriteOperationCount", ctypes.c_uint64),
+            ("OtherOperationCount", ctypes.c_uint64),
+            ("ReadTransferCount", ctypes.c_uint64),
+            ("WriteTransferCount", ctypes.c_uint64),
+            ("OtherTransferCount", ctypes.c_uint64),
+        ]
+
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", ctypes.c_uint32),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", ctypes.c_uint32),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", ctypes.c_uint32),
+            ("SchedulingClass", ctypes.c_uint32),
+        ]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    return ctypes, JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+
+
+def _ensure_job():
+    """创建并持有 KILL_ON_JOB_CLOSE 的 Job；失败返回 None（退回主动收尾）。"""
+    global _JOB, _JOB_FAILED
+    if os.name != "nt" or _JOB is not None or _JOB_FAILED:
+        return _JOB
+    try:
+        ctypes, extended_info = _job_structs()
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+        kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+        handle = kernel32.CreateJobObjectW(None, None)
+        if not handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        info = extended_info()
+        info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        kernel32.SetInformationJobObject.restype = ctypes.c_int
+        kernel32.SetInformationJobObject.argtypes = [
+            ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32
+        ]
+        ok = kernel32.SetInformationJobObject(
+            ctypes.c_void_p(handle),
+            _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+        )
+        if not ok:
+            raise ctypes.WinError(ctypes.get_last_error())
+        _JOB = (kernel32, handle)
+    except Exception as error:
+        _JOB_FAILED = True
+        _JOB = None
+        print("[SimChat] 桌宠生命周期作业创建失败，退回宿主退出时主动收尾：%s" % error)
+    return _JOB
+
+
+def _bind_to_job(proc):
+    """把刚拉起的桌宠挂进宿主的 Job；失败只记一次日志，不影响拉起。"""
+    global _JOB_WARNED
+    if os.name != "nt":
+        return False
+    job = _ensure_job()
+    if not job:
+        return False
+    kernel32, handle = job
+    try:
+        import ctypes
+
+        kernel32.AssignProcessToJobObject.restype = ctypes.c_int
+        kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        ok = kernel32.AssignProcessToJobObject(
+            ctypes.c_void_p(handle), ctypes.c_void_p(int(proc._handle))
+        )
+        if not ok:
+            raise ctypes.WinError(ctypes.get_last_error())
+        return True
+    except Exception as error:
+        if not _JOB_WARNED:
+            _JOB_WARNED = True
+            print("[SimChat] 桌宠未能加入宿主生命周期作业：%s" % error)
+        return False
 
 
 def _resolve_script(package_dir, rel_path):
@@ -54,7 +168,7 @@ def _spawn(script, package_dir):
     kwargs = {}
     if os.name == "nt":
         kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW：不弹控制台
-    return subprocess.Popen(
+    proc = subprocess.Popen(
         [sys.executable, script],
         cwd=package_dir,
         stdin=subprocess.DEVNULL,
@@ -62,6 +176,8 @@ def _spawn(script, package_dir):
         stderr=subprocess.DEVNULL,
         **kwargs
     )
+    _bind_to_job(proc)
+    return proc
 
 
 def launch_enabled(mods_dir=None):

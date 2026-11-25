@@ -156,6 +156,42 @@
       "additionalProperties": false,
       "description": "桌面集成声明。宿主只在 MOD 已启用且声明有效时才创建对应桌面组件；未声明则桌面上不出现任何额外窗口。",
       "properties": {
+        "chat_card": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label"],
+          "description": "可选：在 Web 控制台侧边栏生成一张 MOD 专属对话卡片，点击进入该 MOD 的唯一会话。",
+          "properties": {
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32,
+              "description": "卡片标题文案。"
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 120,
+              "description": "可选：卡片副标题说明。"
+            },
+            "greeting": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "可选：首次创建该会话时写入的 assistant 欢迎语（按 MOD 人设拟定，不算作用户消息）。"
+            },
+            "is_deleteable": {
+              "type": "boolean",
+              "default": true,
+              "description": "该卡片的会话是否允许删除，默认 true；false 时服务端拒绝 DELETE，前端不渲染删除入口。"
+            },
+            "system": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "可选：该会话调用模型时使用的 system 触发词（如 JRVS 的 Kirara 人格），写入会话文件并由两端随请求发送。"
+            }
+          }
+        },
         "pet": {
           "type": "object",
           "additionalProperties": false,

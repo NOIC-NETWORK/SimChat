@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SimChat | Everything, Harnessed.</title>
 <link rel="icon" type="image/png" href="{{ url_for('static', filename='sprites/logos/simChat-1.png') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261119a">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}?v=20261124a">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}?v=20261103a">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}?v=20261117c">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -26,6 +26,8 @@
         </svg>
       </button>
     </div>
+
+    <nav class="mod-cards" id="mod-cards" aria-label="MOD 专属对话"></nav>
 
     <nav class="session-list" id="session-list" aria-label="会话历史"></nav>
 
@@ -1382,7 +1384,7 @@
 </div>
 <div class="inv-tooltip" id="inv-tooltip" role="tooltip" hidden></div>
 
-<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261119a"></script>
+<script src="{{ url_for('static', filename='js/chat.js') }}?v=20261124a"></script>
 <script src="{{ url_for('static', filename='js/inventory.js') }}?v=20261119d"></script>
 <script src="{{ url_for('static', filename='js/nav-shortcuts.js') }}?v=20261116a"></script>
 </body>
