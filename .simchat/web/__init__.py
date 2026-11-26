@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 
 # 版本号单一来源在 loader 侧（叶子模块 version.py，无反向依赖）
 from simchat.loader.version import HOST_VERSION
+from simchat.runtime import eject as eject_mod
 
 from flask import (
     Flask,
@@ -293,6 +294,21 @@ def create_app(core=None):
         configure_orbiter(core)
 
     app.extensions["simchat_mod_loader"] = _ensure_mod_loader(app)
+    # 紧急制动：标志文件 + POSIX 信号两条与聊天无关的触发通道
+    eject_mod.arm(os.path.join(_PROJECT_ROOT, "data"))
+
+    def _eject_cleanup():
+        """FORCE EJECT 时收掉自动化、群机器人与 MOD 加载器，不留后台线程。"""
+        _shutdown_automation()
+        manager = app.extensions.get("simchat_bots")
+        for channel_id in list(getattr(manager, "_bots", {}) or {}):
+            try:
+                manager.stop(channel_id)
+            except Exception:
+                pass
+        _shutdown_mod_loader()
+
+    eject_mod.register_cleanup(_eject_cleanup)
 
     allowed_hosts = _local_hosts()
 
@@ -301,6 +317,14 @@ def create_app(core=None):
         host = (request.host or "").rsplit(":", 1)[0].strip("[]").lower()
         if host and host not in allowed_hosts:
             return jsonify({"ok": False, "error": "host not allowed"}), 421
+        # FORCE EJECT 之后拒绝一切新的对话 / Agent 请求，聊天内容无法把它"聊开"
+        if eject_mod.occupied() and (
+            request.path == "/api/chat" or request.path.startswith("/api/agent")
+        ):
+            return jsonify({
+                "ok": False, "code": "ejected",
+                "error": "FORCE EJECT 已触发，所有循环已停止；重启进程后才能恢复。",
+            }), 503
         if not request.path.startswith("/api/") or request.path == "/api/health":
             return None
         origin = request.headers.get("Origin")
@@ -633,7 +657,29 @@ def create_app(core=None):
     @app.get("/api/health")
     def health():
         """守护进程用它判断 Web 是否存活；不读写任何用户数据。"""
-        return jsonify({"ok": True, "app": "simchat", "pid": os.getpid()})
+        return jsonify({"ok": True, "app": "simchat", "pid": os.getpid(),
+                        "ejected": eject_mod.occupied()})
+
+    @app.post("/api/control/force-eject")
+    def force_eject():
+        """紧急制动：立刻终止全部循环，不需要经过聊天通道。"""
+        payload = request.get_json(silent=True) or {}
+        reason = str(payload.get("reason") or "").strip() or "本地手动触发"
+        first = eject_mod.engage(reason, source="api")
+        return jsonify({
+            "ok": True, "engaged": True, "first": first,
+            "report": eject_mod.latest_report_path(),
+        })
+
+    @app.get("/api/control/eject-report")
+    def eject_report():
+        """终止后的现场：哪些运行被中止、哪些步骤半途、怎么回滚。"""
+        return jsonify({
+            "ok": True,
+            "engaged": eject_mod.occupied(),
+            "reason": eject_mod.reason(),
+            "report": eject_mod.latest_report(),
+        })
 
     @app.get("/api/lifecycle")
     def lifecycle_status():

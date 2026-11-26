@@ -154,6 +154,15 @@ class AutomationEngine(object):
             target=self._scheduler_loop, name="simchat-automation", daemon=True
         )
         self._scheduler_thread.start()
+        # FORCE EJECT 报告里登记调度器状态
+        try:
+            from simchat.runtime import eject as eject_mod
+            eject_mod.register_snapshot(
+                "automation",
+                lambda: {"flows": len(self._flows), "scheduler_running": self._running},
+            )
+        except Exception:
+            pass
         self._logger.info("AutomationEngine 已启动（%d 个 flow）", len(self._flows))
 
     def stop(self):
@@ -170,9 +179,14 @@ class AutomationEngine(object):
         Phase 5.3 起走 executor.execute_flow()。
         """
         import datetime as dt
+        from simchat.runtime import eject as eject_mod
         last_minute = None
 
         while not self._stop_event.is_set():
+            # FORCE EJECT：调度循环在同一 tick 内退出，不再触发任何新 flow
+            if eject_mod.occupied():
+                self._logger.info("[FORCE EJECT] 自动化调度器已停止")
+                break
             try:
                 now = dt.datetime.now()
 
@@ -208,6 +222,10 @@ class AutomationEngine(object):
         """
         from .executor import execute_flow
         import time as _time
+
+        from simchat.runtime import eject as eject_mod
+        if eject_mod.occupied():
+            return {"ok": False, "error": "FORCE EJECT 已触发，flow 未执行"}
 
         info = self._flows.get(mod_id)
         if info is None:

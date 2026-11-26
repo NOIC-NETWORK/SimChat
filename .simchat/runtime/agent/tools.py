@@ -17,6 +17,7 @@ import glob as globlib
 import subprocess
 
 from ..safety import analyze_crisis, reality_check
+from .. import eject
 
 # 项目根目录（tools.py 位于 simchat/runtime/agent/，上两级即 simchat 根）
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
@@ -796,9 +797,11 @@ class ShellTool(BaseTool):
         timed_out = False
         aborted = False
         raw = b''
+        eject.track_process(proc)
         while True:
-            # abort 即时生效：不等超时，立刻杀进程树
-            if abort_event is not None and abort_event.is_set():
+            # abort / FORCE EJECT 即时生效：不等超时，立刻杀进程树
+            if ((abort_event is not None and abort_event.is_set())
+                    or eject.occupied()):
                 _kill_process_tree(proc)
                 try:
                     raw, _ = proc.communicate(timeout=2)
@@ -820,6 +823,7 @@ class ShellTool(BaseTool):
                     break
 
         elapsed = time.monotonic() - started
+        eject.untrack_process(proc)
         if aborted:
             raise ToolError(f'任务已中止，命令进程已终止（已运行 {elapsed:.1f}s）: {command}')
         output = _decode_bytes(raw or b'')
@@ -1236,6 +1240,8 @@ class OrbiterTool(BaseTool):
         return configured or ORBITER_DEFAULT_TARGET_MODEL
 
     def run(self, params, ctx):
+        if eject.occupied():
+            raise ToolError('FORCE EJECT 已触发，Orbiter 调用被取消')
         request = str(params.get('request') or '').strip()
         if not request:
             raise ToolError('orbiter 需要 request（用户原话），不能为空')
@@ -1275,6 +1281,9 @@ class OrbiterTool(BaseTool):
         decision = str(decision or '').strip()
         if not decision:
             raise ToolError('本地 JRVS 返回为空，已终止；原始请求没有发送到云端。')
+        # 分诊结束后再查一次：阀门按下后不再派发任何云端/技能调用
+        if eject.occupied():
+            raise ToolError('FORCE EJECT 已触发，Orbiter 派发被取消')
 
         delegation = self._find_delegation(decision)
         if delegation is not None:

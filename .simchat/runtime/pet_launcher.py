@@ -177,6 +177,13 @@ def _spawn(script, package_dir):
         **kwargs
     )
     _bind_to_job(proc)
+    # FORCE EJECT：桌宠同样是常驻循环，紧急制动时一并终止
+    try:
+        from . import eject
+
+        eject.track_process(proc)
+    except Exception:
+        pass
     return proc
 
 

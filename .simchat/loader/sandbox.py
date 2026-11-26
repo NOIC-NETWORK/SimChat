@@ -93,6 +93,13 @@ def run_isolated(package_dir, entry_spec, manifest, timeout=_DEFAULT_TIMEOUT,
             creationflags=creationflags,
         )
         handle["proc"] = proc
+        # FORCE EJECT：MOD 沙箱子进程登记到紧急制动器
+        try:
+            from simchat.runtime import eject as eject_mod
+
+            eject_mod.track_process(proc)
+        except Exception:
+            pass
     except Exception as e:
         handle["message"] = "沙箱启动失败: %s" % e
         return handle

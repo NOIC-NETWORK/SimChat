@@ -1,5 +1,15 @@
 # 最近更新
 
+**2026-11-25** — FORCE EJECT 紧急制动阀门
+
+- **新增 `runtime/eject.py`**：进程级紧急制动。触发后所有 Agent 运行立刻置 abort，ReAct 循环、聊天流、Orbiter 派发、自动化调度在下一个检查点退出；已登记的子进程（shell 进程树、MOD 沙箱、桌宠）立即终止；写类工具进日志，供事后判断哪些已执行、哪些半途。
+- **与聊天通道解耦**：三种触发方式——`data/FORCE_EJECT` 标志文件（内容作为原因，触发后改名为 `.fired`）、`POST /api/control/force-eject`、POSIX `SIGUSR1`。没有解除接口，聊天内容与注入指令都关不掉它；触发后对话与 Agent 接口返回 503，进程重启才能恢复。
+- **终止后现场**：写 `data/eject/<时间戳>.json` 与 `latest.json`，含进行中的运行、挂起待审批的步骤与计划进度、写类工具日志、被终止的子进程、受影响路径及回滚建议；`GET /api/control/eject-report` 可直接读取。
+- **守护进程**：制动时落 `mark_intentional_stop` 标记，避免守护进程随后又把 Web 拉起来。
+- 验证：临时目录模拟标志文件触发、Ejected 抛出、报告内容、ReAct 入口不调模型直接中止、Web 503/health/eject-report 共 10 项断言 PASS；既有鉴权链路 6 项回归 PASS；`py_compile` 通过。
+- 文件：`runtime/eject.py`（新增）、`runtime/agent/runs.py`、`runtime/agent/loop.py`、`runtime/agent/tools.py`、`runtime/core.py`、`runtime/pet_launcher.py`、`automation/__init__.py`、`loader/sandbox.py`、`web/__init__.py`
+- **注**：Orbiter 在本仓库只有契约工具 `OrbiterTool`（`runtime/agent/tools.py`），独立调度器仍是 `docs/orbiter-scheduler-design.md` 的草案；本阀门因此挂在它实际使用的 AgentLoop / chat_stream / 自动化三条循环上。
+
 **2026-11-25** — 本地凭据加密与 Web 访问闸门（关闭两条已知限制）
 
 - **API Key 加密存储**：新增 `runtime/secrets.py`，用 Fernet 加密 `config.json` 里的 `openai_compat.api_key` / `anthropic.api_key`，密文前缀 `enc:v1:`；主密钥放 `data/.secret.key`，Windows 用 DPAPI 包裹、其他平台 0600。旧明文配置在 `SimChatCore` 初始化时自动迁移（先自检可解密再原子覆盖，幂等）。

@@ -17,6 +17,7 @@ from . import (
     workspace as workspace_mod,
     usage as usage_mod,
     secrets as secrets_mod,
+    eject as eject_mod,
 )
 from .providers import ProviderError, create_provider
 from .store import SessionStore
@@ -281,19 +282,32 @@ class SimChatCore:
         messages.append({"role": "user", "content": prompt})
 
         prov = self._provider(chosen)
-        pieces = [
-            piece
-            for piece in prov.stream_chat(
-                messages,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                top_p=top_p,
-                repetition_penalty=repetition_penalty,
-            )
-        ]
+        pieces = []
+        upstream = prov.stream_chat(
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            repetition_penalty=repetition_penalty,
+        )
+        try:
+            for piece in upstream:
+                # FORCE EJECT：模型流也要立刻断，不等整段生成结束
+                if eject_mod.occupied():
+                    break
+                pieces.append(piece)
+        finally:
+            close = getattr(upstream, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
         text = "".join(pieces).strip()
         if not text:
+            if eject_mod.occupied():
+                return ""
             raise ProviderError("模型返回为空")
         return text
 
@@ -364,7 +378,7 @@ class SimChatCore:
                 self.store.trim_last_assistant(sid)
             yield {"event": "chat_started", "schema": 1, "session_id": sid}
 
-            if abort_event.is_set():
+            if abort_event.is_set() or eject_mod.occupied():
                 yield {"event": "aborted", "session_id": sid, "content": ""}
                 return
 
@@ -385,7 +399,7 @@ class SimChatCore:
                                             top_p=top_p, repetition_penalty=repetition_penalty)
                 try:
                     for piece in upstream:
-                        if abort_event.is_set():
+                        if abort_event.is_set() or eject_mod.occupied():
                             break
                         pieces.append(piece)
                         yield {"event": "token", "content": piece}
@@ -403,7 +417,7 @@ class SimChatCore:
                 yield {"event": "error", "message": f"本体对话异常: {e}"}
                 return
 
-            if abort_event.is_set():
+            if abort_event.is_set() or eject_mod.occupied():
                 partial = "".join(pieces).strip()
                 if partial:
                     self.store.append(sid, "user", message)

@@ -19,6 +19,7 @@ import json
 import re
 import threading
 
+from .. import eject
 from .tools import (
     TOOL_REGISTRY, build_tool_protocol_section, truncate_output, ToolError,
     resolve_workdir, DEFAULT_SHELL_TIMEOUT, validate_tool_params,
@@ -375,6 +376,9 @@ class AgentLoop:
             run_id=None, system_prompt=None, emit=None):
         """全新任务入口。返回挂起态（dict）或 None（已终结）。"""
         emit = emit or (lambda evt: None)
+        if eject.occupied():
+            emit({'event': 'aborted', 'message': '任务已中止。', 'session_id': session_id})
+            return None
 
         # 尽早初始化 run_ctx，确保 reject 等早退路径也能拿到 session_id
         self.run_ctx = {
@@ -444,6 +448,10 @@ class AgentLoop:
     def resume(self, state, decision, edits, system_prompt, emit=None):
         """审批恢复入口。返回新的挂起态（dict）或 None（已终结）。"""
         emit = emit or (lambda evt: None)
+        if eject.occupied():
+            emit({'event': 'aborted', 'message': '任务已中止。',
+                  'session_id': state.get('session_id')})
+            return None
         self.run_ctx = {
             'run_id': state.get('run_id'),
             'message': state.get('message'),
@@ -504,9 +512,15 @@ class AgentLoop:
         sid = (self.run_ctx or {}).get('session_id')
 
         for turn in range(start_turn, self.max_turns + 1):
-            if self.abort_event.is_set():
+            if self.abort_event.is_set() or eject.occupied():
                 emit({'event': 'aborted', 'message': '任务已中止。', 'session_id': sid})
                 return None
+            # 记录实时进度：紧急制动后据此说明"做到哪一步、哪些已完成"
+            eject.note_progress((self.run_ctx or {}).get('run_id'), {
+                'turn': turn,
+                'plan_steps': self._plan_steps or [],
+                'plan_done': self._plan_done,
+            })
 
             # PR-2：组装 prompt 前先做 token 估算；超阈值则压缩 transcript
             transcript_text = '\n'.join(transcript) if turn > 1 else ''
@@ -553,7 +567,7 @@ class AgentLoop:
                   'budget': TOKEN_BUDGET,
                   'threshold': COMPACTION_THRESHOLD})
 
-            if self.abort_event.is_set():
+            if self.abort_event.is_set() or eject.occupied():
                 emit({'event': 'aborted', 'message': '任务已中止。', 'session_id': sid})
                 return None
 
@@ -591,7 +605,7 @@ class AgentLoop:
     def _process_turn_calls(self, calls, turn, transcript, emit):
         """顺序处理一轮内的若干调用；遇 write/dangerous 挂起并返回挂起态，否则返回 None。"""
         for i, call in enumerate(calls):
-            if self.abort_event.is_set():
+            if self.abort_event.is_set() or eject.occupied():
                 emit({'event': 'aborted', 'message': '任务已中止。'})
                 return None
             idx = i + 1
@@ -742,9 +756,17 @@ class AgentLoop:
 
     def _exec_tool(self, tool, tool_name, params, call_id, emit, turn):
         """执行单个只读/已批准工具，发 tool_result，返回 (ok, output_text, error_text)。"""
+        if eject.occupied():
+            emit({'event': 'aborted', 'message': '任务已中止。'})
+            return False, '', 'FORCE EJECT'
         ok = True
         output_text = ''
         error_text = ''
+        # 写类工具进紧急制动日志：终止后据此判断哪些文件已被改动、哪些只做了一半
+        entry = None
+        if getattr(tool, 'risk', 'read') in ('write', 'dangerous'):
+            entry = eject.journal_start((self.run_ctx or {}).get('run_id'), tool_name,
+                                        params, getattr(tool, 'risk', 'write'))
         try:
             res = tool.run(params, {
                 'workdir': self.workdir,
@@ -769,4 +791,6 @@ class AgentLoop:
         if ok:
             self._plan_done += 1
             emit({'event': 'plan_progress', 'done_count': self._plan_done, 'last_tool': tool_name})
+        if entry is not None:
+            eject.journal_finish(entry, ok, error_text)
         return ok, output_text, error_text

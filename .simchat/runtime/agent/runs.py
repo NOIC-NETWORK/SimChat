@@ -71,6 +71,24 @@ class AgentRunRegistry:
         with self._lock:
             self._runs.pop(run_id, None)
 
+    def abort_all(self):
+        """FORCE EJECT：把所有进行中的运行一起置 abort，返回受影响数量。"""
+        with self._lock:
+            items = list(self._runs.values())
+        for run in items:
+            run['abort'].set()
+            run['status'] = 'aborted'
+        return len(items)
+
+    def snapshot(self):
+        """导出当前登记表（不含 abort 事件对象），供紧急制动报告使用。"""
+        with self._lock:
+            return [
+                {'run_id': run_id, 'created': run.get('created'),
+                 'status': run.get('status')}
+                for run_id, run in self._runs.items()
+            ]
+
 
 # 挂起态落盘 / 加载 / 清理 -------------------------------------------------
 
